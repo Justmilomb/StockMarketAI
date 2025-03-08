@@ -2,13 +2,22 @@ import pandas as pd
 import yfinance as yf
 import time 
 import os 
+import matplotlib.pyplot as plt
+from sklearn.preprocessing import StandardScaler as ss
+from sklearn.model_selection import train_test_split as tts
+from sklearn.linear_model import LinearRegression as lr
+
 szTicker = ""
+szCompany = ""
+szCompany = ""
 szCompany = ""
 szData = ""
 szDataCleaned = ""
 szDateStart = ""
 szDateEnd = ""
 szInterval = ""
+szX = ""
+szY = ""
 iMissingData = 0
 
 
@@ -28,11 +37,11 @@ def MainMenu():
 	if len(szTicker) == 0:
 		print("Can not be empty. Please try again.")
 	
-	szDateStart = str(input("Enter the date you want the data to start from, in the format 'YYYY-DD-MM':  "))
+	szDateStart = str(input("Enter the date you want the data to start from, in the format 'YYYY-MM-DD':  ")).lower()
 	if len(szDateStart) == 0:
 		print("Can not be empty. Please try again.")
 	
-	szDateEnd = str(input("Enter the date you want the data to end, in the format 'YYYY-DD-MM':  "))
+	szDateEnd = str(input("Enter the date you want the data to end, in the format 'YYYY-MM-DD':  ")).lower()
 	if len(szDateEnd) == 0:
 		print("Can not be empty. Please try again.")
 
@@ -61,10 +70,56 @@ def LoadData():
 	print(iMissingData)
 	szDataCleaned = szData.dropna()
 	szDataCleaned["Price Change"] = szDataCleaned["Close"].diff() 
-	szDataCleaned["Price Direction"] = (szDataCleaned['Price Change'] > 0).astype(int)
+	szDataCleaned["Price Direction"] = (szDataCleaned["Price Change"] > 0).astype(int)
+	szDataCleaned["7-Day MA"] = szDataCleaned["Close"].rolling(window=7).mean()
+	szDataCleaned["30-Day MA"] = szDataCleaned["Close"].rolling(window=30).mean()
 	print("Here is the full sheet of data...")
-	time.sleep(1)
+	time.sleep(3)
 	print(szDataCleaned)
+	print("Scaling the data down for better use...")
+	time.sleep(3)
+	ScaleDown()
+	print("The graph is loading now...")
+	time.sleep(3)
+	print("Starting Training...")
+	time.sleep(3)
+	Training()
+	
+
+def LoadGraph():
+	global szDataCleaned
+	plt.figure(figsize=(10,6))
+	plt.plot(szDataCleaned.index, szDataCleaned["Close"], label = "Closing Price", color = "blue")
+	plt.plot(szDataCleaned.index, szDataCleaned["7-Day MA"], label = "7-Day MA", color = "green")
+	plt.plot(szDataCleaned.index, szDataCleaned["30-Day MA"], label = "30-Day MA", color = "red")
+	plt.xlabel("Date")
+	plt.ylabel("Price in USD")
+	plt.title("Stock prices and moving averages")
+	plt.legend()
+	plt.show()
+	print("Starting Training...")
+	time.sleep(3)
+	Training()
+	
+
+def ScaleDown():
+	global szDataCleaned
+	Columns = ["Close", "7-Day MA", "30-Day MA"]
+	Scaler = ss()
+	szDataCleaned[Columns] = Scaler.fit_transform(szDataCleaned[Columns])
+	print(szDataCleaned)
+
+def Training():
+	ClearTerminal()
+	global szX, szY, szDataCleaned
+	szX = szDataCleaned[["Close", "7-Day MA", "30-Day MA"]]
+	szY = szDataCleaned["Price Direction"]
+	szX_train, szX_test, szY_train, szY_test = tts(szX, szY, test_size=0.2, random_state=42)
+	model = lr()
+	model.fit(szX_train, szY_train)
+	accuracy = model.score(szX_test, szY_test)
+	print(f"Model R-squared score: {accuracy}")
+
 
 
 MainMenu()
