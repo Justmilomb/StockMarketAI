@@ -27,7 +27,6 @@ szColumns = ""
 szScaledown = ""
 szTraining = ""
 szNewGraph = ""
-szNewGraphScale = ""
 
 
 def ClearTerminal():
@@ -47,27 +46,24 @@ def MainMenu():
 		szTicker = input("Enter the 'ticker' code for the company you want to track:  ").strip().upper()							# Enter the 'Ticker' code PS. Code does not yet understand if Ticker code is genuine or not
 		if len(szTicker) == 0:																										# Program will crash eventually and not work how wanted
 			print("Can not be empty. Please try again.")
-		else:
-			while len(szDateStart) == 0:
-				szDateStart = str(input("Enter the date you want the data to start from, in the format 'YYYY-MM-DD':  ")).strip()			# Enter the 'Starting Date' code PS. Code does not yet understand if starting date is genuine or not
-				if len(szDateStart) == 0:																									# Program will crash eventually and not work how wanted
-					print("Can not be empty. Please try again.")
-		else:
-			while len(szDateEnd) == 0:
+		
+	while len(szDateStart) == 0:
+		szDateStart = str(input("Enter the date you want the data to start from, in the format 'YYYY-MM-DD':  ")).strip()			# Enter the 'Starting Date' code PS. Code does not yet understand if starting date is genuine or not
+		if len(szDateStart) == 0:																									# Program will crash eventually and not work how wanted
+				print("Can not be empty. Please try again.")
+		
+	while len(szDateEnd) == 0:
 		szDateEnd = str(input("Enter the date you want the data to end, in the format 'YYYY-MM-DD':  ")).strip()					# Enter the 'Ending Date' code PS. Code does not yet understand if ending date is correct or not
 		if len(szDateEnd) == 0:																										# Program will crash eventually and not work how wanted
 			print("Can not be empty. Please try again.")
-		else:
+		
 	
-	
-			
-	
-
 	while len(szInterval) == 0:
 		szInterval = str(input("Enter the interval you would like.\nPossible intervals are '1m', '2m', '5m', '15m', '30m', '60m', '90m', '1d', '5d', '1wk', '1mo', '3m'\nPS.Interday options are only availabe for past seven days:  ")).strip().lower()				# Enter the 'Interval' code PS. Code does not yet understand if Interval is correct or not
 		if szInterval == 0:																																																												# Program will crash eventually and not work how wanted																																			
 			print("Can not be empty. Please try again.")
-		else:
+			print("Loading data...")
+	LoadData()	
 			
 	
 	
@@ -75,7 +71,7 @@ def MainMenu():
 	
 	
 def LoadData():
-	global szTicker, szDateStart, szDateEnd, szDataCleaned, szInterval, szSaveAi, szAiName, best_model, szScaledown, szTraining, szNewGraph, szNewGraphScale
+	global szTicker, szDateStart, szDateEnd, szDataCleaned, szInterval, szSaveAi, szAiName, best_model, szScaledown, szTraining, szNewGraph
 	ClearTerminal()
 	szCompany = yf.Ticker(szTicker) # The 'ticker' picked earlier is assigned to 'szCompany'
 	szData = szCompany.history(interval=str(szInterval), start=str(szDateStart), end=str(szDateEnd)) # Applies inputed data from user inputs into 'szData' to get yahoo finance stock information 
@@ -98,7 +94,7 @@ def LoadData():
 	print(szDataCleaned)
 	
 	while len(szNewGraph) == 0:
-		szNewGraph = input("Would you like a graph to visualize the data for anomilies? 'y' or 'n':  ")
+		szNewGraph = input("Would you like a graph to visualize the data for anomilies? 'y' or 'n':  ").strip().lower()
 		if len(szNewGraph) == 0:
 			print("Input can not be empty")
 			time.sleep(0.5)
@@ -114,7 +110,7 @@ def LoadData():
 			szNewGraph = ""
 			print("Incorrect input try again...")
 			time.sleep(1.5)
-		break
+		
 
 	
 	while len(szScaledown) == 0:
@@ -134,25 +130,8 @@ def LoadData():
 			szScaledown = ""
 			print("Incorrect input try again...")
 			time.sleep(1.5)
-		break
-	while len(szNewGraphScale) == 0:
-		szNewGraphScale = input("Do you now want to see the graph for the scaled data? 'y' or 'n':  ").strip().lower()
-		if len(szNewGraphScale) == 0:
-			print("Input can not be empty")
-			time.sleep(0.5)
-			print("Try again")
-			time.sleep(1.5)
-		elif szNewGraphScale == "y":
-			print("Producing a graph...")
-			time.sleep(3) # Replace with progress bar
-			NewGraph()
-		elif szNewGraphScale == "n":
-			print("Skipping making the graph")
-		else:
-			szNewGraphScale = ""
-			print("Incorrect input try again...")
-			time.sleep(1.5)
-		break
+		
+		
 	while len(szTraining) == 0:
 		szTraining = input("Do you want to start training the ai on the data? 'y' or 'n':  ").strip().lower()
 		if len(szTraining) == 0:
@@ -170,7 +149,7 @@ def LoadData():
 			szTraining = ""
 			print("Incorrect input try again...")
 			time.sleep(1.5)
-		break
+		
 	while len(szSaveAi) == 0:
 		szSaveAi = input("Would you like to save this trained ai? 'y' or 'n':  ").strip().lower()
 		if len(szSaveAi) == 0:
@@ -191,14 +170,14 @@ def LoadData():
 						time.sleep(3) # Replace with progress bar
 						jl.dump(best_model, f"{szAiName}.pkl") # Saves model under specific user set name 
 						print("Model now saved")
-					break
+					
 		elif szSaveAi == "n":
 			print("Skipping saving the ai")
 		else:
 			szSaveAi = ""
 			print("Incorrect input try again...")
 			time.sleep(1.5)
-		break		
+			
 	
 	
 	
@@ -212,6 +191,7 @@ def NewGraph():
 	plt.xlabel("Date")
 	plt.ylabel("Price in USD")
 	plt.title("Stock prices and moving averages")
+	print("Please close and save (if wanted) the graph to continue the program")
 	plt.legend()
 	plt.show()
 	
@@ -220,7 +200,7 @@ def ScaleDown():
 	global szDataCleaned, szColumns
 	szColumns = ["Open", "Close", "High", "Low", "Volume", "Price Change"]
 	Scaler = ss()
-	szDataCleaned[Columns] = Scaler.fit_transform(szDataCleaned[Columns])
+	szDataCleaned[szColumns] = Scaler.fit_transform(szDataCleaned[szColumns])
 	print(szDataCleaned)
 
 def Training():
