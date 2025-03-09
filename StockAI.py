@@ -4,8 +4,10 @@ import time
 import os 
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import StandardScaler as ss
+from sklearn.ensemble import RandomForestRegressor as rfr
+from sklearn.model_selection import GridSearchCV as gs
 from sklearn.model_selection import train_test_split as tts
-from sklearn.linear_model import LinearRegression as lr
+from tqdm import tqdm
 
 szTicker = ""
 szCompany = ""
@@ -73,14 +75,13 @@ def LoadData():
 	szDataCleaned["Price Direction"] = (szDataCleaned["Price Change"] > 0).astype(int)
 	szDataCleaned["7-Day MA"] = szDataCleaned["Close"].rolling(window=7).mean()
 	szDataCleaned["30-Day MA"] = szDataCleaned["Close"].rolling(window=30).mean()
+	szDataCleaned = szDataCleaned.dropna()
 	print("Here is the full sheet of data...")
 	time.sleep(3)
 	print(szDataCleaned)
 	print("Scaling the data down for better use...")
 	time.sleep(3)
 	ScaleDown()
-	print("The graph is loading now...")
-	time.sleep(3)
 	print("Starting Training...")
 	time.sleep(3)
 	Training()
@@ -115,10 +116,19 @@ def Training():
 	szX = szDataCleaned[["Close", "7-Day MA", "30-Day MA"]]
 	szY = szDataCleaned["Price Direction"]
 	szX_train, szX_test, szY_train, szY_test = tts(szX, szY, test_size=0.2, random_state=42)
-	model = lr()
-	model.fit(szX_train, szY_train)
-	accuracy = model.score(szX_test, szY_test)
-	print(f"Model R-squared score: {accuracy}")
+	model = rfr(random_state=42)
+	param_grid ={'n_estimators': [100, 200, 300, 400, 500, 600, 700, 800], 
+				'max_depth': [20, 30, 40, 50, 60, 70],  
+				'min_samples_split': [2, 5, 10, 15, 20, 30, 40],
+				'min_samples_leaf': [1, 2, 4]}			
+
+	grid_search = gs(model, param_grid, cv=5, scoring='r2', verbose=1)
+	grid_search.fit(szX_train, szY_train)
+	best_model = grid_search.best_estimator_
+	print("Best model parameters:", grid_search.best_params_)
+	print("Training r:", best_model.score(szX_train, szY_train))
+	print("Testing r:", best_model.score(szX_test, szY_test))
+
 
 
 
