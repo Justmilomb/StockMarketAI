@@ -84,7 +84,7 @@ def LoadData():
 	time.sleep(2) # Temporary replacment for progress bar
 	szDataCleaned = szData.dropna() # Makes sure 'no number' data is taken from 'szData' and effectively cleans it
 	szDataCleaned["Price Change"] = szDataCleaned["Close"].diff() # Calculates price change and makes new column on 'szDataCleaned'
-	szDataCleaned["Price Direction"] = (szDataCleaned["Price Change"] > 0).astype(int) # Calculates if price is going down or up (0 or 1) and creates new column on 'szDataCleaned'
+	szDataCleaned["Price Direction"] = (szDataCleaned["Close"] > szDataCleaned["Open"]).astype(int) # Calculates if price is going down or up (0 or 1) and creates new column on 'szDataCleaned'
 	szDataCleaned["7-Day MA"] = szDataCleaned["Close"].rolling(window=7).mean() # Calculates 7-Day Average of prices and creates new column on 'szDataCleaned'
 	szDataCleaned["30-Day MA"] = szDataCleaned["Close"].rolling(window=30).mean() # Calculates 30-Day Average of prices and creates new column on 'szDataCleaned'
 	szDataCleaned = szDataCleaned.dropna() # Because of the averages some data to start will have 'no number' data and we have to clear the rows
