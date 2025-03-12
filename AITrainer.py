@@ -1,5 +1,4 @@
-import pandas as pd #
-import yfinance as yf # The api for the stock market data from 'Yahoo Finance'
+import pandas as pd 
 import time # Used for genral usability
 import os # Used for genral usability
 import matplotlib.pyplot as plt # Used to make a graph with the stock data
@@ -8,7 +7,7 @@ from sklearn.ensemble import RandomForestClassifier as rfc # This is the ai trai
 from sklearn.model_selection import RandomizedSearchCV as rs # Finds the right paramaters for 'rfc'
 from sklearn.model_selection import train_test_split as tts # Splits the selected data into 'train' and 'test' data
 import joblib as jl # Used to save the ai to a file on the local computer
-
+szApiKey = ""
 szTicker = "" 
 szCompany = ""
 szCompany = ""
@@ -37,10 +36,14 @@ def ClearTerminal():
 
 	
 def MainMenu():
-	global szTicker, szDateStart, szDateEnd, szDataCleaned, szInterval
+	global szTicker, szDateStart, szDateEnd, szDataCleaned, szInterval, szApiKey
 	ClearTerminal()
 	print("Lets train a stock market ai:  ")
 	time.sleep(0.5)
+	while len(szApiKey) == 0:
+		szApiKey = input("What is your api key:  ").strip().upper()
+		if len(szApiKey) == 0:
+			print("Can not be empty. Please try again.")
 	
 	while len(szTicker) == 0:																											
 		szTicker = input("Enter the 'ticker' code for the company you want to track:  ").strip().upper()							# Enter the 'Ticker' code PS. Code does not yet understand if Ticker code is genuine or not
@@ -62,8 +65,10 @@ def MainMenu():
 		szInterval = str(input("Enter the interval you would like.\nPossible intervals are '1m', '2m', '5m', '15m', '30m', '60m', '90m', '1d', '5d', '1wk', '1mo', '3m'\nPS.Interday options are only availabe for past seven days:  ")).strip().lower()				# Enter the 'Interval' code PS. Code does not yet understand if Interval is correct or not
 		if szInterval == 0:																																																												# Program will crash eventually and not work how wanted																																			
 			print("Can not be empty. Please try again.")
+		else:
 			print("Loading data...")
-	LoadData()	
+			time.sleep(3)
+			LoadData()	
 			
 	
 	
@@ -71,7 +76,7 @@ def MainMenu():
 	
 	
 def LoadData():
-	global szTicker, szDateStart, szDateEnd, szDataCleaned, szInterval, szSaveAi, szAiName, best_model, szScaledown, szTraining, szNewGraph
+	global szTicker, szDateStart, szDateEnd, szDataCleaned, szInterval, szSaveAi, szAiName, best_model, szScaledown, szTraining, szNewGraph, szApiKey
 	ClearTerminal()
 	szCompany = yf.Ticker(szTicker) # The 'ticker' picked earlier is assigned to 'szCompany'
 	szData = szCompany.history(interval=str(szInterval), start=str(szDateStart), end=str(szDateEnd)) # Applies inputed data from user inputs into 'szData' to get yahoo finance stock information 
