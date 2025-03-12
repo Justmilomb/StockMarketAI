@@ -6,13 +6,13 @@ TICKER = "AAPL"
 INTERVAL = "1min"
 OUTPUT_SIZE = "full"  # "compact" for last 100 data points, "full" for full history
 
-URL = f"https://www.alphavantage.co/query?function=TIME_SERIES_INTRADAY&symbol={TICKER}&interval={INTERVAL}&outputsize={OUTPUT_SIZE}&apikey={API_KEY}"
+URL = f"https://www.alphavantage.co/query?function=TIME_SERIES_INTRADAY&symbol={TICKER}&interval={INTERVAL}&outputsize={OUTPUT_SIZE}&apikey={API_KEY}&month=2000-01"
 
 response = requests.get(URL)
 data = response.json()
 
 # Convert to DataFrame
-df = pd.DataFrame(data["Time Series (1min)"]).T
+df = pd.DataFrame(data["Time Series (1min)"])
 df.columns = ["open", "high", "low", "close", "volume"]
 df.index = pd.to_datetime(df.index)
 
