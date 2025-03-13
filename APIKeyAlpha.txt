@@ -1,3 +1,0 @@
-Welcome to Alpha Vantage! Your dedicated access key is: ZH9X5NIRXZGZPJ3O. Please record this API key at a safe place for future data access.
-
-https://www.alphavantage.co/query?function=TIME_SERIES_INTRADAY&symbol=AAPL&interval=1min&apikey=ZH9X5NIRXZGZPJ3O&datatype=csv
