@@ -52,7 +52,7 @@ def LoadData():
 	os.makedirs(OutPutFolder, exist_ok=True)
 	
 	for year in range(2000, 2025 + 1):
-		for month in range(1, 13 + 1):
+		for month in range(1, 13):
 			szDataStart = f"{year}-{month:02d}"
 			time.sleep(120)
 
