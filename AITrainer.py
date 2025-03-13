@@ -54,7 +54,7 @@ def LoadData():
 	for year in range(2000, 2025 + 1):
 		for month in range(1, 13 + 1):
 			szDataStart = f"{year}-{month:02d}"
-			time.sleep(5)
+			time.sleep(120)
 
 			szURL = f"https://www.alphavantage.co/query?function=TIME_SERIES_INTRADAY&symbol={szCOMPANY}&interval={szINTERVAL}&outputsize={szOUT_PUT_SIZE}&apikey={szAPI_KEY}&month={szDataStart}&datatype=csv"
 			Response = requests.get(szURL)
@@ -65,21 +65,19 @@ def LoadData():
 			print("Printing data for you...")
 			time.sleep(3) # Temporary replacment for progress bar
 			print(szDataNice)
-			while len(szAnswer1) == 0:
-				szAnswer1 = input("Would you like to save this data? 'y' or 'n':   ").strip().lower()
-				if szAnswer1 == "y":
-					print("Saving now...")
-					time.sleep(3) # Temporary replacment for progress bar
-					file_name = f"{OutPutFolder}/{szCOMPANY}_{szDataStart}.csv"
-					szDataNice.to_csv(file_name, index=False)
-					print("Data saved successfully!")
-				elif szAnswer1 == "n":
-					print("Skipping saving the ai...")
-					time.sleep(1)
-				else:
-					szAnswer1 = ""
-					print("Invalid input try again...")
-					time.sleep(1.5)
+			if szAnswer1 == "y":
+				print("Saving now...")
+				time.sleep(3) # Temporary replacment for progress bar
+				file_name = f"{OutPutFolder}/{szCOMPANY}_{szDataStart}.csv"
+				szDataNice.to_csv(file_name, index=False)
+				print("Data saved successfully!")
+			elif szAnswer1 == "n":
+				print("Skipping saving the ai...")
+				time.sleep(1)
+			else:
+				szAnswer1 = ""
+				print("Invalid input try again...")
+				time.sleep(1.5)
 	
 	
 
