@@ -47,14 +47,14 @@ def LoadData():
 	szINTERVAL = "1min"
 	szOUT_PUT_SIZE = "full"
 	szAPI_KEY = "AZBCZN11R13GKYWW"
-	szDATA_START = "2024-01"
+	szDATA_START = "2024-01"s
 	OutPutFolder = "StockData"
 	os.makedirs(OutPutFolder, exist_ok=True)
 	
 	for year in range(2001, 2025):
 		for month in range(12, 13):
 			szDataStart = f"{year}-{month:02d}"
-			time.sleep(120)
+			time.sleep(5)
 
 			szURL = f"https://www.alphavantage.co/query?function=TIME_SERIES_INTRADAY&symbol={szCOMPANY}&interval={szINTERVAL}&outputsize={szOUT_PUT_SIZE}&apikey={szAPI_KEY}&month={szDataStart}&datatype=csv"
 			Response = requests.get(szURL)
