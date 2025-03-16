@@ -1,10 +1,14 @@
 import yfinance as yf
 import pandas as pd
 import xgboost as xgb
+import joblib
 from sklearn.preprocessing import StandardScaler as SS
 from sklearn.model_selection import train_test_split as tts
+from sklearn.metrics import confusion_matrix, classification_report
 from sklearn.model_selection import GridSearchCV 
 from sklearn.metrics import accuracy_score
+import seaborn as sns
+import matplotlib.pyplot as plt
 
 
 szTicker = "AAPL"
@@ -40,7 +44,7 @@ X_Scaled = Scaler.fit_transform(X)
 szData.to_csv("CombinedAPPLDataDay.csv")
 print(szData)
 
-X_Train, X_Test, Y_Train, Y_Test = tts(X_Scaled, Y, test_size=0.3, shuffle=False, random_state=42)
+X_Train, X_Test, Y_Train, Y_Test = tts(X_Scaled, Y, test_size=0.3, shuffle=True, random_state=42)
 
 param_grid = {
     'max_depth': [1],
@@ -51,11 +55,23 @@ param_grid = {
 	'min_child_weight': [0.15],
 	'scale_pos_weight': [16]
 	}
-Model = GridSearchCV(xgb.XGBClassifier(), param_grid, scoring="accuracy", cv=50, verbose=2, n_jobs=-1)
+Model = GridSearchCV(xgb.XGBClassifier(), param_grid, scoring="accuracy", cv=2500, verbose=2, n_jobs=-1)
 Model.fit(X_Train, Y_Train)
 
 Y_Pred = Model.predict(X_Test)
 Accuracy = accuracy_score(Y_Test, Y_Pred)
 
+cm = confusion_matrix(Y_Test, Y_Pred)
+plt.figure(figsize=(5,4))
+sns.heatmap(cm, annot=True, fmt="d", cmap="Blues", xticklabels=["Down", "Up"], yticklabels=["Down", "Up"])
+plt.xlabel("Predicted")
+plt.ylabel("Actual")
+plt.title("Confusion Matrix")
+plt.show()
+print(classification_report(Y_Test, Y_Pred))
 print(f"Model accuracy: {Accuracy:.4f}")
 print("Best parameters: ", Model.best_params_)
+
+
+joblib.dump(Model, "stock_model.pkl")
+joblib.dump(Scaler, "Scaler.pkl")
