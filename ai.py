@@ -21,63 +21,41 @@ szData["Year"] = szData.index.year
 szData["Month"] = szData.index.month
 szData["Day"] = szData.index.day
 
-szData["Change%"] = ((szData["Close"] - szData["Open"]) / szData["Open"]) * 100
 
-szData["5MA"] = szData["Close"].rolling(window=5).mean()
-szData["30MA"] = szData["Close"].rolling(window=30).mean()
+szData["Price Movement"] = (szData["Close"].shift(-1) > szData["Close"])
 
-szData["Price Movement"] = (szData["Close"].shift(-1) > szData["Close"]).astype(int)
-szData["PastClose1"] = szData["Close"].shift(1)
-szData["PastClose2"] = szData["Close"].shift(2)
-szData["PastClose3"] = szData["Close"].shift(3)
+for i in range(0, 7):
+	szData[f"Open_{i}"] = szData["Open"].shift(i)
+	szData[f"High_{i}"] = szData["High"].shift(i)
+	szData[f"Low_{i}"] = szData["Low"].shift(i)
+	szData[f"Close_{i}"] = szData["Close"].shift(i)
+	szData[f"Volume_{i}"] = szData["Volume"].shift(i)
 
-delta = szData["Close"].diff(1)  
-gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-rs = gain / loss
-rsi = 100 - (100 / (1 + rs))
-szData["RSI14"] = rsi
-
-szData["12EMA"] = szData["Close"].ewm(span=12, adjust=False).mean()
-szData["26EMA"] = szData["Close"].ewm(span=26, adjust=False).mean()
-szData["MACD"] = szData["12EMA"] - szData["26EMA"]
-szData["SignalLine"] = szData["MACD"].ewm(span=9, adjust=False).mean()
-
+szData["Today_Open"] = szData["Open"]
 szData.dropna(inplace=True)
-scaler = SS()
-Columns = ["Open", "High", "Low", "Close", "Volume", "5MA", "30MA", "PastClose1", "PastClose2", "PastClose3", "RSI14", "12EMA", "26EMA", "MACD", "SignalLine"]
-szData[Columns] = scaler.fit_transform(szData[Columns])
-szData = szData.sort_values(by="Date")
-szData.to_csv("ProccesedAPPLDataDay.csv")
-
+X = szData[["Today_Open", "Open_1", "Open_2", "Open_3", "Open_4", "Open_5", "Open_6", "Close_1", "Close_2", "Close_3", "Close_4", "Close_5", "Close_6", "Low_1", "Low_2", "Low_3", "Low_4", "Low_5", "Low_6", "High_1", "High_2", "High_3", "High_4", "High_5", "High_6", "Volume_1", "Volume_2", "Volume_3", "Volume_4", "Volume_5", "Volume_6"]]
+Y = szData["Price Movement"]
+Scaler = SS()
+X_Scaled = Scaler.fit_transform(X)
 
 print(szData)
-szData.sort_index(inplace=True)
-X = szData[["Open", "High", "Low", "5MA", "30MA", "PastClose1", "PastClose2", "PastClose3", "Volume", "RSI14", "12EMA", "26EMA", "MACD", "SignalLine"]]
-Y = szData["Price Movement"]
 
-X_train, X_test, y_train, y_test = tts(X, Y, test_size=0.2, random_state=42, shuffle=False)
-szData.dropna(inplace=True)
+X_Train, X_Test, Y_Train, Y_Test = tts(X_Scaled, Y, test_size=0.4, shuffle=False, random_state=42)
+
 param_grid = {
-    'n_estimators': [100],
-    'max_depth': [36, 48, 60, 70, 100],
-    'learning_rate': [0.0001, 0.001, 0.01, 0.1, 5],
-    'subsample': [1.0],
-    'colsample_bytree': [0.5]
-}
+    'max_depth': [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+    'n_estimators': [30],
+    'learning_rate': [0.5, 1, 1.5, 2, 2.5, 3],
+	'subsample': [0.15, 0.3, ],
+	'gamma': [0.3, 0.5, 0.6, 0.7, 0.8, 0.9, 1],
+	'min_child_weight': [0.5, 0.75, 1],
+	'scale_pos_weight': [10, 12, 14, 16, 18, 20]
+	}
+Model = GridSearchCV(xgb.XGBClassifier(), param_grid, scoring="accuracy", cv=25, verbose=2, n_jobs=-1)
+Model.fit(X_Train, Y_Train)
 
-xgb_model = xgb.XGBClassifier(objective='binary:logistic', eval_metric='logloss')
+Y_Pred = Model.predict(X_Test)
+Accuracy = accuracy_score(Y_Test, Y_Pred)
 
-grid_search = GridSearchCV(estimator=xgb_model, param_grid=param_grid, cv=50, n_jobs=-1, verbose=2)
-grid_search.fit(X_train, y_train)
-
-tuned_model = grid_search.best_estimator_
-print("Best Hyperparameters:", grid_search.best_params_)
-
-y_pred = tuned_model.predict(X_test)
-accuracy = accuracy_score(y_test, y_pred)
-
-y_pred = tuned_model.predict(X_test)
-df_results = pd.DataFrame({'Actual': y_test, 'Predicted': y_pred})
-print(f"Model Accuracy: {accuracy:.4f}")
-print(df_results)
+print(f"Model accuracy: {Accuracy:.4f}")
+print("Best parameters: ", Model.best_params_)
