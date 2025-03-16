@@ -22,7 +22,7 @@ szData["Month"] = szData.index.month
 szData["Day"] = szData.index.day
 
 
-szData["Price Movement"] = (szData["Close"].shift(-1) > szData["Close"])
+szData["Price Movement"] = (szData["Close"].shift(-1) > szData["Close"].astype(int))
 
 for i in range(0, 7):
 	szData[f"Open_{i}"] = szData["Open"].shift(i)
@@ -37,21 +37,21 @@ X = szData[["Today_Open", "Open_1", "Open_2", "Open_3", "Open_4", "Open_5", "Ope
 Y = szData["Price Movement"]
 Scaler = SS()
 X_Scaled = Scaler.fit_transform(X)
-
+szData.to_csv("CombinedAPPLDataDay.csv")
 print(szData)
 
-X_Train, X_Test, Y_Train, Y_Test = tts(X_Scaled, Y, test_size=0.4, shuffle=False, random_state=42)
+X_Train, X_Test, Y_Train, Y_Test = tts(X_Scaled, Y, test_size=0.3, shuffle=False, random_state=42)
 
 param_grid = {
-    'max_depth': [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+    'max_depth': [1],
     'n_estimators': [30],
-    'learning_rate': [0.5, 1, 1.5, 2, 2.5, 3],
-	'subsample': [0.15, 0.3, ],
-	'gamma': [0.3, 0.5, 0.6, 0.7, 0.8, 0.9, 1],
-	'min_child_weight': [0.5, 0.75, 1],
-	'scale_pos_weight': [10, 12, 14, 16, 18, 20]
+    'learning_rate': [0.0001],
+	'subsample': [0.3],
+	'gamma': [0.1],
+	'min_child_weight': [0.15],
+	'scale_pos_weight': [16]
 	}
-Model = GridSearchCV(xgb.XGBClassifier(), param_grid, scoring="accuracy", cv=25, verbose=2, n_jobs=-1)
+Model = GridSearchCV(xgb.XGBClassifier(), param_grid, scoring="accuracy", cv=50, verbose=2, n_jobs=-1)
 Model.fit(X_Train, Y_Train)
 
 Y_Pred = Model.predict(X_Test)
