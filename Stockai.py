@@ -30,7 +30,9 @@ for i in range(0, 7):
 	szData[f"Close_{i}"] = szData["Close"].shift(i)
 	szData[f"Volume_{i}"] = szData["Volume"].shift(i)
 
-szData["Today_Open"] = szData["Open"]
+
+szData.loc[szData.index[-1], "Today_Open"] = float(szOpenToday)
+
 szData.dropna(inplace=True)
 X = szData[["Today_Open", "Open_1", "Open_2", "Open_3", "Open_4", "Open_5", "Open_6", "Close_1", "Close_2", "Close_3", "Close_4", "Close_5", "Close_6", "Low_1", "Low_2", "Low_3", "Low_4", "Low_5", "Low_6", "High_1", "High_2", "High_3", "High_4", "High_5", "High_6", "Volume_1", "Volume_2", "Volume_3", "Volume_4", "Volume_5", "Volume_6"]]
 Y = szData["Price Movement"]

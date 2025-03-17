@@ -26,7 +26,7 @@ szData["Month"] = szData.index.month
 szData["Day"] = szData.index.day
 
 
-szData["Price Movement"] = (szData["Close"].shift(-1) > szData["Close"].astype(int))
+szData["Price Movement"] = (szData["Close"].shift(-1) > szData["Close"].astype(int)
 
 for i in range(0, 7):
 	szData[f"Open_{i}"] = szData["Open"].shift(i)
@@ -73,5 +73,5 @@ print(f"Model accuracy: {Accuracy:.4f}")
 print("Best parameters: ", Model.best_params_)
 
 
-joblib.dump(Model, "stock_model.pkl")
+joblib.dump(Model, "gg.pkl")
 joblib.dump(Scaler, "Scaler.pkl")
