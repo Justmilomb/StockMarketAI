@@ -1,0 +1,61 @@
+{
+  "watchlists": {
+    "Main": [
+      "AAPL",
+      "MSFT",
+      "AMZN",
+      "GOOGL",
+      "META"
+    ],
+    "Tech Growth": [
+      "NVDA",
+      "AMD",
+      "TSLA",
+      "PLTR"
+    ],
+    "Crypto Proxies": [
+      "COIN",
+      "MSTR",
+      "HOOD"
+    ]
+  },
+  "active_watchlist": "Main",
+  "start_date": "2015-01-01",
+  "end_date": "2026-03-14",
+  "data_dir": "data",
+  "model_path": "models/rf_tomorrow_up.joblib",
+  "strategy": {
+    "threshold_buy": 0.6,
+    "threshold_sell": 0.4,
+    "max_positions": 5,
+    "position_size_fraction": 0.2
+  },
+  "capital": 100000,
+  "ai": {
+    "sklearn_weight": 0.5,
+    "gemini_weight": 0.3,
+    "news_weight": 0.2,
+    "retrain_on_start": false,
+    "retrain_interval_hours": 24
+  },
+  "gemini": {
+    "api_key_env": "GEMINI_API_KEY",
+    "model": "gemini-3.1-pro-preview"
+  },
+  "news": {
+    "refresh_interval_minutes": 5
+  },
+  "broker": {
+    "type": "trading212",
+    "api_key": "41038379ZkwSNOiwZSYKPFxyShnDkrLgaTuyT",
+    "secret_key": "r_6MBqSMTs4txxwWDhw1NPQXFzYySZX-uqwT_ynZzQo",
+    "base_url": "https://live.trading212.com",
+    "practice": false
+  },
+  "terminal": {
+    "mode": "recommendation",
+    "refresh_interval_seconds": 15,
+    "theme": "default",
+    "max_daily_loss": 0.05
+  }
+}
