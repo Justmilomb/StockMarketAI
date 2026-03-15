@@ -38,7 +38,7 @@ from terminal.history_views import HistoryModal, PiesModal, InstrumentsModal
 try:
     from textual import work
     from textual.app import App, ComposeResult
-    from textual.widgets import Footer, Header
+    from textual.widgets import Footer, Header, Label
     from textual.containers import Grid
 except ImportError:  # pragma: no cover
     App = object  # type: ignore
@@ -116,11 +116,23 @@ class TradingTerminalApp(App):  # type: ignore[misc]
         with self.config_path.open("r", encoding="utf-8") as f:
             return json.load(f)
 
+    def _init_state(self) -> AppState:
+        from terminal.state import AppState
+        t_cfg = self.config.get("terminal", {})
+        return AppState(
+            mode=t_cfg.get("mode", "recommendation"),
+            refresh_interval_seconds=t_cfg.get("refresh_interval_seconds", 30),
+            capital=t_cfg.get("capital", 10000.0),
+            max_daily_loss=t_cfg.get("max_daily_loss", 0.05),
+            active_watchlist=self.config.get("active_watchlist", "Default")
+        )
+
     # ── Layout ─────────────────────────────────────────────────────────
 
     def compose(self) -> ComposeResult:
         mode_str = "AUTO" if self.state.mode == "full_auto_limited" else "ADVISOR"
         yield Header(show_clock=True)
+        yield Label(f"TERMINAL [#{mode_str}] | BLOOMBERG AI CORE", id="app-header-title")
         with Grid(id="main-grid"):
             # Left column (rows 1-3)
             self.settings_view = SettingsView(self.state)
@@ -261,11 +273,14 @@ class TradingTerminalApp(App):  # type: ignore[misc]
     # ── Mode Toggle ────────────────────────────────────────────────────
 
     def action_toggle_mode(self) -> None:
-        self.state.mode = (
         """Switch between Recommendation (Advisor) and Auto-Trading modes."""
         old_mode = self.state.mode
         new_mode = "full_auto_limited" if old_mode == "recommendation" else "recommendation"
         self.state.mode = new_mode
+        
+        # Sync to config
+        if "terminal" not in self.config:
+            self.config["terminal"] = {}
         self.config["terminal"]["mode"] = new_mode
         self._save_config()
         
@@ -354,7 +369,7 @@ class TradingTerminalApp(App):  # type: ignore[misc]
             from gemini_client import GeminiClient, GeminiConfig
             gemini_cfg_raw = self.config.get("gemini", {})
             gcfg = GeminiConfig(
-                model=gemini_cfg_raw.get("model", "gemini-2.5-flash"),
+                model=gemini_cfg_raw.get("model", "gemini-1.5-pro"),
                 api_key_env=gemini_cfg_raw.get("api_key_env", "GEMINI_API_KEY"),
             )
             client = GeminiClient(gcfg)
@@ -497,7 +512,7 @@ class TradingTerminalApp(App):  # type: ignore[misc]
             from gemini_client import GeminiClient, GeminiConfig
             gemini_cfg_raw = self.config.get("gemini", {})
             gcfg = GeminiConfig(
-                model=gemini_cfg_raw.get("model", "gemini-2.5-flash"),
+                model=gemini_cfg_raw.get("model", "gemini-1.5-pro"),
                 api_key_env=gemini_cfg_raw.get("api_key_env", "GEMINI_API_KEY"),
             )
             client = GeminiClient(gcfg)
@@ -531,7 +546,7 @@ class TradingTerminalApp(App):  # type: ignore[misc]
             from gemini_client import GeminiClient, GeminiConfig
             gemini_cfg_raw = self.config.get("gemini", {})
             gcfg = GeminiConfig(
-                model=gemini_cfg_raw.get("model", "gemini-2.5-flash"),
+                model=gemini_cfg_raw.get("model", "gemini-1.5-pro"),
                 api_key_env=gemini_cfg_raw.get("api_key_env", "GEMINI_API_KEY"),
             )
             client = GeminiClient(gcfg)

@@ -133,24 +133,27 @@ def fetch_live_prices(tickers: List[str]) -> Dict[str, Dict[str, float]]:
     ticker_map = {t: _clean_ticker(t) for t in tickers}
     yf_tickers = list(set(ticker_map.values()))
 
-    # Download recent 2 days to get current price and previous close
+    # Download recent 5 days to get current price and previous close
     try:
         df = yf.download(yf_tickers, period="5d", auto_adjust=False, progress=False)
         
-        # Handle MultiIndex
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = df.columns.swaplevel(0, 1) # (Attribute, Ticker) -> (Ticker, Attribute)
+        # yfinance returns a DataFrame with MultiIndex columns (Attribute, Ticker) if len(yf_tickers) > 1
+        # If len(yf_tickers) == 1, it might return a simple Index if group_by='column' (default)
         
         for original_ticker, cleaned_ticker in ticker_map.items():
             try:
-                # Get the closes for this cleaned ticker
                 if len(yf_tickers) > 1:
-                    if cleaned_ticker in df["Close"].columns:
+                    # Access Close attribute, then specific ticker
+                    if "Close" in df.columns.levels[0] and cleaned_ticker in df["Close"].columns:
                         ticker_closes = df["Close"][cleaned_ticker].dropna()
                     else:
                         ticker_closes = pd.Series()
                 else:
-                    ticker_closes = df["Close"].dropna()
+                    # Single ticker or empty matches
+                    if "Close" in df.columns:
+                        ticker_closes = df["Close"].dropna()
+                    else:
+                        ticker_closes = pd.Series()
                 
                 if len(ticker_closes) >= 2:
                     current = float(ticker_closes.iloc[-1])
@@ -170,7 +173,7 @@ def fetch_live_prices(tickers: List[str]) -> Dict[str, Dict[str, float]]:
             except Exception:
                 live_data[original_ticker] = {"price": 0.0, "change_pct": 0.0}
     except Exception as e:
-        print(f"Error fetching live prices: {e}")
+        print(f"[data_loader] Error fetching live prices: {e}")
         for t in tickers:
             live_data[t] = {"price": 0.0, "change_pct": 0.0}
 
