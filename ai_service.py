@@ -80,7 +80,11 @@ class AiService:
 
     def _ensure_model(self, cfg: ConfigDict):
         model_path = Path(cfg.get("model_path", "models/rf_tomorrow_up.joblib"))
-        if model_path.exists() and self._model_loaded:
+        if model_path.exists():
+            if not self._model_loaded:
+                clf = load_model(model_path)
+                self._model_loaded = True
+                return clf
             return load_model(model_path)
 
         universe_data = self._get_universe_data(cfg)
@@ -90,6 +94,10 @@ class AiService:
         clf = train_model(X, y, meta, model_cfg)
         self._model_loaded = True
         return clf
+
+    def update_news_data(self, news_data: Dict[str, Any]) -> None:
+        """Store latest news sentiment data for use in ensemble weighting."""
+        self._last_news_data = news_data
 
     def suggest_new_ticker(self) -> str:
         """Suggests a new ticker for the currently active watchlist."""
@@ -203,9 +211,19 @@ class AiService:
         ai_cfg = cfg.get("ai", {}) or {}
         w_sklearn = float(ai_cfg.get("sklearn_weight", 0.5))
         w_gemini = float(ai_cfg.get("gemini_weight", 0.3))
-        # w_news = float(ai_cfg.get("news_weight", 0.2)) # Placeholder for future expansion
+        w_news = float(ai_cfg.get("news_weight", 0.2))
 
-        p_final = w_sklearn * p_sklearn + w_gemini * p_gemini
+        # Map news sentiment (-1..+1) to probability (0..1) per ticker
+        p_news = np.full(len(latest_meta_df), 0.5)
+        if hasattr(self, '_last_news_data'):
+            for i, (_, meta_row) in enumerate(latest_meta_df.iterrows()):
+                ticker = str(meta_row["ticker"])
+                nd = self._last_news_data.get(ticker)
+                if nd is not None:
+                    sent = nd.sentiment if hasattr(nd, 'sentiment') else nd.get('sentiment', 0.0)
+                    p_news[i] = (float(sent) + 1.0) / 2.0
+
+        p_final = w_sklearn * p_sklearn + w_gemini * p_gemini + w_news * p_news
 
         strat_cfg_raw = cfg.get("strategy", {})
         strat_cfg = StrategyConfig(

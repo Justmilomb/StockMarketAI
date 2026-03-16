@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
@@ -25,8 +26,10 @@ class BrokerService:
         broker_type = broker_cfg.get("type", "log")
 
         if broker_type == "trading212":
-            api_key = broker_cfg.get("api_key", "")
-            secret_key = broker_cfg.get("secret_key", "")
+            api_key_env = broker_cfg.get("api_key_env", "T212_API_KEY")
+            secret_key_env = broker_cfg.get("secret_key_env", "T212_SECRET_KEY")
+            api_key = os.getenv(api_key_env, "")
+            secret_key = os.getenv(secret_key_env, "")
             base_url = broker_cfg.get("base_url", "https://demo.trading212.com")
             practice = bool(broker_cfg.get("practice", True))
             if not api_key:

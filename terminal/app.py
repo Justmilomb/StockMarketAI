@@ -29,7 +29,7 @@ from news_agent import NewsAgent
 from terminal.state import AppState
 from terminal.views import (
     OrdersView, PositionsView, SettingsView, WatchlistView,
-    AiInsightsView, NewsView, ChatView,
+    NewsView, ChatView,
     AddTickerModal, TradeModal, SearchTickerModal, AiRecommendModal,
 )
 from terminal.charts import PriceChartView
@@ -79,32 +79,33 @@ class TradingTerminalApp(App):  # type: ignore[misc]
         self.broker_service = BrokerService(self.config)
         self.auto_engine = AutoEngine(self.config, self.state, self.ai_service, self.broker_service)
 
-        # News agent
+        # Shared Gemini client — reused by chat, search, recommend, scan, etc.
+        self._gemini_client: Optional[Any] = None
         self.news_agent: Optional[NewsAgent] = None
         try:
             from gemini_client import GeminiClient, GeminiConfig
             gemini_cfg_raw = self.config.get("gemini", {})
             gcfg = GeminiConfig(
-                model=gemini_cfg_raw.get("model", "gemini-1.5-pro"),
+                model=gemini_cfg_raw.get("model", "gemini-2.5-flash"),
                 api_key_env=gemini_cfg_raw.get("api_key_env", "GEMINI_API_KEY"),
             )
-            client = GeminiClient(gcfg)
-            
+            self._gemini_client = GeminiClient(gcfg)
+
             # History Manager
             from database import HistoryManager
             self.history_manager = HistoryManager()
-            
+
             news_interval = self.config.get("news", {}).get("refresh_interval_minutes", 5)
-            self.news_agent = NewsAgent(client, refresh_interval_minutes=news_interval)
+            self.news_agent = NewsAgent(self._gemini_client, refresh_interval_minutes=news_interval)
         except Exception as e:
-            print(f"[app] Could not init news agent: {e}")
+            print(f"[app] Could not init Gemini/news: {e}")
 
         # View references
         self.settings_view: Optional[SettingsView] = None
         self.watchlist_view: Optional[WatchlistView] = None
         self.positions_view: Optional[PositionsView] = None
         self.orders_view: Optional[OrdersView] = None
-        self.ai_insights_view: Optional[AiInsightsView] = None
+        # ai_insights_view removed — insights now route to chat panel
         self.news_view: Optional[NewsView] = None
         self.chat_view: Optional[ChatView] = None
         self.chart_view: Optional[PriceChartView] = None
@@ -238,7 +239,7 @@ class TradingTerminalApp(App):  # type: ignore[misc]
 
     @work(thread=True)
     def refresh_data(self) -> None:
-        if not self._running:
+        if not self.is_running:
             return
         try:
             import concurrent.futures
@@ -252,6 +253,10 @@ class TradingTerminalApp(App):  # type: ignore[misc]
                 account_info = future_acct.result()
                 held_tickers = [p.get("ticker") for p in positions if p.get("ticker")]
                 
+                # Feed news data to AI service for ensemble weighting
+                if self.news_agent:
+                    self.ai_service.update_news_data(self.news_agent.news_data)
+
                 # 3. Start AI and Auto-engine in parallel now that we have held_tickers
                 future_signals = executor.submit(self.ai_service.get_latest_signals, held_tickers=held_tickers)
                 executor.submit(self.auto_engine.step) # Auto engine can run in bkg
@@ -395,8 +400,7 @@ class TradingTerminalApp(App):  # type: ignore[misc]
 
     def _update_ai_insights(self, analysis: str) -> None:
         self.state.ai_insights = analysis
-        if self.ai_insights_view:
-            self.ai_insights_view.refresh_view()
+        self._add_chat_response(f"[AI INSIGHTS]\n{analysis}")
 
     # ── News Refresh ───────────────────────────────────────────────────
 
@@ -432,14 +436,9 @@ class TradingTerminalApp(App):  # type: ignore[misc]
     @work(thread=True)
     def _process_chat(self, message: str) -> None:
         try:
-            from gemini_client import GeminiClient, GeminiConfig
-            gemini_cfg_raw = self.config.get("gemini", {})
-            gcfg = GeminiConfig(
-                model=gemini_cfg_raw.get("model", "gemini-1.5-pro"),
-                api_key_env=gemini_cfg_raw.get("api_key_env", "GEMINI_API_KEY"),
-            )
-            client = GeminiClient(gcfg)
-            response = client.chat_with_context(
+            if not self._gemini_client:
+                raise RuntimeError("Gemini client not initialised")
+            response = self._gemini_client.chat_with_context(
                 user_message=message,
                 positions=self.state.positions,
                 signals=self.state.signals,
@@ -591,14 +590,9 @@ class TradingTerminalApp(App):  # type: ignore[misc]
     @work(thread=True)
     def _do_search(self, query: str, callback) -> None:
         try:
-            from gemini_client import GeminiClient, GeminiConfig
-            gemini_cfg_raw = self.config.get("gemini", {})
-            gcfg = GeminiConfig(
-                model=gemini_cfg_raw.get("model", "gemini-1.5-pro"),
-                api_key_env=gemini_cfg_raw.get("api_key_env", "GEMINI_API_KEY"),
-            )
-            client = GeminiClient(gcfg)
-            results = client.search_tickers(query)
+            if not self._gemini_client:
+                raise RuntimeError("Gemini client not initialised")
+            results = self._gemini_client.search_tickers(query)
         except Exception as e:
             results = []
             print(f"[search] Error: {e}")
@@ -625,15 +619,10 @@ class TradingTerminalApp(App):  # type: ignore[misc]
     @work(thread=True)
     def _do_recommend(self, category: str, callback) -> None:
         try:
-            from gemini_client import GeminiClient, GeminiConfig
-            gemini_cfg_raw = self.config.get("gemini", {})
-            gcfg = GeminiConfig(
-                model=gemini_cfg_raw.get("model", "gemini-1.5-pro"),
-                api_key_env=gemini_cfg_raw.get("api_key_env", "GEMINI_API_KEY"),
-            )
-            client = GeminiClient(gcfg)
+            if not self._gemini_client:
+                raise RuntimeError("Gemini client not initialised")
             current_tickers = self._get_active_tickers()
-            results = client.recommend_tickers(current_tickers, category=category, count=5)
+            results = self._gemini_client.recommend_tickers(current_tickers, category=category, count=5)
         except Exception as e:
             results = []
             print(f"[recommend] Error: {e}")
@@ -773,13 +762,10 @@ class TradingTerminalApp(App):  # type: ignore[misc]
             history_text = "\n".join(history_lines) if history_lines else "  No history yet (first run)"
 
             # 2. Ask Gemini for concrete changes
-            from gemini_client import GeminiClient, GeminiConfig
-            gemini_cfg_raw = self.config.get("gemini", {})
-            gcfg = GeminiConfig(
-                model=gemini_cfg_raw.get("model", "gemini-2.5-flash"),
-                api_key_env=gemini_cfg_raw.get("api_key_env", "GEMINI_API_KEY"),
-            )
-            client = GeminiClient(gcfg)
+            if not self._gemini_client:
+                self.call_from_thread(self._add_chat_response, "[AI OPTIMIZER] Gemini client not available.")
+                return
+            client = self._gemini_client
 
             prompt = (
                 "You are a quant advisor tuning a stock trading algorithm.\n\n"
@@ -915,13 +901,9 @@ class TradingTerminalApp(App):  # type: ignore[misc]
         3. Flags risk events for held positions
         """
         try:
-            from gemini_client import GeminiClient, GeminiConfig
-            gemini_cfg_raw = self.config.get("gemini", {})
-            gcfg = GeminiConfig(
-                model=gemini_cfg_raw.get("model", "gemini-2.5-flash"),
-                api_key_env=gemini_cfg_raw.get("api_key_env", "GEMINI_API_KEY"),
-            )
-            client = GeminiClient(gcfg)
+            if not self._gemini_client:
+                return
+            client = self._gemini_client
 
             # Build context from current state
             sig_summary = ""
@@ -1019,13 +1001,9 @@ class TradingTerminalApp(App):  # type: ignore[misc]
                 return
 
             # Ask Gemini which tickers (if any) should be dropped
-            from gemini_client import GeminiClient, GeminiConfig
-            gemini_cfg_raw = self.config.get("gemini", {})
-            gcfg = GeminiConfig(
-                model=gemini_cfg_raw.get("model", "gemini-2.5-flash"),
-                api_key_env=gemini_cfg_raw.get("api_key_env", "GEMINI_API_KEY"),
-            )
-            client = GeminiClient(gcfg)
+            if not self._gemini_client:
+                return
+            client = self._gemini_client
 
             prompt = (
                 f"You are reviewing the active watchlist: {removable}\n"

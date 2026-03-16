@@ -22,7 +22,9 @@ def load_config(path: Path | str = "config.json") -> Dict[str, Any]:
 def main() -> None:
     config = load_config()
 
-    tickers = config["tickers"]
+    watchlists = config.get("watchlists", {})
+    active = config.get("active_watchlist", "")
+    tickers = watchlists.get(active, config.get("tickers", []))
     start_date = config["start_date"]
     end_date = config["end_date"]
     data_dir = Path(config.get("data_dir", "data"))

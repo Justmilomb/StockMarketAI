@@ -613,9 +613,6 @@ class AiRecommendModal(ModalScreen):
         elif event.button.id == "btn-rec-close":
             self.dismiss(None)
 
-    def action_dismiss_modal(self) -> None:
-        self.dismiss(None)
-
     def _on_results(self, results: list) -> None:
         self._rec_table.clear()
         if results:

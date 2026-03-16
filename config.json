@@ -52,8 +52,8 @@
   },
   "broker": {
     "type": "trading212",
-    "api_key": "41038379ZkwSNOiwZSYKPFxyShnDkrLgaTuyT",
-    "secret_key": "r_6MBqSMTs4txxwWDhw1NPQXFzYySZX-uqwT_ynZzQo",
+    "api_key_env": "T212_API_KEY",
+    "secret_key_env": "T212_SECRET_KEY",
     "base_url": "https://live.trading212.com",
     "practice": false
   },
