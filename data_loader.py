@@ -4,6 +4,7 @@ from typing import Dict, List
 
 import pandas as pd
 import yfinance as yf
+import concurrent.futures
 
 
 DEFAULT_DATA_DIR = Path("data")
@@ -14,11 +15,17 @@ def _clean_ticker(ticker: str) -> str:
     Remove Trading 212 internal suffixes like _US_EQ, _GB_EQ, etc.
     that yfinance cannot resolve.
     """
-    suffixes = ["_US_EQ", "_GB_EQ", "_UK", "_DE", "_FR", "_IL"]
+    suffixes = [
+        "_US_EQ", "_GB_EQ", "_UK_EQ", "_DE_EQ", "_FR_EQ", "_IL_EQ",
+        "_UK", "_DE", "_FR", "_IL", "_NL_EQ", "_ES_EQ", "_IT_EQ",
+        "_CH_EQ", "_SE_EQ", "_NO_EQ", "_DK_EQ", "_FI_EQ",
+        "_EQ",  # catch-all for remaining _EQ suffixes — MUST be last
+    ]
     cleaned = ticker.upper().strip()
     for s in suffixes:
         if cleaned.endswith(s):
-            cleaned = cleaned.replace(s, "")
+            cleaned = cleaned[: -len(s)]
+            break
     return cleaned
 
 
@@ -104,17 +111,23 @@ def fetch_universe_data(
     use_cache: bool = True,
 ) -> Dict[str, pd.DataFrame]:
     """
-    Fetch data for a list of tickers and return a mapping ticker -> DataFrame.
+    Fetch data for a list of tickers in parallel and return a mapping ticker -> DataFrame.
     """
     universe_data: Dict[str, pd.DataFrame] = {}
-    for ticker in tickers:
-        df = fetch_ticker_data(
+    
+    def fetch_one(ticker: str):
+        return ticker, fetch_ticker_data(
             ticker=ticker,
             start_date=start_date,
             end_date=end_date,
             data_dir=data_dir,
             use_cache=use_cache,
         )
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        results = list(executor.map(fetch_one, tickers))
+
+    for ticker, df in results:
         if not df.empty:
             universe_data[ticker] = df
     return universe_data
@@ -135,7 +148,9 @@ def fetch_live_prices(tickers: List[str]) -> Dict[str, Dict[str, float]]:
 
     # Download recent 5 days to get current price and previous close
     try:
-        df = yf.download(yf_tickers, period="5d", auto_adjust=False, progress=False)
+        # If a ticker is delisted, yfinance might raise an error for the whole batch or return empty.
+        # We try to get as much as we can.
+        df = yf.download(yf_tickers, period="5d", auto_adjust=False, progress=False, group_by='column')
         
         # yfinance returns a DataFrame with MultiIndex columns (Attribute, Ticker) if len(yf_tickers) > 1
         # If len(yf_tickers) == 1, it might return a simple Index if group_by='column' (default)

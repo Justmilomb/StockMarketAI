@@ -11,7 +11,12 @@
       "NVDA",
       "AMD",
       "TSLA",
-      "PLTR"
+      "PLTR",
+      "LLY",
+      "VST",
+      "LILLY",
+      "SMCI",
+      "VRT"
     ],
     "Crypto Proxies": [
       "COIN",
@@ -19,7 +24,7 @@
       "HOOD"
     ]
   },
-  "active_watchlist": "Main",
+  "active_watchlist": "Tech Growth",
   "start_date": "2015-01-01",
   "end_date": "2026-03-14",
   "data_dir": "data",
@@ -40,7 +45,7 @@
   },
   "gemini": {
     "api_key_env": "GEMINI_API_KEY",
-    "model": "gemini-3.1-pro-preview"
+    "model": "gemini-2.5-pro"
   },
   "news": {
     "refresh_interval_minutes": 5

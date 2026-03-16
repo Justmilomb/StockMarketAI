@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Tuple, List
@@ -14,6 +14,7 @@ from features import build_universe_dataset, latest_feature_rows_per_ticker, FEA
 from gemini_client import GeminiClient, GeminiConfig
 from model import ModelConfig, load_model, train_model
 from strategy import StrategyConfig, generate_signals
+import concurrent.futures
 
 
 ConfigDict = Dict[str, Any]
@@ -38,7 +39,12 @@ class AiService:
                 self._config_cache = json.load(f)
         return self._config_cache
 
-    def _get_universe_data(self, cfg: ConfigDict, extra_tickers: List[str] | None = None) -> Dict[str, pd.DataFrame]:
+    def _get_universe_data(
+        self, 
+        cfg: ConfigDict, 
+        extra_tickers: List[str] | None = None,
+        lookback_days: int | None = None
+    ) -> Dict[str, pd.DataFrame]:
         watchlists = cfg.get("watchlists", {})
         active = cfg.get("active_watchlist", "")
         tickers = watchlists.get(active, cfg.get("tickers", []))
@@ -48,20 +54,25 @@ class AiService:
         if extra_tickers:
             combined.update(extra_tickers)
         
-        tickers = list(combined)
+        tickers_list = list(combined)
         
-        start_date = cfg.get("start_date", "2015-01-01")
+        if lookback_days:
+            start_dt = datetime.now() - timedelta(days=lookback_days)
+            start_date = start_dt.strftime("%Y-%m-%d")
+        else:
+            start_date = cfg.get("start_date", "2015-01-01")
+
         # Ensure end_date is at least today
         end_date = datetime.now().strftime("%Y-%m-%d")
         
-        return fetch_universe_data(tickers, start_date, end_date)
+        return fetch_universe_data(tickers_list, start_date, end_date)
 
     def _get_gemini_client(self, cfg: ConfigDict) -> GeminiClient:
         if self._gemini_client is not None:
             return self._gemini_client
         gemini_cfg_raw = cfg.get("gemini", {}) or {}
         config = GeminiConfig(
-            model=gemini_cfg_raw.get("model", "gemini-3-flash-preview"),
+            model=gemini_cfg_raw.get("model", "gemini-2.5-pro"),
             api_key_env=gemini_cfg_raw.get("api_key_env", "GEMINI_API_KEY"),
         )
         self._gemini_client = GeminiClient(config)
@@ -119,7 +130,8 @@ class AiService:
         """
         cfg = self.load_config()
 
-        universe_data = self._get_universe_data(cfg, extra_tickers=held_tickers)
+        # For daily signals, we only need ~90 days of history for indicators
+        universe_data = self._get_universe_data(cfg, extra_tickers=held_tickers, lookback_days=90)
         try:
             latest_features_df, latest_meta_df = latest_feature_rows_per_ticker(universe_data)
         except Exception as e:
@@ -139,22 +151,52 @@ class AiService:
 
         # Gemini probabilities and reasons
         gemini_client = self._get_gemini_client(cfg)
-        p_gemini_list: List[float] = []
-        reasons: List[str] = []
-
-        for idx, meta_row in latest_meta_df.iterrows():
+        
+        # Helper for parallel execution
+        def analyze_one(ticker_meta: tuple):
+            idx, meta_row = ticker_meta
             ticker = str(meta_row["ticker"])
             try:
                 df_ticker = universe_data[ticker]
                 recent_closes = df_ticker["Close"].tail(30).tolist()
                 feature_row = latest_features_df.loc[ticker].to_dict()
+                
+                # 1. Get raw probability and reason
                 out = gemini_client.get_signal_for_ticker(ticker, recent_closes, feature_row)
-                p_gemini_list.append(float(out["p_up_gemini"]))
-                reasons.append(str(out["reason"]))
+                p_val = float(out.get("p_up_gemini", 0.5))
+                
+                # 2. Get high-level recommendation
+                rec_out = gemini_client.get_recommendation(
+                    ticker=ticker,
+                    current_position=None,
+                    prob_up=p_val,
+                    news_sentiment=0.0,
+                    news_summary="",
+                    features=feature_row
+                )
+                return {
+                    "p_up": p_val,
+                    "reason": str(out.get("reason", "No reason provided.")),
+                    "ai_rec": rec_out.get("action", "HOLD")
+                }
             except Exception as e:
                 print(f"[ai_service] Gemini error for {ticker}: {e}")
-                p_gemini_list.append(0.5)
-                reasons.append(f"Error: {e}")
+                return {"p_up": 0.5, "reason": f"Error: {e}", "ai_rec": "HOLD"}
+
+        # Execute in parallel
+        p_gemini_list = []
+        reasons = []
+        ai_recs = []
+        
+        # Group data for mapping
+        items = list(latest_meta_df.iterrows())
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+            results = list(executor.map(analyze_one, items))
+            
+        for res in results:
+            p_gemini_list.append(res["p_up"])
+            reasons.append(res["reason"])
+            ai_recs.append(res["ai_rec"])
 
         p_gemini = np.array(p_gemini_list, dtype=float)
 
@@ -181,6 +223,7 @@ class AiService:
         signals_df["p_up_gemini"] = p_gemini
         signals_df["p_up_final"] = p_final
         signals_df["reason"] = reasons
+        signals_df["ai_rec"] = ai_recs
         return signals_df, latest_meta_df
 
     def retrain_model(self) -> None:

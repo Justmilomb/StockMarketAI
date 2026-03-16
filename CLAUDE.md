@@ -13,8 +13,8 @@ AI-driven stock trading terminal combining scikit-learn ML predictions with Goog
 - Type hints on every function signature. No `Any` except at serialisation boundaries.
 - No global mutable state. Config via dataclass or `config.json`, never module-level dicts.
 - Tests use pytest. No unittest.TestCase subclasses.
-- No file over 400 lines. Split by logical concern.
-- One class/module per file pair.
+- **File size guideline:** Leaf modules should stay under ~400 lines. Hub files (`app.py`, `ai_service.py`) and files that are the single logical owner of a complex concern may exceed this when splitting would hurt readability or create artificial seams. Use judgement — the goal is cohesion, not a line count.
+- One class/module per file pair (hub files excepted — they wire multiple concerns by design).
 - Comments explain *why*, not *what*.
 - No TODO comments in code — track in `docs/CURRENT_TASKS.md`.
 - **Don't ask permission.** Just execute. User trusts technical decisions.
@@ -49,16 +49,23 @@ ai.py / terminal/app.py  (entry points)
   │
   ├─ BrokerService           (broker-agnostic facade)
   │   ├─ LogBroker           (dev: logs to JSONL)
-  │   └─ Trading212Broker    (live: REST API v0)
+  │   └─ Trading212Broker    (live: REST API v0, trading212.py)
   │
   ├─ AutoEngine              (signal → order execution)
   │
-  ├─ NewsAgent               (background RSS + sentiment)
+  ├─ NewsAgent               (background RSS + batch Gemini sentiment)
+  │
+  ├─ HistoryManager          (SQLite persistence — database.py)
+  │   ├─ snapshots           (signals, positions, PnL per refresh)
+  │   ├─ config_changes      (AI self-tuning audit trail)
+  │   ├─ watchlist_log       (AI additions/removals)
+  │   └─ chat_history        (persists across sessions)
   │
   └─ terminal/
-      ├─ app.py              (TradingTerminalApp — Textual App)
+      ├─ app.py              (TradingTerminalApp — TUI + AI autonomous loops)
       ├─ state.py            (AppState dataclass)
       ├─ views.py            (panels + modals)
+      ├─ history_views.py    (history/pies/instruments modals)
       ├─ charts.py           (sparkline price charts)
       └─ terminal.css        (Bloomberg-dark theme)
 ```
@@ -145,5 +152,6 @@ CONSTRAINTS:
 
 - **Phase 1:** Core ML pipeline (data → features → model → signals → broker) — **done**
 - **Phase 2:** TUI terminal + Gemini integration + news agent + Trading 212 — **done**
+- **Phase 2.5:** Self-learning AI loops, SQLite persistence, chat history, T212 price fallback — **done**
 - **Phase 3:** Testing, backtesting engine, advanced strategies, multi-model ensemble — **planned**
 - **Phase 4:** Production hardening, monitoring, deployment automation — **planned**

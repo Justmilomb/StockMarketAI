@@ -166,6 +166,17 @@ class TradingTerminalApp(App):  # type: ignore[misc]
     # ── Lifecycle ──────────────────────────────────────────────────────
 
     def on_mount(self) -> None:  # type: ignore[override]
+        # Restore chat history from DB
+        if hasattr(self, 'history_manager'):
+            try:
+                saved_chat = self.history_manager.load_chat_history(50)
+                if saved_chat:
+                    self.state.chat_history = saved_chat
+                    if self.chat_view:
+                        self.chat_view.refresh_view()
+            except Exception:
+                pass
+
         self.refresh_data()
         self.refresh_timer = self.set_interval(
             self.state.refresh_interval_seconds,
@@ -176,6 +187,34 @@ class TradingTerminalApp(App):  # type: ignore[misc]
             tickers = self._get_active_tickers()
             self.news_agent.update_tickers(tickers)
             self.news_agent.start()
+
+        # Hourly AI watchlist review
+        self._cleanup_timer = self.set_interval(3600, self._hourly_watchlist_review)
+
+        # Auto-optimize weights every 6 hours
+        self._optimize_timer = self.set_interval(21600, self._auto_optimize)
+
+        # Continuous AI market scanner every 30 minutes
+        self._scanner_timer = self.set_interval(1800, self._ai_market_scan)
+
+    def on_unmount(self) -> None:
+        """Cleanup on shutdown."""
+        if self.news_agent:
+            self.news_agent.stop()
+        if self.refresh_timer:
+            self.refresh_timer.stop()
+        if hasattr(self, '_cleanup_timer') and self._cleanup_timer:
+            self._cleanup_timer.stop()
+        if hasattr(self, '_optimize_timer') and self._optimize_timer:
+            self._optimize_timer.stop()
+        if hasattr(self, '_scanner_timer') and self._scanner_timer:
+            self._scanner_timer.stop()
+        # Prune old chat on exit to prevent unbounded DB growth
+        if hasattr(self, 'history_manager'):
+            try:
+                self.history_manager.clear_old_chat(200)
+            except Exception:
+                pass
 
     def _get_active_tickers(self) -> List[str]:
         # Get all tickers from all watchlists
@@ -199,26 +238,34 @@ class TradingTerminalApp(App):  # type: ignore[misc]
 
     @work(thread=True)
     def refresh_data(self) -> None:
+        if not self._running:
+            return
         try:
-            # 1. Broker data first (so we know what we hold)
-            positions = self.broker_service.get_positions()
-            account_info = self.broker_service.get_account_info()
-            held_tickers = [p.get("ticker") for p in positions if p.get("ticker")]
-            
-            # 2. Auto engine step
-            self.auto_engine.step()
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+                # 1. Start tasks in parallel
+                future_pos = executor.submit(self.broker_service.get_positions)
+                future_acct = executor.submit(self.broker_service.get_account_info)
+                
+                # 2. Wait for broker data (needed for signals)
+                positions = future_pos.result()
+                account_info = future_acct.result()
+                held_tickers = [p.get("ticker") for p in positions if p.get("ticker")]
+                
+                # 3. Start AI and Auto-engine in parallel now that we have held_tickers
+                future_signals = executor.submit(self.ai_service.get_latest_signals, held_tickers=held_tickers)
+                executor.submit(self.auto_engine.step) # Auto engine can run in bkg
+                
+                # 4. Fetch live prices (can overlap with AI thinking)
+                from data_loader import fetch_live_prices
+                active_watchlist_tickers = self._get_active_tickers()
+                all_relevant = list(set(active_watchlist_tickers + held_tickers))
+                live_data = fetch_live_prices(all_relevant)
+                
+                # 5. Harvest final signals
+                signals_df, _meta = future_signals.result()
 
-            # 3. Get signals (passing held tickers so they are included)
-            signals_df, _meta = self.ai_service.get_latest_signals(held_tickers=held_tickers)
-
-            # 4. Live prices for EVERYTHING we care about
-            from data_loader import fetch_live_prices
-            # Combine watchlist + positions
-            active_watchlist_tickers = self._get_active_tickers()
-            all_relevant = list(set(active_watchlist_tickers + held_tickers))
-            live_data = fetch_live_prices(all_relevant)
-
-            # 5. Calculate UPNL
+            # 6. Calculate PnL
             upnl = sum(pos.get('unrealised_pnl', 0.0) for pos in positions)
 
             # 6. News data
@@ -246,6 +293,17 @@ class TradingTerminalApp(App):  # type: ignore[misc]
     def _update_state_and_views(
         self, signals_df, positions, upnl, live_data, account_info, news_data,
     ) -> None:
+        # Fill in live prices from T212 positions for tickers yfinance couldn't resolve
+        for pos in positions:
+            ticker = pos.get("ticker", "")
+            current_price = pos.get("current_price", 0.0)
+            if ticker and current_price > 0:
+                existing = live_data.get(ticker, {})
+                if existing.get("price", 0.0) == 0.0:
+                    avg = pos.get("avg_price", 0.0)
+                    change_pct = ((current_price - avg) / avg * 100.0) if avg > 0 else 0.0
+                    live_data[ticker] = {"price": current_price, "change_pct": change_pct}
+
         self.state.signals = signals_df
         self.state.positions = positions
         self.state.unrealised_pnl = upnl
@@ -255,7 +313,10 @@ class TradingTerminalApp(App):  # type: ignore[misc]
 
         # Save snapshot
         if hasattr(self, 'history_manager'):
-            self.history_manager.save_snapshot(self.state)
+            try:
+                self.history_manager.save_snapshot(self.state)
+            except Exception as e:
+                print(f"[app] Snapshot save error: {e}")
 
         if self.settings_view:
             self.settings_view.refresh_view()
@@ -359,6 +420,11 @@ class TradingTerminalApp(App):  # type: ignore[misc]
 
     def handle_chat_message(self, message: str) -> None:
         self.state.chat_history.append({"role": "user", "text": message})
+        if hasattr(self, 'history_manager'):
+            try:
+                self.history_manager.save_chat_message("user", message)
+            except Exception:
+                pass
         if self.chat_view:
             self.chat_view.refresh_view()
         self._process_chat(message)
@@ -387,6 +453,11 @@ class TradingTerminalApp(App):  # type: ignore[misc]
 
     def _add_chat_response(self, response: str) -> None:
         self.state.chat_history.append({"role": "ai", "text": response})
+        if hasattr(self, 'history_manager'):
+            try:
+                self.history_manager.save_chat_message("ai", response)
+            except Exception:
+                pass
         if self.chat_view:
             self.chat_view.refresh_view()
 
@@ -399,24 +470,35 @@ class TradingTerminalApp(App):  # type: ignore[misc]
         if not ticker:
             return
 
-        # Fetch price data via yfinance
+        closes: list = []
+
+        # Try yfinance first
         try:
             from data_loader import _clean_ticker
             yf_ticker = _clean_ticker(ticker)
-            
+
             import yfinance as yf
             data = yf.download(yf_ticker, period="3mo", interval="1d", progress=False)
             if data is not None and not data.empty:
-                # Handle MultiIndex columns from yfinance
                 if isinstance(data.columns, pd.MultiIndex):
                     data.columns = data.columns.get_level_values(0)
-                closes = data["Close"].dropna().tolist()
-                # Ensure we have float values
-                closes = [float(c) for c in closes]
-                if closes:
-                    self.call_from_thread(self._update_chart, ticker, closes)
+                closes = [float(c) for c in data["Close"].dropna().tolist()]
         except Exception as e:
-            print(f"[chart] Error fetching data for {ticker}: {e}")
+            print(f"[chart] yfinance error for {ticker}: {e}")
+
+        # Fallback: if yfinance returned nothing, build a minimal chart from
+        # T212 position data (avg_price → current_price gives at least 2 points)
+        if not closes:
+            for pos in self.state.positions:
+                if pos.get("ticker") == ticker:
+                    avg = pos.get("avg_price", 0)
+                    cur = pos.get("current_price", 0)
+                    if avg > 0 and cur > 0:
+                        closes = [float(avg)] * 5 + [float(cur)]
+                    break
+
+        if closes:
+            self.call_from_thread(self._update_chart, ticker, closes)
 
     def _get_selected_watchlist_ticker(self) -> str:
         if self.watchlist_view and self.watchlist_view.table.cursor_row is not None:
@@ -656,63 +738,338 @@ class TradingTerminalApp(App):  # type: ignore[misc]
             if callback:
                 self.call_from_thread(callback, [])
 
-    # ── AI Optimization ────────────────────────────────────────────────
-    
+    # ── AI Self-Optimization ──────────────────────────────────────────
+
     @work(thread=True)
     def action_ai_optimise(self) -> None:
-        """Ask AI to analyze history and suggest better model weights."""
-        self.call_from_thread(self._handle_refresh_error, "AI Optimizer: Analyzing performance history...")
-        
+        """AI analyzes performance, proposes changes, notifies user, then applies them."""
+        self.call_from_thread(
+            self._add_chat_response,
+            "[AI OPTIMIZER] Analyzing recent performance to tune algorithm weights..."
+        )
+
         try:
-            # Get recent history
-            history = ""
-            dates = self.history_manager.get_recent_dates(5)
+            # 1. Gather performance data from DB
+            history_lines = []
+            dates = self.history_manager.get_recent_dates(7) if hasattr(self, 'history_manager') else []
             for d in dates:
                 snap = self.history_manager.get_snapshot(d)
                 if snap:
-                    history += f"Date: {snap['date']}, Mode: {snap['mode']}, PnL: {snap['pnl']}\n"
-            
-            prompt = (
-                f"Analyze the following recent trading performance:\n{history}\n\n"
-                "Current weights: Sklearn=0.5, Gemini=0.3, News=0.2.\n"
-                "Suggest updated weights that might improve performance, or explain why current weights are optimal. "
-                "Base survival on the PnL trend. Respond as a professional quant advisor."
+                    history_lines.append(
+                        f"  {snap['date']}: equity=${snap['equity']:.2f}, pnl=${snap['pnl']:.2f}, mode={snap['mode']}"
+                    )
+
+            # Current config values
+            ai_cfg = self.config.get("ai", {})
+            strat_cfg = self.config.get("strategy", {})
+            current = {
+                "sklearn_weight": ai_cfg.get("sklearn_weight", 0.5),
+                "gemini_weight": ai_cfg.get("gemini_weight", 0.3),
+                "news_weight": ai_cfg.get("news_weight", 0.2),
+                "threshold_buy": strat_cfg.get("threshold_buy", 0.6),
+                "threshold_sell": strat_cfg.get("threshold_sell", 0.4),
+            }
+
+            history_text = "\n".join(history_lines) if history_lines else "  No history yet (first run)"
+
+            # 2. Ask Gemini for concrete changes
+            from gemini_client import GeminiClient, GeminiConfig
+            gemini_cfg_raw = self.config.get("gemini", {})
+            gcfg = GeminiConfig(
+                model=gemini_cfg_raw.get("model", "gemini-2.5-flash"),
+                api_key_env=gemini_cfg_raw.get("api_key_env", "GEMINI_API_KEY"),
             )
-            
-            results = self.news_agent.gemini_client._call(prompt)
-            self.call_from_thread(self._add_chat_response, f"🤖 [MODEL OPTIMIZER]\n{results}")
+            client = GeminiClient(gcfg)
+
+            prompt = (
+                "You are a quant advisor tuning a stock trading algorithm.\n\n"
+                f"Recent performance:\n{history_text}\n\n"
+                f"Current config:\n{json.dumps(current, indent=2)}\n\n"
+                "Rules:\n"
+                "- sklearn_weight + gemini_weight + news_weight should sum to ~1.0\n"
+                "- threshold_buy must be between 0.5 and 0.8\n"
+                "- threshold_sell must be between 0.2 and 0.5\n"
+                "- Only change values if data supports it. Keep current if unsure.\n\n"
+                "Respond strictly as JSON:\n"
+                '{"changes": {"sklearn_weight": 0.5, "gemini_weight": 0.3, "news_weight": 0.2, '
+                '"threshold_buy": 0.6, "threshold_sell": 0.4}, '
+                '"explanation": "one paragraph explaining why these changes"}'
+            )
+
+            text = client._call(prompt)
+            if not text:
+                self.call_from_thread(self._add_chat_response, "[AI OPTIMIZER] Could not reach AI. No changes made.")
+                return
+
+            obj = client._parse_json(text)
+            changes = obj.get("changes", {})
+            explanation = obj.get("explanation", "No explanation provided.")
+
+            if not changes:
+                self.call_from_thread(self._add_chat_response, f"[AI OPTIMIZER] No changes recommended.\n{explanation}")
+                return
+
+            # 3. Notify user FIRST — show what will change
+            diff_lines = []
+            for key, new_val in changes.items():
+                old_val = current.get(key)
+                if old_val is not None and float(old_val) != float(new_val):
+                    diff_lines.append(f"  {key}: {old_val} -> {new_val}")
+
+            if not diff_lines:
+                self.call_from_thread(
+                    self._add_chat_response,
+                    f"[AI OPTIMIZER] Analyzed — current weights are optimal. No changes.\n{explanation}"
+                )
+                return
+
+            notification = (
+                "[AI OPTIMIZER] Applying algorithm changes:\n"
+                + "\n".join(diff_lines)
+                + f"\n\nReason: {explanation}"
+            )
+            self.call_from_thread(self._add_chat_response, notification)
+
+            # 4. Apply changes to config
+            for key in ("sklearn_weight", "gemini_weight", "news_weight"):
+                if key in changes:
+                    val = max(0.0, min(1.0, float(changes[key])))
+                    old = ai_cfg.get(key, 0)
+                    ai_cfg[key] = val
+                    if hasattr(self, 'history_manager'):
+                        self.history_manager.log_config_change("AI_OPTIMIZER", key, str(old), str(val), explanation[:200])
+
+            for key in ("threshold_buy", "threshold_sell"):
+                if key in changes:
+                    val = float(changes[key])
+                    if key == "threshold_buy":
+                        val = max(0.5, min(0.8, val))
+                    else:
+                        val = max(0.2, min(0.5, val))
+                    old = strat_cfg.get(key, 0)
+                    strat_cfg[key] = val
+                    if hasattr(self, 'history_manager'):
+                        self.history_manager.log_config_change("AI_OPTIMIZER", key, str(old), str(val), explanation[:200])
+
+            self.config["ai"] = ai_cfg
+            self.config["strategy"] = strat_cfg
+            self._save_config()
+            self.ai_service._config_cache = None  # Force reload
+
+            self.call_from_thread(
+                self._add_chat_response,
+                "[AI OPTIMIZER] Changes applied and saved to config.json."
+            )
+
         except Exception as e:
             self.call_from_thread(self._handle_refresh_error, f"Optimizer Error: {e}")
 
+    def _auto_optimize(self) -> None:
+        """Periodic self-optimization — reuses the manual optimizer logic."""
+        if not hasattr(self, 'history_manager'):
+            return
+        dates = self.history_manager.get_recent_dates(3)
+        if len(dates) < 2:
+            return  # Not enough data to optimize yet
+        self.action_ai_optimise()
+
     # ── History Analysis ──────────────────────────────────────────────
-    
+
     @work(thread=True)
-    def action_show_history(self) -> None:
+    def action_analyze_history(self) -> None:
         """Deep dive analysis of historical data using Gemini."""
         self.call_from_thread(self._handle_refresh_error, "AI Historian: Retrieving previous terminal states...")
-        
+
         try:
             dates = self.history_manager.get_recent_dates(7)
             if not dates:
                 self.call_from_thread(self._add_chat_response, "No historical data found in database yet.")
                 return
-                
+
             history_summary = ""
             for d in dates:
                 snap = self.history_manager.get_snapshot(d)
                 if snap:
                     history_summary += f"- {d}: Equity=${snap['equity']:.2f}, PnL=${snap['pnl']:.2f}\n"
-            
+
             prompt = (
                 f"Analyze my trading history for the past week:\n{history_summary}\n\n"
                 "Provide a 3-sentence summary of the week's performance, identify the best day, "
                 "and give one piece of actionable advice for tomorrow. Be a supportive but objective historian."
             )
-            
+
             results = self.news_agent.gemini_client._call(prompt)
-            self.call_from_thread(self._add_chat_response, f"📊 [HISTORICAL ANALYSIS]\n{results}")
+            self.call_from_thread(self._add_chat_response, f"[HISTORICAL ANALYSIS]\n{results}")
         except Exception as e:
             self.call_from_thread(self._handle_refresh_error, f"History Error: {e}")
+
+    # ── Continuous AI Market Scanner ──────────────────────────────────
+
+    @work(thread=True)
+    def _ai_market_scan(self) -> None:
+        """Periodic market intelligence scan — finds opportunities and alerts.
+
+        Runs every 30 minutes. Checks:
+        1. Strong signals from current watchlist that need attention
+        2. Suggests new tickers to explore
+        3. Flags risk events for held positions
+        """
+        try:
+            from gemini_client import GeminiClient, GeminiConfig
+            gemini_cfg_raw = self.config.get("gemini", {})
+            gcfg = GeminiConfig(
+                model=gemini_cfg_raw.get("model", "gemini-2.5-flash"),
+                api_key_env=gemini_cfg_raw.get("api_key_env", "GEMINI_API_KEY"),
+            )
+            client = GeminiClient(gcfg)
+
+            # Build context from current state
+            sig_summary = ""
+            if self.state.signals is not None and not self.state.signals.empty:
+                for _, row in self.state.signals.head(10).iterrows():
+                    sig_summary += (
+                        f"  {row.get('ticker','?')}: signal={row.get('signal','?')}, "
+                        f"prob={row.get('prob_up',0):.2f}, ai_rec={row.get('ai_rec','')}\n"
+                    )
+
+            pos_summary = ""
+            for p in self.state.positions:
+                pos_summary += (
+                    f"  {p.get('ticker','?')}: qty={p.get('quantity',0)}, "
+                    f"pnl=${p.get('unrealised_pnl',0):.2f}\n"
+                )
+
+            all_tickers = self._get_active_tickers()
+
+            prompt = (
+                "You are a market intelligence scanner for a stock trading terminal.\n\n"
+                f"Current watchlist: {all_tickers}\n"
+                f"Current signals:\n{sig_summary or '  None yet'}\n"
+                f"Open positions:\n{pos_summary or '  None'}\n\n"
+                "Tasks:\n"
+                "1. Flag any URGENT signals (strong buy/sell with >0.7 probability) that need immediate attention\n"
+                "2. Identify any RISK to current positions based on recent market conditions\n"
+                "3. Suggest ONE new ticker worth investigating (not already on the watchlist)\n\n"
+                "Be concise — max 3-4 sentences total. Only report if something is notable. "
+                "If nothing stands out, respond with just: 'SCAN: All clear.'\n"
+                "Respond as plain text, not JSON."
+            )
+
+            result = client._call(prompt)
+            if not result:
+                return
+
+            # Only post to chat if the scan found something notable
+            result = result.strip()
+            if result and "all clear" not in result.lower():
+                self.call_from_thread(self._add_chat_response, f"[MARKET SCAN]\n{result}")
+
+                # If a new ticker was suggested, offer to add it
+                suggestion = client.suggest_ticker(all_tickers)
+                if suggestion and suggestion not in all_tickers:
+                    watchlists = self.config.get("watchlists", {})
+                    active = self.state.active_watchlist
+                    if active in watchlists and suggestion not in watchlists[active]:
+                        watchlists[active].append(suggestion)
+                        self._save_config()
+                        if hasattr(self, 'history_manager'):
+                            self.history_manager.log_watchlist_action(
+                                "ADD", suggestion, active, "AI market scanner suggestion"
+                            )
+                        if self.news_agent:
+                            self.news_agent.update_tickers(self._get_active_tickers())
+                        self.call_from_thread(
+                            self._add_chat_response,
+                            f"[MARKET SCAN] Added {suggestion} to {active} watchlist for monitoring."
+                        )
+
+        except Exception as e:
+            print(f"[app] Market scan error: {e}")
+
+    # ── Hourly Watchlist Review ────────────────────────────────────────
+
+    @work(thread=True)
+    def _hourly_watchlist_review(self) -> None:
+        """AI reviews watchlist and removes tickers it deems unnecessary.
+        NEVER removes tickers with open positions or pending orders."""
+        try:
+            watchlists = self.config.get("watchlists", {})
+            active = self.state.active_watchlist
+            tickers = watchlists.get(active, [])
+            if len(tickers) <= 3:
+                return  # Too few to prune
+
+            # Build protected set: positions + pending orders
+            protected = set()
+            for pos in self.state.positions:
+                t = pos.get("ticker")
+                if t:
+                    protected.add(t)
+            try:
+                pending = self.broker_service.get_pending_orders()
+                for o in pending:
+                    t = o.get("ticker")
+                    if t:
+                        protected.add(t)
+            except Exception:
+                pass
+
+            removable = [t for t in tickers if t not in protected]
+            if not removable:
+                return
+
+            # Ask Gemini which tickers (if any) should be dropped
+            from gemini_client import GeminiClient, GeminiConfig
+            gemini_cfg_raw = self.config.get("gemini", {})
+            gcfg = GeminiConfig(
+                model=gemini_cfg_raw.get("model", "gemini-2.5-flash"),
+                api_key_env=gemini_cfg_raw.get("api_key_env", "GEMINI_API_KEY"),
+            )
+            client = GeminiClient(gcfg)
+
+            prompt = (
+                f"You are reviewing the active watchlist: {removable}\n"
+                f"Protected tickers (CANNOT be removed): {list(protected)}\n\n"
+                "Identify tickers that are no longer worth watching based on current "
+                "market conditions, lack of momentum, or poor fundamentals. "
+                "Be conservative — only remove tickers you are confident are not worth tracking. "
+                "If all tickers are worth keeping, return an empty list.\n\n"
+                "Respond strictly as JSON: "
+                '{\"remove\": [\"TICK1\"], \"reasons\": {\"TICK1\": \"reason\"}}'
+            )
+
+            text = client._call(prompt)
+            if not text:
+                return
+            obj = client._parse_json(text)
+            to_remove = obj.get("remove", [])
+            reasons = obj.get("reasons", {})
+
+            if not to_remove:
+                return
+
+            for ticker in to_remove:
+                ticker = str(ticker).upper().strip()
+                if ticker in protected:
+                    continue  # Safety guard
+                if ticker in watchlists.get(active, []):
+                    watchlists[active].remove(ticker)
+                    reason = reasons.get(ticker, "AI deemed not worth watching")
+                    if hasattr(self, 'history_manager'):
+                        self.history_manager.log_watchlist_action("REMOVE", ticker, active, reason)
+                    self.call_from_thread(
+                        self._add_chat_response,
+                        f"[AI WATCHLIST] Removed {ticker}: {reason}"
+                    )
+
+            if to_remove:
+                self._save_config()
+                self.ai_service._config_cache = None
+                if self.news_agent:
+                    self.news_agent.update_tickers(self._get_active_tickers())
+
+        except Exception as e:
+            print(f"[app] Watchlist review error: {e}")
 
     # ── Config Helpers ─────────────────────────────────────────────────
 

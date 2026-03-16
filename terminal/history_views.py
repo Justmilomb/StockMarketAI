@@ -18,6 +18,7 @@ except ImportError:  # pragma: no cover
 # ═══════════════════════════════════════════════════════════════════════
 
 class HistoryModal(ModalScreen):
+    BINDINGS = [("escape", "dismiss_modal", "Close")]
     """Tabbed modal showing order history, dividends, and transactions."""
 
     DEFAULT_CSS = """
@@ -129,6 +130,9 @@ class HistoryModal(ModalScreen):
         else:
             self.dismiss(None)
 
+    def action_dismiss_modal(self) -> None:
+        self.dismiss(None)
+
     def _on_refresh(self) -> None:
         self._populate_tables()
 
@@ -138,6 +142,7 @@ class HistoryModal(ModalScreen):
 # ═══════════════════════════════════════════════════════════════════════
 
 class PiesModal(ModalScreen):
+    BINDINGS = [("escape", "dismiss_modal", "Close")]
     """Modal showing Trading 212 investment pies."""
 
     DEFAULT_CSS = """
@@ -229,6 +234,9 @@ class PiesModal(ModalScreen):
         else:
             self.dismiss(None)
 
+    def action_dismiss_modal(self) -> None:
+        self.dismiss(None)
+
     def _load_pie_detail(self) -> None:
         try:
             row_idx = self._pies_table.cursor_row
@@ -270,6 +278,7 @@ class PiesModal(ModalScreen):
 # ═══════════════════════════════════════════════════════════════════════
 
 class InstrumentsModal(ModalScreen):
+    BINDINGS = [("escape", "dismiss_modal", "Close")]
     """Modal for browsing tradeable instruments and exchange metadata."""
 
     DEFAULT_CSS = """
@@ -353,3 +362,6 @@ class InstrumentsModal(ModalScreen):
             self.dismiss(None)
         else:
             self.dismiss(None)
+
+    def action_dismiss_modal(self) -> None:
+        self.dismiss(None)

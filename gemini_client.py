@@ -53,11 +53,18 @@ class GeminiClient:
         full_prompt = f"{self.SYSTEM_INSTRUCTION}\n\n{prompt}" if use_system else prompt
         
         # Priority 1: User's requested model
-        # Priority 2: Standard Pro
-        # Priority 3: Flash (reliable)
-        models_to_try = [self.config.model, "gemini-1.5-pro", "gemini-1.5-flash"]
+        # Priority 2: Gemini 2.5 Pro (Most Advanced)
+        # Priority 3: Gemini 2.5 Flash (Fast/Cheap)
+        # Priority 4: Gemini 1.5 Pro (Legacy Stable)
+        models_to_try = [self.config.model, "gemini-2.5-pro", "gemini-2.5-flash", "gemini-1.5-pro"]
         # Remove duplicates while preserving order
-        models_to_try = list(dict.fromkeys(models_to_try))
+        models_to_try = [m for m in dict.fromkeys(models_to_try) if m]
+        
+        # Pruning system: skip models that we already know don't exist
+        if not hasattr(self, "_invalid_models"):
+            self._invalid_models = set()
+        
+        models_to_try = [m for m in models_to_try if m not in self._invalid_models]
 
         last_err = None
         for m in models_to_try:
@@ -70,9 +77,14 @@ class GeminiClient:
                     return resp.text.strip()
             except Exception as e:
                 last_err = e
+                err_str = str(e).upper()
                 # If error 429 (Resource Exhausted), shift to next model immediately
-                if "429" in str(e) or "Resource exhausted" in str(e):
+                if "429" in err_str or "RESOURCE EXHAUSTED" in err_str:
                     print(f"[gemini_client] Resource exhausted on {m}. Auto-shifting to next available model...")
+                # If error 404 (Not Found), mark model as invalid for this session
+                elif "404" in err_str or "NOT FOUND" in err_str or "NOT_FOUND" in err_str:
+                    print(f"[gemini_client] Model {m} not found. Blacklisting for this session.")
+                    self._invalid_models.add(m)
                 continue
         
         if last_err:
@@ -169,14 +181,16 @@ class GeminiClient:
         try:
             text = self._call(prompt)
             if not text:
-                 return {"sentiment": 0.0, "summary": "AI returned no analysis."}
+                 return {"sentiment": 0.0, "summary": "AI could not reach a conclusion."}
             obj = self._parse_json(text)
             sentiment = max(-1.0, min(1.0, float(obj.get("sentiment", 0.0))))
-            summary = str(obj.get("summary", ""))
+            summary = str(obj.get("summary", "No clear opinion found."))
             return {"sentiment": sentiment, "summary": summary}
         except Exception as e:
-            print(f"[gemini_client] News error for {ticker}: {e}")
-            return {"sentiment": 0.0, "summary": "Analysis failed."}
+            # If JSON parsing fails, the AI might have just sent a sentence.
+            if text and "{" not in text:
+                return {"sentiment": 0.0, "summary": text[:100]}
+            return {"sentiment": 0.0, "summary": "Could not analyze news."}
 
     # ── AI Recommendation ──────────────────────────────────────────────
 
@@ -244,11 +258,22 @@ class GeminiClient:
 
         sig_lines = []
         if signals is not None and hasattr(signals, 'iterrows'):
-            for _, row in signals.head(10).iterrows():
-                sig_lines.append(
-                    f"  {row.get('ticker','?')}: prob_up={row.get('prob_up',0):.2f}, "
-                    f"signal={row.get('signal','?')}"
+            for _, row in signals.head(15).iterrows():
+                ticker = row.get('ticker', '?')
+                prob = row.get('prob_up', 0)
+                signal = row.get('signal', '?')
+                ai_rec = row.get('ai_rec', '')
+                p_sk = row.get('p_up_sklearn', 0)
+                p_gm = row.get('p_up_gemini', 0)
+                p_fin = row.get('p_up_final', 0)
+                reason = row.get('reason', '')
+                line = (
+                    f"  {ticker}: signal={signal}, ai_rec={ai_rec}, "
+                    f"prob_final={p_fin:.2f} (sklearn={p_sk:.2f}, gemini={p_gm:.2f})"
                 )
+                if reason and reason != "No reason provided.":
+                    line += f"\n    Reason: {reason[:120]}"
+                sig_lines.append(line)
         sig_text = "\n".join(sig_lines) if sig_lines else "  No signals available"
 
         news_lines = []

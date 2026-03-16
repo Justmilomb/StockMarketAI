@@ -339,13 +339,14 @@ class ChatView(Panel):
 # ═══════════════════════════════════════════════════════════════════════
 
 class AddTickerModal(ModalScreen):
+    BINDINGS = [("escape", "dismiss_modal", "Cancel")]
     DEFAULT_CSS = """
     AddTickerModal {
         align: center middle;
     }
     #add-ticker-dialog {
         width: 50;
-        height: 12;
+        height: 14;
         border: solid #ffb000;
         background: #111111;
         padding: 1 2;
@@ -354,6 +355,7 @@ class AddTickerModal(ModalScreen):
     def compose(self) -> ComposeResult:
         with Vertical(id="add-ticker-dialog"):
             yield Label("[#ffb000]ADD TICKER[/]", classes="panel-title")
+            yield Label("[#666666](Press Esc to cancel)[/]")
             yield Input(placeholder="Enter ticker symbol (e.g., NVDA)", id="ticker-input")
             with Horizontal():
                 yield Button("Add", variant="success", id="btn-add")
@@ -370,19 +372,23 @@ class AddTickerModal(ModalScreen):
         else:
             self.dismiss(None)
 
+    def action_dismiss_modal(self) -> None:
+        self.dismiss(None)
+
 
 # ═══════════════════════════════════════════════════════════════════════
 #  TRADE MODAL
 # ═══════════════════════════════════════════════════════════════════════
 
 class TradeModal(ModalScreen):
+    BINDINGS = [("escape", "dismiss_modal", "Cancel")]
     DEFAULT_CSS = """
     TradeModal {
         align: center middle;
     }
     #trade-dialog {
         width: 55;
-        height: 20;
+        height: 24;
         border: solid #ffb000;
         background: #111111;
         padding: 1 2;
@@ -399,6 +405,7 @@ class TradeModal(ModalScreen):
     def compose(self) -> ComposeResult:
         with Vertical(id="trade-dialog"):
             yield Label(f"[#ffb000]TRADE – {self._ticker}[/]", classes="panel-title")
+            yield Label("[#666666](Press Esc to cancel)[/]")
 
             # Side
             yield Label("Side:")
@@ -457,12 +464,16 @@ class TradeModal(ModalScreen):
         else:
             self.dismiss(None)
 
+    def action_dismiss_modal(self) -> None:
+        self.dismiss(None)
+
 
 # ═══════════════════════════════════════════════════════════════════════
 #  SEARCH TICKER MODAL
 # ═══════════════════════════════════════════════════════════════════════
 
 class SearchTickerModal(ModalScreen):
+    BINDINGS = [("escape", "dismiss_modal", "Close")]
     DEFAULT_CSS = """
     SearchTickerModal {
         align: center middle;
@@ -478,6 +489,7 @@ class SearchTickerModal(ModalScreen):
     def compose(self) -> ComposeResult:
         with Vertical(id="search-dialog"):
             yield Label("[#ffb000]SEARCH TICKERS[/]", classes="panel-title")
+            yield Label("[#666666](Press Esc to close)[/]")
             yield Label("Search by name, sector, or theme (e.g. 'AI companies', 'semiconductors')")
             yield Input(placeholder="Type to search...", id="search-input")
             yield Label("", id="search-status")
@@ -527,12 +539,16 @@ class SearchTickerModal(ModalScreen):
         else:
             self.dismiss(None)
 
+    def action_dismiss_modal(self) -> None:
+        self.dismiss(None)
+
 
 # ═══════════════════════════════════════════════════════════════════════
 #  AI RECOMMEND TICKERS MODAL
 # ═══════════════════════════════════════════════════════════════════════
 
 class AiRecommendModal(ModalScreen):
+    BINDINGS = [("escape", "dismiss_modal", "Close")]
     DEFAULT_CSS = """
     AiRecommendModal {
         align: center middle;
@@ -548,6 +564,7 @@ class AiRecommendModal(ModalScreen):
     def compose(self) -> ComposeResult:
         with Vertical(id="recommend-dialog"):
             yield Label("[#ffb000]AI TICKER RECOMMENDATIONS[/]", classes="panel-title")
+            yield Label("[#666666](Press Esc to close)[/]")
             yield Label("Optional: specify a category (e.g. 'AI', 'biotech', 'dividends'):")
             yield Input(placeholder="Leave blank for general recommendations", id="rec-category")
             yield Button("Get Recommendations", variant="primary", id="btn-get-recs")
@@ -596,6 +613,9 @@ class AiRecommendModal(ModalScreen):
         elif event.button.id == "btn-rec-close":
             self.dismiss(None)
 
+    def action_dismiss_modal(self) -> None:
+        self.dismiss(None)
+
     def _on_results(self, results: list) -> None:
         self._rec_table.clear()
         if results:
@@ -611,4 +631,7 @@ class AiRecommendModal(ModalScreen):
             self.query_one("#rec-status", Label).update(
                 "[#ff0000]Could not generate recommendations.[/]"
             )
+
+    def action_dismiss_modal(self) -> None:
+        self.dismiss(None)
 
