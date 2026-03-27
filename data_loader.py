@@ -13,19 +13,32 @@ DEFAULT_DATA_DIR = Path("data")
 def _clean_ticker(ticker: str) -> str:
     """
     Remove Trading 212 internal suffixes like _US_EQ, _GB_EQ, etc.
-    that yfinance cannot resolve.
+    and convert to yfinance-compatible symbols.
+
+    T212 uses a lowercase 'l' before _EQ for London Stock Exchange stocks
+    (e.g. RRl_EQ → RR.L, BBYl_EQ → BBY.L, VUKGl_EQ → VUKG.L).
     """
+    original = ticker.strip()
+    # Detect London exchange: T212 uses lowercase 'l' immediately before _EQ
+    is_london = original.endswith("l_EQ")
+
     suffixes = [
         "_US_EQ", "_GB_EQ", "_UK_EQ", "_DE_EQ", "_FR_EQ", "_IL_EQ",
         "_UK", "_DE", "_FR", "_IL", "_NL_EQ", "_ES_EQ", "_IT_EQ",
         "_CH_EQ", "_SE_EQ", "_NO_EQ", "_DK_EQ", "_FI_EQ",
         "_EQ",  # catch-all for remaining _EQ suffixes — MUST be last
     ]
-    cleaned = ticker.upper().strip()
+    cleaned = original.upper().strip()
     for s in suffixes:
         if cleaned.endswith(s):
             cleaned = cleaned[: -len(s)]
             break
+
+    # London stocks: the trailing 'L' (from lowercase 'l' after uppercasing)
+    # is not part of the symbol — replace with yfinance '.L' suffix
+    if is_london and cleaned.endswith("L") and len(cleaned) > 1:
+        cleaned = cleaned[:-1] + ".L"
+
     return cleaned
 
 
@@ -71,12 +84,41 @@ def fetch_ticker_data(
                 first_col = df.columns[0]
                 df[first_col] = pd.to_datetime(df[first_col], errors="coerce")
                 df = df.set_index(first_col)
-            return df
+
+            # Sanity check: if the cached file has suspiciously few rows
+            # relative to the requested date range, discard it and re-fetch.
+            from datetime import datetime as _dt
+            try:
+                expected_days = (_dt.strptime(end_date, "%Y-%m-%d") - _dt.strptime(start_date, "%Y-%m-%d")).days
+                expected_trading_days = max(10, int(expected_days * 0.7))  # ~70% are trading days
+                if len(df) >= expected_trading_days * 0.3:  # accept if ≥30% of expected
+                    return df
+                else:
+                    print(f"[data_loader] Stale cache for {yf_ticker}: {len(df)} rows vs ~{expected_trading_days} expected — re-fetching")
+                    cache_path.unlink(missing_ok=True)
+            except Exception:
+                return df  # Can't parse dates — trust the cache
         except Exception:
-            pass # Fallback to download
+            pass  # Fallback to download
 
     try:
-        df = yf.download(yf_ticker, start=start_date, end=end_date, auto_adjust=False, progress=False)
+        import time as _time_mod
+
+        # Retry with backoff — yfinance rate-limits aggressively
+        df = pd.DataFrame()
+        for _attempt in range(3):
+            try:
+                df = yf.download(yf_ticker, start=start_date, end=end_date, auto_adjust=False, progress=False)
+                if not df.empty:
+                    break
+            except Exception as _dl_err:
+                err_str = str(_dl_err).lower()
+                if "rate" in err_str or "too many" in err_str:
+                    _time_mod.sleep(2 ** _attempt)  # 1s, 2s, 4s
+                    continue
+                raise
+            _time_mod.sleep(1)
+
         if df.empty:
             print(f"[data_loader] No data returned for {yf_ticker} ({ticker})")
             return pd.DataFrame()
@@ -124,7 +166,7 @@ def fetch_universe_data(
             use_cache=use_cache,
         )
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
         results = list(executor.map(fetch_one, tickers))
 
     for ticker, df in results:

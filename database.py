@@ -6,6 +6,8 @@ Tables:
   - config_changes: audit log for AI-driven config edits
   - watchlist_log: tracks AI additions/removals from watchlists
   - chat_history: persists chat messages across sessions
+  - ai_memory: persistent facts about user preferences and trading behaviour
+  - prediction_log: tracks predictions vs actual outcomes for accuracy measurement
 """
 import sqlite3
 import json
@@ -67,6 +69,30 @@ class HistoryManager:
                     role TEXT NOT NULL,
                     text TEXT NOT NULL
                 );
+
+                CREATE TABLE IF NOT EXISTS ai_memory (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TEXT DEFAULT (datetime('now')),
+                    category TEXT NOT NULL,
+                    fact TEXT NOT NULL,
+                    confidence REAL DEFAULT 1.0,
+                    source TEXT DEFAULT 'chat'
+                );
+
+                CREATE TABLE IF NOT EXISTS prediction_log (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TEXT DEFAULT (datetime('now')),
+                    ticker TEXT NOT NULL,
+                    source TEXT NOT NULL,
+                    predicted_probability REAL,
+                    predicted_signal TEXT,
+                    actual_direction INTEGER,
+                    actual_return REAL,
+                    resolved_at TEXT
+                );
+                CREATE INDEX IF NOT EXISTS idx_pred_ticker ON prediction_log(ticker);
+                CREATE INDEX IF NOT EXISTS idx_pred_source ON prediction_log(source);
+                CREATE INDEX IF NOT EXISTS idx_pred_resolved ON prediction_log(resolved_at);
             """)
 
     # ── Serialisation helpers ──────────────────────────────────────────
@@ -97,7 +123,7 @@ class HistoryManager:
         signals_json = ""
         if state.signals is not None and not state.signals.empty:
             cols = [c for c in ["ticker", "prob_up", "signal", "ai_rec", "p_up_sklearn",
-                                "p_up_gemini", "p_up_final", "reason"]
+                                "p_up_ai", "p_up_final", "reason"]
                     if c in state.signals.columns]
             signals_json = state.signals[cols].head(30).to_json(orient="records")
 
@@ -213,6 +239,99 @@ class HistoryManager:
                 "(SELECT id FROM chat_history ORDER BY id DESC LIMIT ?)",
                 (keep_last,),
             )
+
+    # ── AI Memory ──────────────────────────────────────────────────
+
+    def save_memory_fact(self, category: str, fact: str, confidence: float = 1.0, source: str = "chat") -> None:
+        """Store a persistent fact about the user or their trading behaviour."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                "INSERT INTO ai_memory (category, fact, confidence, source) VALUES (?, ?, ?, ?)",
+                (category, fact, confidence, source),
+            )
+
+    def get_memory_summary(self, limit: int = 20) -> str:
+        """Build a natural language summary of stored memories for AI context."""
+        with sqlite3.connect(self.db_path) as conn:
+            rows = conn.execute(
+                "SELECT category, fact, timestamp FROM ai_memory ORDER BY id DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        if not rows:
+            return ""
+        lines: list[str] = []
+        for category, fact, ts in rows:
+            lines.append(f"- [{category}] {fact} (recorded: {ts})")
+        return "\n".join(lines)
+
+    def clear_old_memories(self, keep_last: int = 50) -> None:
+        """Prune old memories to prevent unbounded growth."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                "DELETE FROM ai_memory WHERE id NOT IN "
+                "(SELECT id FROM ai_memory ORDER BY id DESC LIMIT ?)",
+                (keep_last,),
+            )
+
+    # ── Prediction Log ──────────────────────────────────────────────
+
+    def log_prediction(self, ticker: str, source: str, probability: float, signal: str) -> None:
+        """Insert an unresolved prediction."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                "INSERT INTO prediction_log (ticker, source, predicted_probability, predicted_signal) VALUES (?, ?, ?, ?)",
+                (ticker, source, probability, signal),
+            )
+
+    def resolve_predictions(self, ticker: str, actual_direction: int, actual_return: float) -> int:
+        """Mark all unresolved predictions for a ticker as resolved. Returns count resolved."""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute(
+                "UPDATE prediction_log SET actual_direction = ?, actual_return = ?, resolved_at = datetime('now') "
+                "WHERE ticker = ? AND resolved_at IS NULL",
+                (actual_direction, actual_return, ticker),
+            )
+            return cursor.rowcount
+
+    def get_accuracy_stats(self, source: str = "all", window_days: int = 30) -> Dict[str, Any]:
+        """Get accuracy stats for a source over the last N days."""
+        with sqlite3.connect(self.db_path) as conn:
+            where_clause = "WHERE resolved_at IS NOT NULL AND resolved_at > datetime('now', ?)"
+            params: list = [f"-{window_days} days"]
+            if source != "all":
+                where_clause += " AND source = ?"
+                params.append(source)
+
+            row = conn.execute(
+                f"SELECT COUNT(*) as total, "
+                f"SUM(CASE WHEN (predicted_probability > 0.5 AND actual_direction = 1) "
+                f"OR (predicted_probability <= 0.5 AND actual_direction = 0) THEN 1 ELSE 0 END) as correct "
+                f"FROM prediction_log {where_clause}",
+                params,
+            ).fetchone()
+
+            total = row[0] or 0
+            correct = row[1] or 0
+            return {
+                "total": total,
+                "correct": correct,
+                "hit_rate": correct / total if total > 0 else 0.0,
+            }
+
+    def get_unresolved_predictions(self, ticker: str | None = None) -> List[Dict[str, Any]]:
+        """Get pending predictions, optionally filtered by ticker."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            if ticker:
+                rows = conn.execute(
+                    "SELECT * FROM prediction_log WHERE resolved_at IS NULL AND ticker = ?",
+                    (ticker,),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM prediction_log WHERE resolved_at IS NULL",
+                ).fetchall()
+            return [dict(r) for r in rows]
 
     def close(self) -> None:
         pass  # connections are per-call via context manager

@@ -13,6 +13,23 @@ except ImportError:  # pragma: no cover
     pass
 
 
+def compute_verdict(prob: float, consensus_pct: float) -> str:
+    """Return a verdict label based on ML probability and consensus percentage.
+
+    Centralised so that both the watchlist renderer and AI chat context
+    produce identical labels without duplicating the threshold logic.
+    """
+    if prob > 0.65 and consensus_pct >= 70:
+        return "STR BUY"
+    if prob > 0.55 and consensus_pct >= 60:
+        return "BUY"
+    if prob < 0.35 and consensus_pct >= 70:
+        return "STR SELL"
+    if prob < 0.45 and consensus_pct >= 60:
+        return "SELL"
+    return "NEUTRAL"
+
+
 class Panel(Vertical):
     """A bordered container for a section."""
     DEFAULT_CSS = """
@@ -44,7 +61,7 @@ class WatchlistView(Panel):
         yield self.table
 
     def on_mount(self) -> None:
-        self.table.add_columns("Ticker", "Live Px", "Day %", "Prob", "Signal", "AI Rec", "Sentiment")
+        self.table.add_columns("Ticker", "Verdict", "Live Px", "Day %", "Prob", "Signal", "AI Rec", "Consensus", "Conf", "Sentiment")
         self.refresh_view()
 
     def refresh_view(self) -> None:
@@ -55,18 +72,38 @@ class WatchlistView(Panel):
             pass
 
         self.table.clear()
-        if self.state.signals is not None:
-            # Extract held tickers for highlighting
-            held_tickers = {p.get("ticker"): p for p in self.state.positions}
+        # Extract held tickers for highlighting (case-insensitive)
+        held_tickers = {p.get("ticker"): p for p in self.state.positions}
+        held_upper = {t.upper() for t in held_tickers if t}
+        protected_upper = {t.upper() for t in self.state.protected_tickers}
 
+        verdict_colors: dict[str, str] = {
+            "STR BUY":  "#00ff00",
+            "BUY":      "#22cc22",
+            "NEUTRAL":  "#ffb000",
+            "SELL":     "#cc4444",
+            "STR SELL": "#ff0000",
+        }
+
+        if self.state.signals is not None and not self.state.signals.empty:
             for _, row in self.state.signals.head(30).iterrows():
                 ticker = row['ticker']
-                prob = f"{row['prob_up']:.2f}"
+                prob_up = float(row['prob_up'])
                 signal = row['signal']
-                
-                # Is held?
-                is_held = ticker in held_tickers
-                ticker_display = f"[reverse #00ffff]{ticker}*[/]" if is_held else ticker
+
+                # Is held / protected? (case-insensitive)
+                is_held = ticker in held_tickers or ticker.upper() in held_upper
+                is_protected = ticker.upper() in protected_upper
+
+                # Ticker display: protected > held > normal
+                if is_protected and is_held:
+                    ticker_display = f"[reverse #ff8800][P]{ticker}*[/]"
+                elif is_protected:
+                    ticker_display = f"[#ff8800][P]{ticker}[/]"
+                elif is_held:
+                    ticker_display = f"[reverse #00ffff]{ticker}*[/]"
+                else:
+                    ticker_display = ticker
 
                 # Live Data
                 live_info = self.state.live_data.get(ticker, {})
@@ -101,6 +138,33 @@ class WatchlistView(Panel):
                 else:
                     ai_rec_str = "-"
 
+                # Override signal and AI rec for protected tickers
+                if is_protected:
+                    signal_str = f"[#666666]LOCKED[/]"
+                    ai_rec_str = f"[#666666]LOCKED[/]"
+
+                # Consensus data
+                cons = self.state.consensus_data.get(ticker)
+                if cons:
+                    cpct = cons.get("consensus_pct", 0) if isinstance(cons, dict) else getattr(cons, "consensus_pct", 0)
+                    cconf = cons.get("confidence", 0) if isinstance(cons, dict) else getattr(cons, "confidence", 0)
+                    # Use consensus probability when available; fall back to ML prob_up
+                    cons_prob = cons.get("probability", prob_up) if isinstance(cons, dict) else getattr(cons, "probability", prob_up)
+                    if cpct >= 80:
+                        cons_str = f"[#00ff00]{cpct:.0f}%[/]"
+                    elif cpct >= 60:
+                        cons_str = f"[#ffb000]{cpct:.0f}%[/]"
+                    else:
+                        cons_str = f"[#ff0000]{cpct:.0f}%[/]"
+                    conf_str = f"{cconf:.2f}"
+                else:
+                    cpct = 50.0
+                    cons_prob = prob_up
+                    cons_str = "-"
+                    conf_str = "-"
+
+                prob_str = f"{prob_up:.2f}"
+
                 # News Sentiment
                 news = self.state.news_sentiment.get(ticker)
                 if news:
@@ -114,7 +178,74 @@ class WatchlistView(Panel):
                 else:
                     sent_str = "-"
 
-                self.table.add_row(ticker_display, live_px_str, day_pct_str, prob, signal_str, ai_rec_str, sent_str)
+                # Verdict — protected tickers are always LOCKED
+                if is_protected:
+                    verdict_str = "[#666666]LOCKED[/]"
+                    row_bg = ""
+                else:
+                    verdict = compute_verdict(cons_prob, cpct)
+
+                    # AI colour-grade override: external signal takes precedence
+                    ai_grade = self.state.ai_color_grades.get(ticker, "").upper()
+                    if ai_grade == "GREEN":
+                        verdict = "STR BUY"
+                    elif ai_grade == "RED":
+                        verdict = "STR SELL"
+                    elif ai_grade == "ORANGE":
+                        verdict = "NEUTRAL"
+
+                    if verdict in ("STR BUY", "BUY"):
+                        row_bg = "#0a1a0a"
+                    elif verdict in ("STR SELL", "SELL"):
+                        row_bg = "#1a0a0a"
+                    else:
+                        row_bg = ""
+
+                    # Verdict cell uses background for prominence (works on single cells)
+                    if row_bg:
+                        verdict_str = f"[bold {verdict_colors[verdict]} on {row_bg}] {verdict} [/]"
+                    else:
+                        verdict_str = f"[bold {verdict_colors[verdict]}]{verdict}[/]"
+
+                self.table.add_row(
+                    ticker_display, verdict_str, live_px_str, day_pct_str,
+                    prob_str, signal_str, ai_rec_str, cons_str, conf_str, sent_str,
+                )
+
+        # Show held positions that aren't in the signals DF yet
+        # (e.g. newly synced T212 positions before the pipeline re-runs)
+        signal_tickers_upper = set()
+        if self.state.signals is not None and hasattr(self.state.signals, 'empty') and not self.state.signals.empty:
+            signal_tickers_upper = {str(t).upper() for t in self.state.signals["ticker"]}
+
+        for pos in self.state.positions:
+            ticker = pos.get("ticker", "")
+            if not ticker or ticker.upper() in signal_tickers_upper:
+                continue
+            is_protected = ticker.upper() in protected_upper
+            if is_protected:
+                ticker_display = f"[reverse #ff8800][P]{ticker}*[/]"
+            else:
+                ticker_display = f"[reverse #00ffff]{ticker}*[/]"
+            live_info = self.state.live_data.get(ticker, {})
+            live_px = live_info.get("price", 0.0)
+            day_pct = live_info.get("change_pct", 0.0)
+            # Fallback to position price data
+            if live_px == 0.0:
+                live_px = pos.get("current_price", 0.0)
+            live_px_str = f"${live_px:.2f}" if live_px > 0 else "-"
+            if day_pct > 0:
+                day_pct_str = f"[#00ff00]+{day_pct:.1f}%[/]"
+            elif day_pct < 0:
+                day_pct_str = f"[#ff0000]{day_pct:.1f}%[/]"
+            else:
+                day_pct_str = "-"
+            signal_str = "[#666666]PENDING[/]"
+            verdict_str = "[#666666]--[/]"
+            self.table.add_row(
+                ticker_display, verdict_str, live_px_str, day_pct_str, "-", signal_str,
+                "-", "-", "-", "-",
+            )
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -222,8 +353,18 @@ class SettingsView(Panel):
         invested = acct.get("invested", 0.0)
         total = acct.get("total", self.state.capital)
 
+        regime = self.state.current_regime
+        regime_colors = {
+            "trending_up": "#00ff00", "trending_down": "#ff0000",
+            "mean_reverting": "#ffb000", "high_volatility": "#ff4444",
+            "unknown": "#666666",
+        }
+        regime_color = regime_colors.get(regime, "#666666")
+
         lines = [
             f"Mode:       {mode_color}{self.state.mode}[/]",
+            f"Regime:     [{regime_color}]{regime}[/] ({self.state.regime_confidence:.0%})",
+            f"Models:     [#ffffff]{self.state.ensemble_model_count}[/]",
             f"Balance:    [#ffffff]${balance:,.2f}[/]",
             f"Invested:   [#ffffff]${invested:,.2f}[/]",
             f"Total:      [#ffffff]${total:,.2f}[/]",
@@ -632,3 +773,88 @@ class AiRecommendModal(ModalScreen):
     def action_dismiss_modal(self) -> None:
         self.dismiss(None)
 
+
+# ═══════════════════════════════════════════════════════════════════════
+#  HELP MODAL
+# ═══════════════════════════════════════════════════════════════════════
+
+class HelpModal(ModalScreen):
+    BINDINGS = [
+        ("escape", "dismiss_modal", "Close"),
+        ("question_mark", "dismiss_modal", "Close"),
+    ]
+    DEFAULT_CSS = """
+    HelpModal {
+        align: center middle;
+    }
+    #help-dialog {
+        width: 72;
+        height: 38;
+        border: solid #ffb000;
+        background: #111111;
+        padding: 1 2;
+    }
+    """
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="help-dialog"):
+            yield Label("[#ffb000 bold]TERMINAL HELP — KEYBOARD SHORTCUTS[/]", classes="panel-title")
+            yield Label("[#666666]Press ? or Esc to close[/]\n")
+            yield VerticalScroll(Label(self._help_text(), id="help-content"), id="help-scroll")
+            yield Button("Close", variant="error", id="btn-help-close")
+
+    @staticmethod
+    def _help_text() -> str:
+        return (
+            "[#00bfff bold]─── NAVIGATION ───[/]\n"
+            "  [#ffffff]?[/]         Show this help screen\n"
+            "  [#ffffff]q[/]         Quit terminal\n"
+            "  [#ffffff]r[/]         Force refresh data & signals\n"
+            "  [#ffffff]w[/]         Cycle through watchlists\n"
+            "  [#ffffff]g[/]         Show price chart for selected ticker\n"
+            "  [#ffffff]c[/]         Focus chat input\n"
+            "\n"
+            "[#00bfff bold]─── TRADING ───[/]\n"
+            "  [#ffffff]a[/]         Toggle mode (Advisor / Auto-Trade)\n"
+            "  [#ffffff]t[/]         Open trade dialog for selected ticker\n"
+            "  [#ffffff]l[/]         Lock/unlock ticker (prevent AI trading)\n"
+            "\n"
+            "[#00bfff bold]─── WATCHLIST ───[/]\n"
+            "  [#ffffff]+  (=)[/]    Add ticker to watchlist\n"
+            "  [#ffffff]-[/]         Remove selected ticker\n"
+            "  [#ffffff]/[/]         Search tickers (AI-powered)\n"
+            "  [#ffffff]d[/]         AI recommend tickers to add\n"
+            "\n"
+            "[#00bfff bold]─── AI & ANALYSIS ───[/]\n"
+            "  [#ffffff]s[/]         AI suggest a new ticker\n"
+            "  [#ffffff]i[/]         Generate AI portfolio insights\n"
+            "  [#ffffff]o[/]         Run AI optimizer (tune weights)\n"
+            "  [#ffffff]n[/]         Refresh news sentiment\n"
+            "\n"
+            "[#00bfff bold]─── BROKER / HISTORY ───[/]\n"
+            "  [#ffffff]h[/]         Show order history\n"
+            "  [#ffffff]p[/]         Show pies\n"
+            "  [#ffffff]e[/]         Browse instruments\n"
+            "\n"
+            "[#00bfff bold]─── WATCHLIST COLUMNS ───[/]\n"
+            "  [#ffffff]Verdict[/]   Hierarchical AI judgment (STR BUY→STR SELL)\n"
+            "  [#ffffff]Live Px[/]   Real-time price (T212 / yfinance)\n"
+            "  [#ffffff]Day %[/]     Daily change percentage\n"
+            "  [#ffffff]Prob[/]      ML ensemble probability (0-1)\n"
+            "  [#ffffff]Signal[/]    BUY / SELL / HOLD\n"
+            "  [#ffffff]AI Rec[/]    Claude persona recommendation\n"
+            "  [#ffffff]Consensus[/] % agreement across 12 models\n"
+            "  [#ffffff]Conf[/]      Signal confidence score\n"
+            "  [#ffffff]Sentiment[/] News sentiment (-1 to +1)\n"
+            "\n"
+            "[#00bfff bold]─── SYMBOLS ───[/]\n"
+            "  [#ff8800][P][/]        Locked ticker (trading disabled)\n"
+            "  [#00ffff]*[/]         Ticker with open position\n"
+        )
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "btn-help-close":
+            self.dismiss(None)
+
+    def action_dismiss_modal(self) -> None:
+        self.dismiss(None)

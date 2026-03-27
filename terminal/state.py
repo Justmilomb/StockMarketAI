@@ -58,3 +58,21 @@ class AppState:
 
     # Broker connection status
     broker_is_live: bool = False
+
+    # Protected tickers (never-trade list)
+    protected_tickers: set[str] = field(default_factory=set)
+
+    # Consensus / ensemble data
+    consensus_data: Dict[str, Any] = field(default_factory=dict)
+    current_regime: str = "unknown"
+    regime_confidence: float = 0.0
+    ensemble_model_count: int = 0
+
+    # Meta-ensemble / forecaster data
+    meta_ensemble_data: Dict[str, Any] = field(default_factory=dict)
+    statistical_model_count: int = 0
+    deep_model_available: bool = False
+    pipeline_last_duration: float = 0.0
+
+    # AI-assigned colour grades override the computed verdict ("GREEN"/"RED"/"ORANGE")
+    ai_color_grades: Dict[str, str] = field(default_factory=dict)

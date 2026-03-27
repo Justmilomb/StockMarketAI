@@ -26,10 +26,10 @@ class TickerNews:
 class NewsAgent:
     """
     Background agent that periodically fetches news for ALL watchlisted tickers
-    via RSS feeds and uses Gemini to score sentiment.
+    via RSS feeds and uses Claude to score sentiment.
 
     Headlines are fetched in parallel (I/O bound), then sentiment analysis
-    is batched to avoid per-ticker Gemini rate limits.
+    is batched to reduce API calls.
     """
 
     RSS_SOURCES = [
@@ -37,8 +37,8 @@ class NewsAgent:
         "https://feeds.finance.yahoo.com/rss/2.0/headline?s={ticker}&region=US&lang=en-US",
     ]
 
-    def __init__(self, gemini_client: Any, refresh_interval_minutes: int = 5) -> None:
-        self.gemini_client = gemini_client
+    def __init__(self, ai_client: Any, refresh_interval_minutes: int = 5) -> None:
+        self.ai_client = ai_client  # Duck-typed — works with ClaudeClient
         self.refresh_interval = refresh_interval_minutes * 60
         self._news_data: Dict[str, TickerNews] = {}
         self._thread: Optional[threading.Thread] = None
@@ -91,7 +91,7 @@ class NewsAgent:
             if headlines:
                 ticker_headlines[ticker] = headlines
 
-        # Phase 2: Batch sentiment analysis to reduce Gemini API calls
+        # Phase 2: Batch sentiment analysis to reduce API calls
         # Instead of one call per ticker, send all tickers in one prompt
         if ticker_headlines:
             self._batch_analyze_sentiment(ticker_headlines)
@@ -114,8 +114,8 @@ class NewsAgent:
         return headlines[:8]
 
     def _batch_analyze_sentiment(self, ticker_headlines: Dict[str, List[str]]) -> None:
-        """Analyze sentiment for all tickers in a single Gemini call."""
-        if self.gemini_client is None:
+        """Analyze sentiment for all tickers in a single Claude call."""
+        if self.ai_client is None:
             return
 
         # Build a combined prompt for all tickers at once
@@ -135,11 +135,11 @@ class NewsAgent:
         )
 
         try:
-            text = self.gemini_client._call(prompt)
+            text = self.ai_client._call(prompt)
             if not text:
                 return
 
-            obj = self.gemini_client._parse_json(text)
+            obj = self.ai_client._parse_json(text)
             if not isinstance(obj, dict):
                 return
 
@@ -162,7 +162,7 @@ class NewsAgent:
             for ticker, headlines in ticker_headlines.items():
                 if ticker not in self._news_data:
                     try:
-                        result = self.gemini_client.analyze_news(ticker, headlines)
+                        result = self.ai_client.analyze_news(ticker, headlines)
                         self._news_data[ticker] = TickerNews(
                             ticker=ticker,
                             sentiment=result.get("sentiment", 0.0),
@@ -174,9 +174,9 @@ class NewsAgent:
                         pass
 
     def _analyze_sentiment(self, ticker: str, headlines: List[str]) -> Dict[str, Any]:
-        if self.gemini_client is None:
+        if self.ai_client is None:
             return {"sentiment": 0.0, "summary": "No AI client available."}
-        return self.gemini_client.analyze_news(ticker, headlines)
+        return self.ai_client.analyze_news(ticker, headlines)
 
     def fetch_now(self) -> None:
         """Force an immediate fetch (called from a worker thread)."""

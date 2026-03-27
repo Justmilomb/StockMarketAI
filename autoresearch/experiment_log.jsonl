@@ -1,0 +1,1 @@
+{"timestamp": "2026-03-23T20:31:55.490491", "cycle": 1, "baseline_accuracy": 0.6002046152097306, "result_accuracy": 0.0, "baseline_sharpe": 1.855668005827349, "result_sharpe": 0.0, "result_pnl": 0.0, "n_trades": 0, "decision": "ERROR", "reasoning": "Empty Claude response", "diff_summary": "", "config_changes": {}}

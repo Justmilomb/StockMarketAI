@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set
 
 import numpy as np
 import pandas as pd
@@ -20,6 +20,7 @@ def generate_signals(
     meta_latest: pd.DataFrame,
     config: StrategyConfig | None = None,
     held_tickers: Optional[List[str]] = None,
+    protected_tickers: set[str] | None = None,
 ) -> pd.DataFrame:
     """
     Given:
@@ -54,5 +55,12 @@ def generate_signals(
     buy_mask = (df["prob_up"] >= config.threshold_buy) & (~df["ticker"].isin(held_set))
     buy_candidates = df[buy_mask].head(config.max_positions).index
     df.loc[buy_candidates, "signal"] = "buy"
+
+    # Protected tickers: override any signal to hold — never trade these
+    # Case-insensitive match — config may store VUKGl_EQ while pipeline has VUKGL_EQ
+    if protected_tickers:
+        protected_upper = {t.upper() for t in protected_tickers}
+        protected_mask = df["ticker"].str.upper().isin(protected_upper)
+        df.loc[protected_mask, "signal"] = "hold"
 
     return df.reset_index(drop=True)

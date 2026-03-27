@@ -46,47 +46,58 @@ class GeminiClient:
                 "Export your Gemini API key in the environment before running the app."
             )
 
-        self._client = genai.Client(api_key=api_key)
+        self._client = genai.Client(
+            api_key=api_key,
+            http_options=types.HttpOptions(timeout=30_000),  # 30s global timeout
+        )
 
-    def _call(self, prompt: str, use_system: bool = True) -> str:
-        """Helper to make a Gemini API call with system instructions and fallback."""
+    def _call(self, prompt: str, use_system: bool = True, timeout: int = 30) -> str:
+        """Helper to make a Gemini API call with system instructions and fallback.
+
+        *timeout* caps the wall-clock time for each individual model attempt.
+        """
         full_prompt = f"{self.SYSTEM_INSTRUCTION}\n\n{prompt}" if use_system else prompt
-        
+
         # Priority 1: User's requested model
-        # Priority 2: Gemini 2.5 Pro (Most Advanced)
-        # Priority 3: Gemini 2.5 Flash (Fast/Cheap)
+        # Priority 2: Gemini 2.5 Flash (Fast/Cheap — best for throughput)
+        # Priority 3: Gemini 2.5 Pro (Most Advanced)
         # Priority 4: Gemini 1.5 Pro (Legacy Stable)
-        models_to_try = [self.config.model, "gemini-2.5-pro", "gemini-2.5-flash", "gemini-1.5-pro"]
+        models_to_try = [self.config.model, "gemini-2.5-flash", "gemini-2.5-pro", "gemini-1.5-pro"]
         # Remove duplicates while preserving order
         models_to_try = [m for m in dict.fromkeys(models_to_try) if m]
-        
+
         # Pruning system: skip models that we already know don't exist
         if not hasattr(self, "_invalid_models"):
-            self._invalid_models = set()
-        
+            self._invalid_models: set[str] = set()
+
         models_to_try = [m for m in models_to_try if m not in self._invalid_models]
 
-        last_err = None
+        last_err: Exception | None = None
         for m in models_to_try:
             try:
                 resp = self._client.models.generate_content(
                     model=m,
                     contents=full_prompt,
+                    config=types.GenerateContentConfig(
+                        http_options=types.HttpOptions(timeout=timeout * 1000),
+                    ),
                 )
                 if resp.text:
                     return resp.text.strip()
             except Exception as e:
                 last_err = e
                 err_str = str(e).upper()
-                # If error 429 (Resource Exhausted), shift to next model immediately
                 if "429" in err_str or "RESOURCE EXHAUSTED" in err_str:
                     print(f"[gemini_client] Resource exhausted on {m}. Auto-shifting to next available model...")
-                # If error 404 (Not Found), mark model as invalid for this session
                 elif "404" in err_str or "NOT FOUND" in err_str or "NOT_FOUND" in err_str:
                     print(f"[gemini_client] Model {m} not found. Blacklisting for this session.")
                     self._invalid_models.add(m)
+                elif "TIMEOUT" in err_str or "DEADLINE" in err_str:
+                    print(f"[gemini_client] Timeout on {m} ({timeout}s). Trying next model...")
+                else:
+                    print(f"[gemini_client] {m} error: {e}")
                 continue
-        
+
         if last_err:
             print(f"[gemini_client] All models failed. Last error: {last_err}")
         return ""
@@ -242,13 +253,22 @@ class GeminiClient:
         signals: Any,
         news_data: Dict[str, Any],
         account_info: Dict[str, Any],
+        *,
+        chat_history: List[Dict[str, str]] | None = None,
+        protected_tickers: set[str] | None = None,
+        regime: str = "unknown",
+        regime_confidence: float = 0.0,
+        consensus_data: Dict[str, Any] | None = None,
+        meta_ensemble_data: Dict[str, Any] | None = None,
+        memory_summary: str = "",
     ) -> str:
         """
         Multi-context chat: builds a system prompt with all terminal data
+        (positions, signals, news, regime, consensus, meta-ensemble, memory)
         and responds to the user's question.
         """
-        # Build context
-        pos_lines = []
+        # ── Positions ──
+        pos_lines: list[str] = []
         for p in positions:
             t = p.get("ticker", "?")
             q = p.get("quantity", 0)
@@ -256,11 +276,11 @@ class GeminiClient:
             pos_lines.append(f"  {t}: {q} shares, PnL=${pnl:.2f}")
         pos_text = "\n".join(pos_lines) if pos_lines else "  No open positions"
 
-        sig_lines = []
+        # ── Signals (top 15) ──
+        sig_lines: list[str] = []
         if signals is not None and hasattr(signals, 'iterrows'):
             for _, row in signals.head(15).iterrows():
                 ticker = row.get('ticker', '?')
-                prob = row.get('prob_up', 0)
                 signal = row.get('signal', '?')
                 ai_rec = row.get('ai_rec', '')
                 p_sk = row.get('p_up_sklearn', 0)
@@ -276,7 +296,8 @@ class GeminiClient:
                 sig_lines.append(line)
         sig_text = "\n".join(sig_lines) if sig_lines else "  No signals available"
 
-        news_lines = []
+        # ── News sentiment ──
+        news_lines: list[str] = []
         for ticker, nd in news_data.items():
             if hasattr(nd, 'sentiment'):
                 news_lines.append(f"  {ticker}: sentiment={nd.sentiment:.2f} – {nd.summary}")
@@ -284,6 +305,7 @@ class GeminiClient:
                 news_lines.append(f"  {ticker}: sentiment={nd.get('sentiment', 0):.2f}")
         news_text = "\n".join(news_lines) if news_lines else "  No news data"
 
+        # ── Account ──
         acct = account_info or {}
         acct_text = (
             f"  Balance: ${acct.get('free', 0):.2f}\n"
@@ -291,15 +313,74 @@ class GeminiClient:
             f"  Total: ${acct.get('total', 0):.2f}"
         )
 
+        # ── Conversation history (last 10 messages) ──
+        conversation_lines: list[str] = []
+        if chat_history:
+            for msg in chat_history[-10:]:
+                role_label = "User" if msg.get("role") == "user" else "Assistant"
+                conversation_lines.append(f"  {role_label}: {msg.get('text', '')[:200]}")
+        conversation_text = "\n".join(conversation_lines) if conversation_lines else "  (First message in this session)"
+
+        # ── Market regime ──
+        regime_text = f"  Current: {regime} (confidence: {regime_confidence:.0%})"
+
+        # ── Protected tickers ──
+        protected_text = (
+            f"  Locked tickers (DO NOT trade): {', '.join(sorted(protected_tickers))}"
+            if protected_tickers
+            else "  None"
+        )
+
+        # ── Consensus committee (top 10) ──
+        cons_lines: list[str] = []
+        if consensus_data:
+            for ticker, cons in list(consensus_data.items())[:10]:
+                if isinstance(cons, dict):
+                    cpct = cons.get("consensus_pct", 0)
+                    conf = cons.get("confidence", 0)
+                else:
+                    cpct = getattr(cons, "consensus_pct", 0)
+                    conf = getattr(cons, "confidence", 0)
+                cons_lines.append(f"  {ticker}: consensus={cpct:.0f}%, confidence={conf:.2f}")
+        cons_text = "\n".join(cons_lines) if cons_lines else "  No consensus data"
+
+        # ── Meta-ensemble probabilities (top 10) ──
+        meta_lines: list[str] = []
+        if meta_ensemble_data:
+            for ticker, data in list(meta_ensemble_data.items())[:10]:
+                if isinstance(data, dict):
+                    meta_lines.append(
+                        f"  {ticker}: prob={data.get('prob', 0.5):.2f} "
+                        f"(ML={data.get('ml', 0.5):.2f}, Stat={data.get('stat', 0.5):.2f}, "
+                        f"Deep={data.get('deep', 0.5):.2f})"
+                    )
+        meta_text = "\n".join(meta_lines) if meta_lines else "  No meta-ensemble data"
+
+        # ── AI memory ──
+        memory_text = f"\nAI MEMORY (facts from previous sessions):\n{memory_summary}" if memory_summary else ""
+
+        # ── Assemble system context ──
         system_context = (
-            "You are an AI trading assistant embedded in a stock trading terminal. "
-            "You have access to the following real-time data:\n\n"
+            "You are an expert AI trading assistant embedded in a Bloomberg-style stock trading terminal. "
+            "You have FULL access to ALL real-time data below. "
+            "You remember previous conversations within this session and key facts from prior sessions.\n\n"
             f"ACCOUNT:\n{acct_text}\n\n"
+            f"MARKET REGIME:\n{regime_text}\n\n"
+            f"PROTECTED TICKERS:\n{protected_text}\n\n"
             f"OPEN POSITIONS:\n{pos_text}\n\n"
-            f"ACTIVE SIGNALS:\n{sig_text}\n\n"
+            f"ACTIVE SIGNALS (top 15):\n{sig_text}\n\n"
+            f"CONSENSUS COMMITTEE:\n{cons_text}\n\n"
+            f"META-ENSEMBLE PROBABILITIES:\n{meta_text}\n\n"
             f"NEWS SENTIMENT:\n{news_text}\n\n"
-            "Answer the user's question helpfully. If they ask about a trade, "
-            "give specific actionable advice with reasoning. Be concise and professional."
+            f"{memory_text}\n\n"
+            f"RECENT CONVERSATION:\n{conversation_text}\n\n"
+            "RULES:\n"
+            "- Give specific, actionable advice grounded in the data above\n"
+            "- Consider the account balance when suggesting trades (e.g. 'with £5 free, you could buy X')\n"
+            "- NEVER suggest trading protected/locked tickers — the user has explicitly locked them\n"
+            "- Reference the conversation history when the user refers to earlier messages\n"
+            "- Use technical analysis terminology. Be concise and professional.\n"
+            "- Always include a brief risk disclaimer with trade recommendations"
         )
 
         prompt = f"{system_context}\n\nUser: {user_message}\nAssistant:"

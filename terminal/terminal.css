@@ -82,9 +82,9 @@ DataTable > .datatable--hover {
 
 #main-grid {
     layout: grid;
-    grid-size: 3 3;
+    grid-size: 3 4;
     grid-columns: 1fr 2fr 1fr;
-    grid-rows: 1fr 1fr 1fr;
+    grid-rows: 1fr 1fr 1fr auto;
 }
 
 /* ── Left Column ────────────────────────────────────────────────────── */
@@ -163,5 +163,30 @@ DataTable > .datatable--hover {
 }
 
 #ai-insights-panel Label {
+    width: 100%;
+}
+
+/* ── Pipeline Monitor Panel (row 4, full width) ─────────────────────── */
+
+#pipeline-panel {
+    column-span: 3;
+    height: auto;
+    min-height: 6;
+    max-height: 18;
+    border: solid #444444;
+    background: #0a0a0a;
+    padding: 0 1;
+}
+
+#pipeline-panel .panel-title {
+    color: #ffb000;
+    text-align: center;
+    text-style: bold;
+    border-bottom: solid #444444;
+    width: 100%;
+    margin-bottom: 0;
+}
+
+#pipeline-content {
     width: 100%;
 }

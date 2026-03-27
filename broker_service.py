@@ -30,8 +30,8 @@ class BrokerService:
             secret_key_env = broker_cfg.get("secret_key_env", "T212_SECRET_KEY")
             api_key = os.getenv(api_key_env, "")
             secret_key = os.getenv(secret_key_env, "")
-            base_url = broker_cfg.get("base_url", "https://demo.trading212.com")
-            practice = bool(broker_cfg.get("practice", True))
+            base_url = broker_cfg.get("base_url", "https://live.trading212.com")
+            practice = bool(broker_cfg.get("practice", False))
             if not api_key:
                 print("[broker_service] Missing Trading 212 api_key - falling back to LogBroker.")
                 return LogBroker(LogBrokerConfig())
