@@ -26,19 +26,21 @@ AI-driven stock trading terminal combining scikit-learn ML predictions with Goog
 
 ## 3 — Reading Order (cold start)
 
-1. **This file** (`CLAUDE.md`)
-2. `docs/ARCHITECTURE.md` — system graph + data flow
-3. `docs/CURRENT_TASKS.md` — what's done, what's next
-4. `docs/CONTRACTS.md` — interface contracts (do not break these)
-5. `docs/systems/<relevant>.md` — deep-dive on the system you'll touch
-6. The source file for the module you'll modify
+1. Read `E:\Coding\Second Brain\StockMarketAI\CONTEXT.md` — your project brain
+2. Read `E:\Coding\Second Brain\_index\MASTER_INDEX.md` — cross-project awareness
+3. Read `E:\Coding\Second Brain\_index\SKILL_TRANSFERS.md` — applicable lessons
+4. `docs/ARCHITECTURE.md` — system graph + data flow
+5. `docs/CURRENT_TASKS.md` — what's done, what's next
+6. `docs/CONTRACTS.md` — interface contracts (do not break these)
+7. `docs/systems/<relevant>.md` — deep-dive on the system you'll touch
+8. The source file for the module you'll modify
 
 ---
 
 ## 4 — Architecture Quick Reference
 
 ```
-ai.py / terminal/app.py  (entry points)
+ai.py / terminal/app.py / backtest.py  (entry points)
   │
   ├─ AiService              (1000-analyst orchestration pipeline)
   │   ├─ data_loader         (yfinance OHLCV + CSV cache)
@@ -51,6 +53,12 @@ ai.py / terminal/app.py  (entry points)
   │   ├─ forecaster_statistical (ARIMA/ETS baselines — statsmodels)
   │   ├─ forecaster_deep     (N-BEATS neural forecaster — optional torch)
   │   ├─ meta_ensemble       (3-family combiner: ML+Stat+Deep)
+  │   ├─ mirofish/           (1000-agent Monte Carlo simulation)
+  │   │   ├─ types           (AgentConfig, SimulationConfig, MiroFishSignal)
+  │   │   ├─ agents          (9 agent types, vectorized numpy updates)
+  │   │   ├─ simulation      (per-tick engine: observe→interact→decide→aggregate)
+  │   │   ├─ orchestrator    (multi-process Monte Carlo across all cores)
+  │   │   └─ signals         (emergent → ModelSignal extraction)
   │   ├─ consensus           (investment committee — signal aggregation)
   │   ├─ gemini_client       (Gemini API: signals, news, chat)
   │   ├─ gemini_personas     (5 Gemini analyst personas)
@@ -72,6 +80,14 @@ ai.py / terminal/app.py  (entry points)
   │   └─ chat_history        (persists across sessions)
   │
   ├─ PipelineTracker          (thread-safe progress tracking)
+  │
+  ├─ backtesting/             (walk-forward validation engine)
+  │   ├─ types                (BacktestConfig, TradeRecord, PerformanceMetrics)
+  │   ├─ data_prep            (feature pre-computation, walk-forward splits)
+  │   ├─ simulator            (trade execution: stops, slippage, sizing)
+  │   ├─ engine               (per-fold: train → predict → simulate)
+  │   ├─ metrics              (Sharpe, Sortino, Calmar, drawdown, attribution)
+  │   └─ runner               (parallel fold executor, all CPU cores)
   │
   └─ terminal/
       ├─ app.py              (TradingTerminalApp — TUI + AI autonomous loops)
@@ -168,5 +184,37 @@ CONSTRAINTS:
 - **Phase 2.5:** Self-learning AI loops, SQLite persistence, chat history, T212 price fallback — **done**
 - **Phase 2.75:** 1000-Analyst ensemble (12 models × 3 horizons, regime detection, Gemini personas, consensus engine, risk management) — **done**
 - **Phase 2.85:** Three-family meta-ensemble (ARIMA/ETS + N-BEATS + ML), pipeline visualization with real-time progress bars — **done**
-- **Phase 3:** Testing, backtesting engine, advanced strategies — **planned**
+- **Phase 2.9:** MiroFish multi-agent simulation (1000 agents × 9 types × 16 Monte Carlo sims, all-core parallelism) — **done**
+- **Phase 3.0:** Backtesting engine (walk-forward validation, trade simulation, Sharpe/Sortino/Calmar metrics, parallel folds, CLI) — **done**
+- **Phase 3.1:** Testing, pytest coverage, integration tests — **planned**
 - **Phase 4:** Production hardening, monitoring, deployment automation — **planned**
+
+---
+
+## Before You Finish
+
+### Minimum write-back (every session):
+1. `E:\Coding\Second Brain\StockMarketAI\SESSION_LOG.md` — add entry if anything important happened
+2. `E:\Coding\Second Brain\StockMarketAI\KNOWN_ISSUES.md` — add/remove bugs if any changed
+
+### Full write-back (when project state materially changed):
+3. `E:\Coding\Second Brain\StockMarketAI\CONTEXT.md` — update changed sections only
+4. `E:\Coding\Second Brain\StockMarketAI\PATTERNS.md` — add if you learned something new
+5. `E:\Coding\Second Brain\_index\MASTER_INDEX.md` — update if you added new knowledge files
+6. `E:\Coding\Second Brain\_index\SKILL_TRANSFERS.md` — add if lesson applies elsewhere
+
+### Notion database updates (use Notion MCP tools):
+
+Database IDs are in `E:\Coding\Second Brain\_system\conventions\notion-config.md`.
+Use `data_source_id` (not `database_id`) when creating pages via `notion-create-pages`.
+
+7. **Projects database** — update status/health for StockMarketAI after significant work
+8. **Tasks database** — update status of any tasks you worked on
+9. **Bugs database** — add/update bugs found or fixed
+10. **Agent Log** — add entry ONLY if important (decision, error, breakthrough, blocker)
+
+If Notion MCP is unavailable, log pending updates to `E:\Coding\Second Brain\StockMarketAI\SESSION_LOG.md` with `[NOTION_PENDING]` tag.
+
+### If session is interrupted:
+Prioritise: SESSION_LOG > KNOWN_ISSUES > CONTEXT > everything else.
+Notion updates are non-critical — Obsidian is the source of truth.

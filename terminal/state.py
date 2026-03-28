@@ -76,3 +76,8 @@ class AppState:
 
     # AI-assigned colour grades override the computed verdict ("GREEN"/"RED"/"ORANGE")
     ai_color_grades: Dict[str, str] = field(default_factory=dict)
+
+    # MiroFish multi-agent simulation data
+    mirofish_signals: Dict[str, Any] = field(default_factory=dict)
+    mirofish_agent_count: int = 0
+    mirofish_sim_count: int = 0

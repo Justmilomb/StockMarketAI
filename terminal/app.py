@@ -127,9 +127,12 @@ class TradingTerminalApp(App):  # type: ignore[misc]
         import time as _time
         self._last_signal_run: float = 0.0
         self._pipeline_running: bool = False
+        self._pipeline_start_time: float = 0.0
         # Full pipeline runs at most once per 10 minutes; interim refreshes
         # only update broker data (positions, live prices, account).
         self._signal_cache_seconds: float = 120.0
+        # Safety: auto-reset _pipeline_running if stuck longer than this
+        self._pipeline_timeout_seconds: float = 600.0
 
     def _load_config(self) -> ConfigDict:
         with self.config_path.open("r", encoding="utf-8") as f:
@@ -402,16 +405,33 @@ class TradingTerminalApp(App):  # type: ignore[misc]
             # Never start a second pipeline while one is already running.
             now = _time.monotonic()
             cache_expired = (now - self._last_signal_run >= self._signal_cache_seconds)
+
+            # Safety: auto-reset _pipeline_running if stuck too long
+            if self._pipeline_running:
+                stuck_seconds = now - self._pipeline_start_time
+                if stuck_seconds > self._pipeline_timeout_seconds:
+                    print(f"[app] Pipeline stuck for {stuck_seconds:.0f}s — force-resetting")
+                    self._pipeline_running = False
+
             run_pipeline = (force_signals or cache_expired) and not self._pipeline_running
 
             with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
-                # 1. Always refresh broker data
+                # 1. Always refresh broker data (with timeout)
                 future_pos = executor.submit(self.broker_service.get_positions)
                 future_acct = executor.submit(self.broker_service.get_account_info)
 
-                # 2. Wait for broker data
-                positions = future_pos.result()
-                account_info = future_acct.result()
+                # 2. Wait for broker data — 30s timeout prevents hang
+                try:
+                    positions = future_pos.result(timeout=30)
+                except (concurrent.futures.TimeoutError, Exception) as e:
+                    print(f"[app] Broker positions timeout/error: {e}")
+                    positions = self.state.positions if hasattr(self.state, 'positions') else []
+                try:
+                    account_info = future_acct.result(timeout=30)
+                except (concurrent.futures.TimeoutError, Exception) as e:
+                    print(f"[app] Broker account timeout/error: {e}")
+                    account_info = self.state.account_info if hasattr(self.state, 'account_info') else {}
+
                 held_tickers = [p.get("ticker") for p in positions if p.get("ticker")]
 
                 # 2a. Auto-sync: ensure every T212 position is on the active watchlist
@@ -420,6 +440,7 @@ class TradingTerminalApp(App):  # type: ignore[misc]
                 # 3. Only run the full AI pipeline on cooldown
                 if run_pipeline:
                     self._pipeline_running = True
+                    self._pipeline_start_time = _time.monotonic()
                     # Feed news data to AI service for ensemble weighting
                     if self.news_agent:
                         self.ai_service.update_news_data(self.news_agent.news_data)
@@ -434,12 +455,16 @@ class TradingTerminalApp(App):  # type: ignore[misc]
                 from data_loader import fetch_live_prices
                 active_watchlist_tickers = self._get_active_tickers()
                 all_relevant = list(set(active_watchlist_tickers + held_tickers))
-                live_data = fetch_live_prices(all_relevant)
+                try:
+                    live_data = fetch_live_prices(all_relevant)
+                except Exception as e:
+                    print(f"[app] Live price fetch error: {e}")
+                    live_data = self.state.live_data if hasattr(self.state, 'live_data') else {}
 
                 # 5. Harvest signals (new or cached)
                 if run_pipeline:
                     try:
-                        new_signals_df, _meta = future_signals.result()
+                        new_signals_df, _meta = future_signals.result(timeout=300)
                         # Only accept new signals if they're non-empty;
                         # don't wipe the display with an empty DataFrame
                         # from a transient error (e.g. weekend, API down).
@@ -449,6 +474,9 @@ class TradingTerminalApp(App):  # type: ignore[misc]
                         else:
                             print("[app] Pipeline returned empty signals — keeping cached data")
                             signals_df = self.state.signals
+                    except concurrent.futures.TimeoutError:
+                        print("[app] AI pipeline timed out (5min) — keeping cached data")
+                        signals_df = self.state.signals
                     finally:
                         self._pipeline_running = False
                 else:

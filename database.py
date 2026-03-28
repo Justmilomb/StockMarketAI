@@ -93,6 +93,73 @@ class HistoryManager:
                 CREATE INDEX IF NOT EXISTS idx_pred_ticker ON prediction_log(ticker);
                 CREATE INDEX IF NOT EXISTS idx_pred_source ON prediction_log(source);
                 CREATE INDEX IF NOT EXISTS idx_pred_resolved ON prediction_log(resolved_at);
+
+                CREATE TABLE IF NOT EXISTS backtest_runs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TEXT DEFAULT (datetime('now')),
+                    start_date TEXT NOT NULL,
+                    end_date TEXT NOT NULL,
+                    tickers TEXT NOT NULL,
+                    mode TEXT NOT NULL,
+                    n_folds INTEGER,
+                    duration_seconds REAL,
+                    config_json TEXT,
+                    total_return_pct REAL,
+                    annualised_return_pct REAL,
+                    sharpe_ratio REAL,
+                    sortino_ratio REAL,
+                    calmar_ratio REAL,
+                    max_drawdown_pct REAL,
+                    total_trades INTEGER,
+                    win_rate REAL,
+                    profit_factor REAL,
+                    signal_accuracy REAL,
+                    signal_precision REAL,
+                    signal_recall REAL,
+                    avg_win_pct REAL,
+                    avg_loss_pct REAL,
+                    best_trade_pct REAL,
+                    worst_trade_pct REAL,
+                    avg_hold_days REAL,
+                    use_mirofish INTEGER DEFAULT 0,
+                    equity_curve_json TEXT,
+                    per_source_json TEXT
+                );
+
+                CREATE TABLE IF NOT EXISTS backtest_trades (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    run_id INTEGER NOT NULL REFERENCES backtest_runs(id),
+                    ticker TEXT NOT NULL,
+                    entry_date TEXT NOT NULL,
+                    exit_date TEXT NOT NULL,
+                    entry_price REAL,
+                    exit_price REAL,
+                    quantity REAL,
+                    pnl REAL,
+                    pnl_pct REAL,
+                    hold_days INTEGER,
+                    exit_reason TEXT,
+                    signal_prob REAL
+                );
+                CREATE INDEX IF NOT EXISTS idx_bt_trades_run ON backtest_trades(run_id);
+                CREATE INDEX IF NOT EXISTS idx_bt_trades_ticker ON backtest_trades(ticker);
+
+                CREATE TABLE IF NOT EXISTS backtest_folds (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    run_id INTEGER NOT NULL REFERENCES backtest_runs(id),
+                    fold_id INTEGER NOT NULL,
+                    train_start TEXT,
+                    train_end TEXT,
+                    test_start TEXT,
+                    test_end TEXT,
+                    accuracy REAL,
+                    precision_val REAL,
+                    recall_val REAL,
+                    n_predictions INTEGER,
+                    n_trades INTEGER,
+                    total_pnl REAL
+                );
+                CREATE INDEX IF NOT EXISTS idx_bt_folds_run ON backtest_folds(run_id);
             """)
 
     # ── Serialisation helpers ──────────────────────────────────────────
@@ -332,6 +399,128 @@ class HistoryManager:
                     "SELECT * FROM prediction_log WHERE resolved_at IS NULL",
                 ).fetchall()
             return [dict(r) for r in rows]
+
+    # ── Backtest persistence ──────────────────────────────────────────
+
+    def save_backtest(self, result: Any) -> int:
+        """Persist a BacktestResult to the database.
+
+        Returns the run_id for the saved backtest.
+        """
+        from dataclasses import asdict
+
+        config = result.config
+        metrics = result.metrics
+
+        config_json = json.dumps(asdict(config), default=str)
+        tickers_str = ",".join(config.tickers)
+
+        equity_json = ""
+        per_source_json = ""
+        if metrics:
+            equity_json = json.dumps({
+                "equity": metrics.equity_curve,
+                "dates": metrics.equity_dates,
+                "drawdown": metrics.drawdown_curve,
+            })
+            per_source_json = json.dumps(metrics.per_source_accuracy)
+
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute(
+                """INSERT INTO backtest_runs (
+                    start_date, end_date, tickers, mode, n_folds,
+                    duration_seconds, config_json,
+                    total_return_pct, annualised_return_pct,
+                    sharpe_ratio, sortino_ratio, calmar_ratio,
+                    max_drawdown_pct, total_trades, win_rate,
+                    profit_factor, signal_accuracy, signal_precision,
+                    signal_recall, avg_win_pct, avg_loss_pct,
+                    best_trade_pct, worst_trade_pct, avg_hold_days,
+                    use_mirofish, equity_curve_json, per_source_json
+                ) VALUES (
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                )""",
+                (
+                    config.start_date, config.end_date, tickers_str,
+                    config.mode, len(result.folds),
+                    result.total_duration_seconds, config_json,
+                    metrics.total_return_pct if metrics else None,
+                    metrics.annualised_return_pct if metrics else None,
+                    metrics.sharpe_ratio if metrics else None,
+                    metrics.sortino_ratio if metrics else None,
+                    metrics.calmar_ratio if metrics else None,
+                    metrics.max_drawdown_pct if metrics else None,
+                    metrics.total_trades if metrics else 0,
+                    metrics.win_rate if metrics else None,
+                    metrics.profit_factor if metrics else None,
+                    metrics.signal_accuracy if metrics else None,
+                    metrics.signal_precision if metrics else None,
+                    metrics.signal_recall if metrics else None,
+                    metrics.avg_win_pct if metrics else None,
+                    metrics.avg_loss_pct if metrics else None,
+                    metrics.best_trade_pct if metrics else None,
+                    metrics.worst_trade_pct if metrics else None,
+                    metrics.avg_hold_days if metrics else None,
+                    1 if config.use_mirofish else 0,
+                    equity_json, per_source_json,
+                ),
+            )
+            run_id = cursor.lastrowid
+
+            # Save individual trades
+            for fold in result.folds:
+                for trade in fold.trades:
+                    conn.execute(
+                        """INSERT INTO backtest_trades (
+                            run_id, ticker, entry_date, exit_date,
+                            entry_price, exit_price, quantity,
+                            pnl, pnl_pct, hold_days, exit_reason, signal_prob
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (
+                            run_id, trade.ticker,
+                            str(trade.entry_date), str(trade.exit_date),
+                            trade.entry_price, trade.exit_price,
+                            trade.quantity, trade.pnl, trade.pnl_pct,
+                            trade.hold_days, trade.exit_reason,
+                            trade.signal_prob,
+                        ),
+                    )
+
+            # Save fold summaries
+            for fold in result.folds:
+                s = fold.split
+                conn.execute(
+                    """INSERT INTO backtest_folds (
+                        run_id, fold_id, train_start, train_end,
+                        test_start, test_end, accuracy, precision_val,
+                        recall_val, n_predictions, n_trades, total_pnl
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        run_id, fold.fold_id,
+                        str(s.train_start), str(s.train_end),
+                        str(s.test_start), str(s.test_end),
+                        fold.accuracy, fold.precision, fold.recall,
+                        fold.n_predictions, len(fold.trades),
+                        sum(t.pnl for t in fold.trades),
+                    ),
+                )
+
+        return run_id
+
+    def get_backtest_runs(self, limit: int = 20) -> List[Dict[str, Any]]:
+        """Return recent backtest runs."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                """SELECT id, timestamp, tickers, mode, n_folds,
+                    duration_seconds, sharpe_ratio, win_rate,
+                    total_return_pct, max_drawdown_pct, total_trades,
+                    signal_accuracy, use_mirofish
+                FROM backtest_runs ORDER BY id DESC LIMIT ?""",
+                (limit,),
+            ).fetchall()
+        return [dict(r) for r in rows]
 
     def close(self) -> None:
         pass  # connections are per-call via context manager

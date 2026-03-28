@@ -1,0 +1,2 @@
+id	score	accuracy	win_rate	sharpe	profit_factor	max_dd	duration	overrides	notes
+0	30.116	0.5029	0.0	0.0	0.0	0.0	2950.7	{}	baseline (medium universe, seed=42, fast, no-mirofish)

@@ -42,19 +42,38 @@
 - [x] Full integration into ai_service.py signal pipeline (steps 4a/4b/4c) — 2026-03-21
 - [x] Grid layout expanded to 3×4, pipeline panel mounted as full-width row 4 — 2026-03-21
 
+**Phase 2.9 — MiroFish Multi-Agent Simulation**
+- [x] MiroFish core types and agent taxonomy (9 types, 1000 agents) — 2026-03-27
+- [x] Vectorized agent belief updates with numpy (trend, reversion, sentiment, noise) — 2026-03-27
+- [x] Social interaction engine (herding + contrarian convolution dynamics) — 2026-03-27
+- [x] Core simulation engine with price feedback loop (100 ticks per run) — 2026-03-27
+- [x] Monte Carlo orchestrator with ProcessPoolExecutor (all CPU cores) — 2026-03-27
+- [x] Signal extraction: net sentiment, momentum, agreement, volatility, order flow — 2026-03-27
+- [x] Integration into ai_service.py pipeline (step 4d, between meta-blend and Claude personas) — 2026-03-27
+- [x] Pipeline tracker stage, AppState fields, config.json section — 2026-03-27
+- [x] Contract documentation and architecture updates — 2026-03-27
+
+**Phase 3.0 — Backtesting Engine**
+- [x] Backtesting types (BacktestConfig, WalkForwardSplit, TradeRecord, PerformanceMetrics) — 2026-03-27
+- [x] Data preparation (feature pre-computation, walk-forward split generation) — 2026-03-27
+- [x] Trade simulator (stop-loss, take-profit, slippage, position sizing, equity tracking) — 2026-03-27
+- [x] Core backtest engine (per-fold: train → predict → simulate → metrics) — 2026-03-27
+- [x] Performance metrics (Sharpe, Sortino, Calmar, drawdown, win rate, profit factor, attribution) — 2026-03-27
+- [x] Parallel walk-forward runner (ProcessPoolExecutor across all cores, serial fallback) — 2026-03-27
+- [x] CLI entry point `backtest.py` with --fast/--full/--ticker/--folds flags — 2026-03-27
+- [x] Backtesting config section in config.json — 2026-03-27
+
 ### In Progress
 - [ ] (none currently)
 
 ### Up Next
 - [ ] Add pytest test suite — unit tests for features_advanced, ensemble, timeframe, regime, consensus, risk_manager, forecaster_statistical, forecaster_deep, meta_ensemble
-- [ ] Backtesting engine — replay historical signals against price data
-- [ ] Walk-forward validation — expanding window retrain + OOS evaluation
 - [ ] Integration tests for all new ensemble modules
 - [ ] Advanced position sizing strategies (volatility-adjusted Kelly, asymmetric risk/reward)
-- [ ] Stop-loss and take-profit order generation
 - [ ] Persistent trade log with performance tracking per signal source (ensemble vs personas vs regime)
 - [ ] Integration tests for Trading 212 broker (mocked API)
 - [ ] Dashboard views for model performance and consensus breakdowns
+- [ ] Backtesting TUI integration (run from terminal, display results inline)
 
 ### Blocked
 - [ ] (none currently)
@@ -70,7 +89,9 @@
 
 ## Notes
 
-- **Phase 2.75 complete:** Three-family meta-ensemble added (ML ensemble + ARIMA/ETS + N-BEATS deep learning). Pipeline visualization shows real-time progress bars during model training/prediction.
-- **Key new modules:** `forecaster_statistical.py`, `forecaster_deep.py`, `meta_ensemble.py`, `pipeline_tracker.py`, `terminal/pipeline_view.py`.
-- **Total model count:** 36 ML models + 12 ARIMA/ETS baselines + N-BEATS (optional, requires PyTorch) + 5 Gemini personas = 53+ independent analyses per ticker.
-- **Phase 3 focus:** Testing & validation. The core system is feature-complete; next priority is pytest coverage, backtesting, and walk-forward validation.
+- **Phase 2.9 complete:** MiroFish multi-agent simulation added. 1000 heterogeneous AI agents (9 types) run Monte Carlo simulations across all CPU cores. Emergent market behaviour produces sentiment, order flow, and volatility signals.
+- **Key new modules:** `mirofish/types.py`, `mirofish/agents.py`, `mirofish/simulation.py`, `mirofish/orchestrator.py`, `mirofish/signals.py`.
+- **Total model count:** 36 ML models + 12 ARIMA/ETS baselines + N-BEATS (optional) + 5 Claude personas + 1000 MiroFish agents × 16 Monte Carlo sims = 16,000+ independent agent simulations per ticker.
+- **Phase 3.0 complete:** Backtesting engine built. Walk-forward validation with parallel fold execution, realistic trade simulation (stops, slippage, sizing), and comprehensive performance metrics (Sharpe, Sortino, Calmar, attribution by signal band). CLI: `python backtest.py --full` or `python backtest.py --fast`.
+- **Key new modules:** `backtesting/types.py`, `backtesting/data_prep.py`, `backtesting/simulator.py`, `backtesting/engine.py`, `backtesting/metrics.py`, `backtesting/runner.py`, `backtest.py`.
+- **Next focus:** Pytest test suite coverage, then production hardening (Phase 4).

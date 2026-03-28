@@ -23,8 +23,8 @@
   "data_dir": "data",
   "model_path": "models/rf_tomorrow_up.joblib",
   "strategy": {
-    "threshold_buy": 0.55,
-    "threshold_sell": 0.45,
+    "threshold_buy": 0.58,
+    "threshold_sell": 0.42,
     "max_positions": 8,
     "position_size_fraction": 0.12
   },
@@ -78,8 +78,8 @@
   "risk": {
     "kelly_fraction_cap": 0.35,
     "max_position_pct": 0.20,
-    "atr_stop_multiplier": 1.5,
-    "atr_profit_multiplier": 2.0,
+    "atr_stop_multiplier": 1.8,
+    "atr_profit_multiplier": 2.5,
     "drawdown_threshold": 0.15,
     "drawdown_size_reduction": 0.5
   },
@@ -128,6 +128,46 @@
   },
   "pipeline": {
     "show_progress": true
+  },
+  "mirofish": {
+    "enabled": true,
+    "n_agents": 1000,
+    "n_ticks": 80,
+    "n_simulations": 16,
+    "n_processes": null,
+    "price_impact_factor": 0.001,
+    "base_volatility": 0.02,
+    "liquidity": 1.0,
+    "influence_radius": 15,
+    "information_decay": 0.92,
+    "consensus_weight": 0.25,
+    "agent_distribution": {
+      "momentum": 150,
+      "mean_reversion": 120,
+      "sentiment": 100,
+      "fundamental": 150,
+      "noise": 30,
+      "contrarian": 80,
+      "institutional": 120,
+      "algorithmic": 150,
+      "llm_seeded": 100
+    }
+  },
+  "backtesting": {
+    "start_date": "2018-01-01",
+    "end_date": "2026-03-27",
+    "min_train_days": 252,
+    "test_window_days": 20,
+    "step_days": 20,
+    "expanding_window": true,
+    "mode": "full",
+    "use_stops": true,
+    "slippage_pct": 0.001,
+    "use_ensemble": true,
+    "use_statistical": true,
+    "use_mirofish": true,
+    "mirofish_n_sims": 12,
+    "n_processes": null
   },
   "terminal": {
     "mode": "recommendation",

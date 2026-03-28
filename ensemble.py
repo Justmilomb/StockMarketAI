@@ -8,8 +8,12 @@ different feature subsets, then merges their predictions via weighted soft vote.
 from __future__ import annotations
 
 import logging
+import warnings
 from dataclasses import asdict
 from pathlib import Path
+
+warnings.filterwarnings("ignore", category=UserWarning, module=r"sklearn\..*")
+warnings.filterwarnings("ignore", category=FutureWarning, module=r"sklearn\..*")
 from typing import Any, Dict, List, Tuple
 
 import joblib
@@ -174,7 +178,6 @@ def _create_sklearn_model(spec: ModelSpec) -> Any:
             C=float(params.get("C", 1.0)),
             max_iter=1000,
             random_state=42,
-            n_jobs=-1,
         )
 
     if model_type == "SVM":
@@ -194,11 +197,11 @@ def _create_sklearn_model(spec: ModelSpec) -> Any:
 
 
 def _time_based_split(
-    X: np.ndarray,
+    X: pd.DataFrame | np.ndarray,
     y: np.ndarray,
     meta: pd.DataFrame,
     train_fraction: float = 0.8,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+) -> Tuple[pd.DataFrame | np.ndarray, pd.DataFrame | np.ndarray, np.ndarray, np.ndarray]:
     """Chronological train/validation split using the date column in *meta*."""
     if "date" not in meta.columns:
         raise ValueError("meta DataFrame must contain a 'date' column")
@@ -211,6 +214,8 @@ def _time_based_split(
     train_idx = df["idx"].iloc[:split_index].to_numpy()
     val_idx = df["idx"].iloc[split_index:].to_numpy()
 
+    if isinstance(X, pd.DataFrame):
+        return X.iloc[train_idx], X.iloc[val_idx], y[train_idx], y[val_idx]
     return X[train_idx], X[val_idx], y[train_idx], y[val_idx]
 
 
@@ -232,7 +237,7 @@ def train_single_model(
     y: np.ndarray,
     meta: pd.DataFrame,
     columns: List[str],
-    save_dir: Path,
+    save_dir: Path | None = None,
 ) -> Tuple[Any, float]:
     """Train one model from the ensemble on its specific feature subset.
 
@@ -243,6 +248,7 @@ def train_single_model(
         meta: DataFrame with ``ticker`` and ``date`` columns.
         columns: Ordered list of column names corresponding to X's columns.
         save_dir: Directory to persist the trained model artefact.
+            If *None*, the model is kept in memory only (used during backtesting).
 
     Returns:
         (trained_model, validation_accuracy)
@@ -256,7 +262,8 @@ def train_single_model(
             f"Model '{spec.name}' has no overlapping columns with the dataset"
         )
 
-    X_subset = X[:, col_indices]
+    used_cols = [columns[i] for i in col_indices]
+    X_subset = pd.DataFrame(X[:, col_indices], columns=used_cols)
 
     # Chronological split
     X_train, X_val, y_train, y_val = _time_based_split(X_subset, y, meta)
@@ -273,22 +280,25 @@ def train_single_model(
         accuracy = 0.0
         logger.warning("Model '%s': no validation data — accuracy set to 0", spec.name)
 
-    # Persist model + metadata
-    save_dir.mkdir(parents=True, exist_ok=True)
-    artefact_path = save_dir / f"{spec.name}.joblib"
-    payload = {
-        "model": model,
-        "spec": asdict(spec),
-        "accuracy": accuracy,
-        "columns_used": [columns[i] for i in col_indices],
-    }
-    joblib.dump(payload, artefact_path)
-    logger.info(
-        "Model '%s' trained — val accuracy %.4f — saved to %s",
-        spec.name,
-        accuracy,
-        artefact_path,
-    )
+    # Persist model + metadata (skipped when save_dir is None, e.g. backtesting)
+    if save_dir is not None:
+        save_dir.mkdir(parents=True, exist_ok=True)
+        artefact_path = save_dir / f"{spec.name}.joblib"
+        payload = {
+            "model": model,
+            "spec": asdict(spec),
+            "accuracy": accuracy,
+            "columns_used": used_cols,
+        }
+        joblib.dump(payload, artefact_path)
+        logger.info(
+            "Model '%s' trained — val accuracy %.4f — saved to %s",
+            spec.name,
+            accuracy,
+            artefact_path,
+        )
+    else:
+        logger.info("Model '%s' trained — val accuracy %.4f", spec.name, accuracy)
 
     return model, accuracy
 
@@ -333,7 +343,7 @@ class EnsembleModel:
         initialises equal weights.
         """
         specs = generate_diverse_specs(n_models=self._config.n_models)
-        save_dir = Path(self._config.model_dir)
+        save_dir = Path(self._config.model_dir) if self._config.model_dir else None
 
         self._models = []
         for spec in specs:
@@ -406,7 +416,7 @@ class EnsembleModel:
                 )
                 continue
 
-            X_model = features_df[available_cols].values.astype(float)
+            X_model = features_df[available_cols].astype(float)
 
             try:
                 probas = model.predict_proba(X_model)

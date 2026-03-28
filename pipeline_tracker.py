@@ -14,6 +14,7 @@ PIPELINE_STAGES = [
     ("statistical", "ARIMA/ETS"),
     ("deep_learning", "N-BEATS"),
     ("meta_blend", "META-BLEND"),
+    ("mirofish", "MIROFISH SIM"),
     ("claude_personas", "CLAUDE PERSONAS"),
     ("consensus", "CONSENSUS"),
     ("risk", "RISK SIZING"),

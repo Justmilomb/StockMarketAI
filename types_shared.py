@@ -61,9 +61,6 @@ class PersonaSignal:
     reasoning: str
 
 
-# Backward-compat alias — kept so old imports don't break
-GeminiPersonaSignal = PersonaSignal
-
 
 @dataclass
 class FeatureGroup:

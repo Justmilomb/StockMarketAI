@@ -12,6 +12,7 @@ every method returns neutral signals (probability = 0.5).
 from __future__ import annotations
 
 import logging
+import os
 import warnings
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Callable, Dict, List, Tuple
@@ -55,7 +56,7 @@ _NEUTRAL_PROB = 0.5
 _NEUTRAL_RETURN = 0.0
 _NEUTRAL_CONF = 0.0
 
-_MAX_WORKERS = 4
+_MAX_WORKERS = os.cpu_count() or 4
 
 
 class StatisticalForecaster:

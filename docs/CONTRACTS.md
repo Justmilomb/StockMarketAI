@@ -233,7 +233,7 @@ Breaking any of these is a regression.
 |----------|------|---------|
 | `get_state()` | Every 250ms poll | `PipelineState` deep-copy snapshot |
 
-**10 Pipeline Stages (in order):**
+**11 Pipeline Stages (in order):**
 1. `data_fetch` — Downloading OHLCV data
 2. `features` — Computing 31 V2 features
 3. `regime` — Detecting market regime
@@ -241,15 +241,55 @@ Breaking any of these is a regression.
 5. `statistical` — ARIMA/ETS per ticker
 6. `deep_learning` — N-BEATS per ticker (skippable)
 7. `meta_blend` — Three-family combination
-8. `gemini` — 5 Gemini personas
-9. `consensus` — Investment committee aggregation
-10. `risk` — Position sizing
+8. `mirofish` — 1000-agent Monte Carlo simulation (all CPU cores)
+9. `claude_personas` — 5 Claude analyst personas
+10. `consensus` — Investment committee aggregation
+11. `risk` — Position sizing
 
 **Invariants:**
 - All methods are thread-safe (protected by threading.Lock)
 - `get_state()` always returns a deep copy — safe to read from another thread
 - Stages can only transition: pending → running → done/error, or pending → skipped
 - `begin()` always resets all stages — safe to call multiple times
+
+---
+
+## AiService ↔ MiroFish
+
+**Access pattern:** AiService calls MiroFishOrchestrator to run multi-agent simulations per ticker.
+
+**AiService calls on MiroFish:**
+| Function | When | Returns |
+|----------|------|---------|
+| `MiroFishOrchestrator.from_config_dict(raw)` | Lazy init | Configured orchestrator instance |
+| `run_universe(universe_data, features_df, regime, ensemble_probs, news_data, on_progress)` | After meta-blend (step 4d) | `Dict[str, MiroFishSignal]` — ticker → simulation signal |
+
+**MiroFishSignal structure:**
+```
+{
+  "ticker": str,
+  "net_sentiment": float,         # [-1, 1] mean agent belief
+  "sentiment_momentum": float,    # Rate of belief change
+  "agreement_index": float,       # [0, 1] agent consensus
+  "volatility_prediction": float, # Expected volatility
+  "order_flow": float,            # [-1, 1] net buy/sell pressure
+  "narrative_direction": str,     # "bullish" / "bearish" / "uncertain"
+  "probability": float,           # P(up) in [0, 1]
+  "confidence": float,            # [0, 1]
+  "n_simulations": int,
+  "n_agents": int,
+  "convergence_rate": float       # How fast beliefs settled
+}
+```
+
+**Invariants:**
+- 9 agent types: momentum (200), mean_reversion (150), sentiment (150), fundamental (100), noise (100), contrarian (100), institutional (50), algorithmic (100), llm_seeded (50) = 1000 total
+- Monte Carlo: 16 simulations per ticker with different random seeds
+- All simulations run in parallel via ProcessPoolExecutor (all CPU cores)
+- MiroFish signals converted to ModelSignal via `mirofish_signals_to_model_signals()` for consensus
+- Each ticker produces 3 ModelSignals: sentiment, flow, momentum
+- Graceful degradation: returns empty dict if all simulations fail
+- Falls back to serial execution if multiprocessing fails (Windows compatibility)
 
 ---
 
@@ -373,3 +413,40 @@ Breaking any of these is a regression.
 - `signals` can be `None` before first refresh completes
 - `chat_history` entries always have keys: `role` ("user" or "ai"), `text`
 - AppState now includes: `regime_state`, `consensus_signals`, `ensemble_metadata`, `meta_ensemble_data`, `statistical_model_count`, `deep_model_available`, `pipeline_last_duration`
+
+---
+
+## BacktestRunner ↔ backtesting modules
+
+**Access pattern:** `BacktestRunner.run()` orchestrates the full pipeline; `BacktestEngine` runs individual folds.
+
+**BacktestRunner calls:**
+| Function | When | Returns |
+|----------|------|---------|
+| `data_loader.fetch_universe_data(tickers, start, end)` | Data loading | `Dict[str, DataFrame]` |
+| `data_prep.prepare_backtest_data(universe, config)` | Feature pre-computation | `(features_by_ticker, labels_by_ticker)` |
+| `data_prep.generate_walk_forward_splits(features, config)` | Split generation | `List[WalkForwardSplit]` |
+| `BacktestEngine.run_fold(split, features, labels, universe)` | Per-fold execution | `FoldResult` |
+| `metrics.compute_metrics(folds, config)` | Aggregation | `PerformanceMetrics` |
+
+**BacktestEngine per-fold pipeline:**
+1. `data_prep.split_data_for_fold()` — slice features/labels for train/test
+2. Train ensemble (EnsembleModel or SimpleEnsemble fallback)
+3. Predict test period — per-day per-ticker P(up)
+4. (Full mode) `TradeSimulator.process_day()` — day-by-day with stops, slippage, sizing
+
+**TradeSimulator invariants:**
+- Position sizing: `equity × position_size_fraction`, capped to 95% of cash
+- Slippage: buy at `close × (1 + slippage_pct)`, sell at `close × (1 - slippage_pct)`
+- Stop-loss: `entry - ATR × atr_stop_multiplier` (checked against intraday low)
+- Take-profit: `entry + ATR × atr_profit_multiplier` (checked against intraday high)
+- `exit_reason` is one of: `"signal"`, `"stop_loss"`, `"take_profit"`, `"end_of_fold"`
+- All positions force-closed at fold end
+
+**PerformanceMetrics invariants:**
+- Sharpe/Sortino require ≥10 daily returns, else 0.0
+- `drawdown_curve` values are percentages (0–100)
+- `per_source_accuracy` groups by signal probability bands: >0.70, 0.55–0.70, 0.50–0.55
+- `equity_curve` and `equity_dates` are parallel arrays
+
+**CLI entry point:** `python backtest.py [--fast|--full] [--ticker SYM...] [--folds] [--json]`

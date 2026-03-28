@@ -30,7 +30,8 @@
       "WebFetch(domain:github.com)",
       "Bash(python -c \":*)",
       "Bash(rm -rf .venv)",
-      "Bash(.venv/Scripts/python.exe --version)"
+      "Bash(.venv/Scripts/python.exe --version)",
+      "WebFetch(domain:raw.githubusercontent.com)"
     ]
   }
 }

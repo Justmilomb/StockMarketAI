@@ -5,7 +5,7 @@
 ```
                     ┌──────────────────────────────┐
                     │       ENTRY POINTS           │
-                    │  ai.py  │  terminal/app.py   │
+                    │  ai.py │ terminal/app.py │ backtest.py │
                     └────┬────┴────────┬───────────┘
                          │             │
            ┌─────────────┘     ┌───────┘
@@ -95,6 +95,8 @@ The system generates signals through a structured, multi-layered process:
 
 4c. **Meta-Ensemble** — `meta_ensemble.MetaEnsemble.combine()` blends ML (50%), Statistical (25%), and Deep Learning (25%) probabilities. Auto-redistributes weights when a family is unavailable.
 
+4d. **MiroFish Multi-Agent Simulation** — `mirofish.MiroFishOrchestrator.run_universe()` spawns ~1000 heterogeneous AI agents (9 types: momentum, mean-reversion, sentiment, fundamental, noise, contrarian, institutional, algorithmic, LLM-seeded) per ticker. Runs N Monte Carlo simulations in parallel across all CPU cores. Agents interact via herding/contrarian dynamics, producing emergent market behaviour. Extracts net sentiment, order flow, agreement index, and volatility predictions as `ModelSignal` entries for consensus.
+
 5. **Gemini Persona Analysis** — `gemini_personas.GeminiPersonaAnalyzer.analyze_batch()` routes per-ticker features to 5 specialized analyst personas (technical, fundamental, sentiment, macro, risk), each producing a signal + confidence.
 
 6. **Consensus Aggregation** — `consensus.ConsensusEngine.compute_all()` combines all model signals (ML + Statistical + Deep + Gemini), regime weighting, and horizon breakdown into a unified consensus score.
@@ -159,6 +161,8 @@ yfinance  →  CSV cache  →  features_advanced (31 V2 indicators)
 | forecaster_statistical | ARIMA/ETS baseline fitting and probability conversion | Know about ML ensemble or broker |
 | forecaster_deep | N-BEATS architecture, training, and prediction | Know about other forecasters or broker |
 | meta_ensemble | Three-family weighted combination | Train models or call APIs |
+| mirofish | Multi-agent simulation, Monte Carlo orchestration, signal extraction | Call APIs, train ML models, or submit orders |
+| backtesting/ | Walk-forward validation, trade simulation, performance metrics | Modify live config, submit real orders |
 | pipeline_tracker | Thread-safe progress tracking for TUI | Know about TUI or AI logic |
 | strategy | Probability → signal conversion, position limits | Train models or call APIs |
 | broker / broker_service | Order submission, position/account queries | Know about ML or features |
