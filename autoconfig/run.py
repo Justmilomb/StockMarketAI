@@ -268,7 +268,7 @@ Press Ctrl+C at any time to stop. Progress is saved automatically.
         try:
             subprocess.run(
                 ["claude", "--version"],
-                capture_output=True, timeout=10,
+                capture_output=True, timeout=60,
             )
         except (FileNotFoundError, subprocess.TimeoutExpired):
             print("  [ERROR] 'claude' CLI not found. Install it first:")
