@@ -31,7 +31,20 @@ def init_state(config: Dict[str, Any]) -> AppState:
 
 
 def load_config(config_path: Path | str = "config.json") -> Dict[str, Any]:
-    """Load and return the JSON config file."""
+    """Load and return the JSON config file.
+
+    Checks the PyInstaller bundle dir first (frozen .exe), then the
+    current working directory.
+    """
+    import sys
+
     path = Path(config_path)
+
+    # In a frozen PyInstaller build, bundled data lives in sys._MEIPASS
+    if not path.is_absolute() and getattr(sys, "frozen", False):
+        bundle_path = Path(sys._MEIPASS) / path
+        if bundle_path.exists():
+            path = bundle_path
+
     with path.open("r", encoding="utf-8") as f:
         return json.load(f)

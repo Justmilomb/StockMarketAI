@@ -11,7 +11,7 @@ Output: dist/StockMarketAI.exe
 import sys
 from pathlib import Path
 
-PROJECT_ROOT = str(Path(SPECPATH).parent.parent.parent)
+PROJECT_ROOT = str(Path(SPECPATH).parent.parent)
 
 a = Analysis(
     [str(Path(PROJECT_ROOT) / 'desktop' / 'main.py')],
@@ -87,9 +87,8 @@ a = Analysis(
         'torchaudio',
         # Exclude Textual (not needed for desktop)
         'textual',
-        # Exclude test frameworks
+        # Exclude test frameworks (keep unittest — numpy.testing needs it)
         'pytest',
-        'unittest',
     ],
     noarchive=False,
 )
