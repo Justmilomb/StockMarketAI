@@ -53,7 +53,7 @@ Read autoconfig/program.md for full instructions.
 
 This is session #{session_num}. There are {n_done} experiments completed so far.
 
-{'Read autoconfig/results.tsv to see prior results and autoconfig/best_config.json for the current best config.' if n_done > 0 else 'This is the first session — start with a baseline experiment.'}
+{'Read autoconfig/results.tsv to see prior results and autoconfig/best_config.json for the current best config.' if n_done > 0 else 'This is the first session - start with a baseline experiment.'}
 
 Run {batch_size} experiments this session following the program.md workflow.
 After each experiment, record results in autoconfig/results.tsv.
@@ -69,7 +69,7 @@ crisis_alpha, trend_follower) using --strategy-profile <name>. Save improved pro
 params to best_config.json under the strategy_profiles key.
 
 IMPORTANT: Work from the {PROJECT_ROOT} directory.
-IMPORTANT: NEVER modify config.json — only use --overrides for experiments.
+IMPORTANT: NEVER modify config.json - only use --overrides for experiments.
 IMPORTANT: Run all {batch_size} experiments before finishing. Do not stop early."""
 
     return prompt
@@ -77,21 +77,11 @@ IMPORTANT: Run all {batch_size} experiments before finishing. Do not stop early.
 
 def _run_session(batch_size: int, session_num: int, dry_run: bool = False) -> bool:
     """Launch one Claude Code session. Returns True if it completed without error."""
-
     prompt = _build_prompt(batch_size, session_num)
 
-    cmd = [
-        "claude",
-        "-p", prompt,
-        "--model", "claude-opus-4-6",
-        "--allowedTools", "Bash,Read,Edit,Write,Glob,Grep",
-        "--max-turns", "200",
-    ]
-
     if dry_run:
-        print(f"\n[DRY RUN] Would execute:")
-        print(f"  {' '.join(cmd[:6])}...")
-        print(f"  Prompt: {prompt[:200]}...")
+        print(f"\n[DRY RUN] Would execute claude session with prompt:")
+        print(f"  {prompt[:300]}...")
         return True
 
     print(f"\n{'='*70}")
@@ -101,19 +91,20 @@ def _run_session(batch_size: int, session_num: int, dry_run: bool = False) -> bo
     print(f"  Batch size: {batch_size}")
     print(f"{'='*70}\n")
 
+    cmd = [
+        "claude",
+        "-p", prompt,
+        "--model", "claude-opus-4-6",
+        "--allowedTools", "Bash,Read,Edit,Write,Glob,Grep",
+        "--verbose",
+    ]
+
     try:
-        proc = subprocess.Popen(
+        proc = subprocess.run(
             cmd,
             cwd=str(PROJECT_ROOT),
         )
-
-        proc.wait()
-
         return proc.returncode == 0
-    except subprocess.TimeoutExpired:
-        proc.kill()
-        print(f"\n  [TIMEOUT] Session #{session_num} exceeded 2 hours — moving to next session")
-        return False
     except FileNotFoundError:
         print("\n  [ERROR] 'claude' CLI not found. Install Claude Code first:")
         print("    npm install -g @anthropic-ai/claude-code")
