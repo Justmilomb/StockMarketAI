@@ -84,10 +84,8 @@ def _run_session(batch_size: int, session_num: int, dry_run: bool = False) -> bo
         "claude",
         "-p", prompt,
         "--model", "claude-opus-4-6",
-        "--allowedTools",
-        "Bash(python autoconfig/*) Bash(cat autoconfig/*) Bash(head *) Bash(wc *) Read Edit Write Glob Grep",
-        "--max-budget-usd", "50",
-        "--verbose",
+        "--allowedTools", "Bash,Read,Edit,Write,Glob,Grep",
+        "--max-turns", "200",
     ]
 
     if dry_run:
