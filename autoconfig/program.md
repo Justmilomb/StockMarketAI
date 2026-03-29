@@ -122,11 +122,10 @@ cd /home/milomilomilomb/StockMarketAI && python -u autoconfig/experiment.py --no
 - `--fast` — produces zero trade metrics, completely useless
 - `--universe small` or `--universe medium` — always use `--universe full`
 
-**Expected runtimes (32-core machine):**
-- `--no-mirofish --universe full` — ~5-10 min per experiment (standard, 100 tickers)
-- `--no-mirofish --universe large` — ~15-25 min (validation, 180 tickers)
-- `--universe full` (with MiroFish) — ~20-40 min (MiroFish tuning)
-- `--stress-test --universe full` — ~30-60 min (crisis validation)
+**Expected runtimes (32-core machine, ~250 tickers):**
+- `--no-mirofish --universe full` — ~10-20 min per experiment (standard)
+- `--universe full` (with MiroFish) — ~30-60 min (MiroFish tuning)
+- `--stress-test --universe full` — ~60-90 min (crisis validation)
 
 ### Step 3: Evaluate the result
 
@@ -167,10 +166,9 @@ Use your results history to guide exploration:
 ### Step 7: Periodic validation
 
 Every 10 experiments, run the current best config through validation:
-1. `--universe large --no-mirofish` — does it generalise to 80 stocks?
-2. `--sector volatile` — does it survive high-volatility stocks?
-3. `--stress-test --universe full` — does it survive crises?
-4. `--use-strategy-selector --universe full` — does the adaptive system beat the static config?
+1. `--sector volatile` — does it survive high-volatility stocks?
+2. `--stress-test --universe full` — does it survive crises?
+3. `--use-strategy-selector --universe full` — does the adaptive system beat the static config?
 
 Record each as a validation run with notes like "validation:large", "validation:stress", "validation:adaptive".
 
