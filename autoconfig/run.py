@@ -22,8 +22,10 @@ in autoconfig/results.tsv and autoconfig/best_config.json.
 from __future__ import annotations
 
 import argparse
+import json
 import subprocess
 import sys
+import threading
 import time
 from datetime import datetime
 from pathlib import Path
@@ -33,6 +35,7 @@ AUTOCONFIG_DIR = PROJECT_ROOT / "autoconfig"
 RESULTS_FILE = AUTOCONFIG_DIR / "results.tsv"
 BEST_CONFIG_FILE = AUTOCONFIG_DIR / "best_config.json"
 PROGRAM_FILE = AUTOCONFIG_DIR / "program.md"
+PROGRESS_LOG = AUTOCONFIG_DIR / ".progress.log"
 
 
 def _count_experiments() -> int:
@@ -47,32 +50,70 @@ def _build_prompt(batch_size: int, session_num: int) -> str:
     """Build the prompt for a Claude Code session."""
     n_done = _count_experiments()
 
-    prompt = f"""You are an autonomous config optimisation agent for StockMarketAI.
+    prior = (
+        "Read autoconfig/results.tsv to see prior results and "
+        "autoconfig/best_config.json for the current best config."
+        if n_done > 0
+        else "This is the first session - start with a baseline experiment."
+    )
 
-Read autoconfig/program.md for full instructions.
-
-This is session #{session_num}. There are {n_done} experiments completed so far.
-
-{'Read autoconfig/results.tsv to see prior results and autoconfig/best_config.json for the current best config.' if n_done > 0 else 'This is the first session - start with a baseline experiment.'}
-
-Run {batch_size} experiments this session following the program.md workflow.
-After each experiment, record results in autoconfig/results.tsv.
-If you find improvements, update autoconfig/best_config.json (including strategy_profiles).
-
-The stock universe has ~250 tickers across US mega/mid-cap, UK FTSE, EU blue chips,
-crypto proxies, and user watchlist. Use --universe medium (30 stocks) for fast iteration,
---universe large (80 stocks) for validation, --universe full (~250 stocks) for final checks.
-Every 10 experiments, validate winners against --universe large and --stress-test.
-
-Also optimise per-profile strategy parameters (conservative, day_trader, swing,
-crisis_alpha, trend_follower) using --strategy-profile <name>. Save improved profile
-params to best_config.json under the strategy_profiles key.
-
-IMPORTANT: Work from the {PROJECT_ROOT} directory.
-IMPORTANT: NEVER modify config.json - only use --overrides for experiments.
-IMPORTANT: Run all {batch_size} experiments before finishing. Do not stop early."""
+    prompt = (
+        f"You are an autonomous config optimisation agent for StockMarketAI.\n\n"
+        f"Read autoconfig/program.md for full instructions.\n\n"
+        f"This is session #{session_num}. There are {n_done} experiments completed so far.\n\n"
+        f"{prior}\n\n"
+        f"Run {batch_size} experiments this session following the program.md workflow.\n"
+        f"After each experiment, record results in autoconfig/results.tsv.\n"
+        f"If you find improvements, update autoconfig/best_config.json (including strategy_profiles).\n\n"
+        f"The stock universe has ~250 tickers across US mega/mid-cap, UK FTSE, EU blue chips,\n"
+        f"crypto proxies, and user watchlist. Use --universe medium (30 stocks) for fast iteration,\n"
+        f"--universe large (80 stocks) for validation, --universe full (~250 stocks) for final checks.\n"
+        f"Every 10 experiments, validate winners against --universe large and --stress-test.\n\n"
+        f"Also optimise per-profile strategy parameters (conservative, day_trader, swing,\n"
+        f"crisis_alpha, trend_follower) using --strategy-profile <name>. Save improved profile\n"
+        f"params to best_config.json under the strategy_profiles key.\n\n"
+        f"IMPORTANT: Work from the {PROJECT_ROOT} directory.\n"
+        f"IMPORTANT: NEVER modify config.json - only use --overrides for experiments.\n"
+        f"IMPORTANT: Run all {batch_size} experiments before finishing. Do not stop early.\n"
+        f"IMPORTANT: When running backtest.py, ALWAYS use unbuffered output piped to the "
+        f"progress log so the user can see live fold progress:\n"
+        f"  python -u backtest.py [args] 2>&1 | tee autoconfig/.progress.log"
+    )
 
     return prompt
+
+
+def _tail_progress_log(stop_event: threading.Event) -> None:
+    """Background thread: tails .progress.log and prints new lines in real-time."""
+    # Wait for file to appear
+    while not stop_event.is_set() and not PROGRESS_LOG.exists():
+        stop_event.wait(1)
+
+    if stop_event.is_set():
+        return
+
+    with open(PROGRESS_LOG, "r", encoding="utf-8", errors="replace") as f:
+        while not stop_event.is_set():
+            line = f.readline()
+            if line:
+                line = line.rstrip()
+                if line:
+                    print(f"  {line}")
+            else:
+                stop_event.wait(0.5)
+
+
+def _monitor_results(stop_event: threading.Event) -> None:
+    """Background thread: prints when new experiments appear in results.tsv."""
+    last_count = _count_experiments()
+    while not stop_event.is_set():
+        stop_event.wait(10)
+        current = _count_experiments()
+        if current > last_count:
+            delta = current - last_count
+            ts = datetime.now().strftime("%H:%M:%S")
+            print(f"\n  [{ts}] +{delta} experiment(s) completed  (total: {current})\n")
+            last_count = current
 
 
 def _run_session(batch_size: int, session_num: int, dry_run: bool = False) -> bool:
@@ -91,20 +132,30 @@ def _run_session(batch_size: int, session_num: int, dry_run: bool = False) -> bo
     print(f"  Batch size: {batch_size}")
     print(f"{'='*70}\n")
 
+    # Clear progress log for this session
+    try:
+        PROGRESS_LOG.write_text("", encoding="utf-8")
+    except OSError:
+        pass
+
     cmd = [
         "claude",
         "-p", prompt,
         "--model", "claude-opus-4-6",
         "--allowedTools", "Bash,Read,Edit,Write,Glob,Grep",
-        "--verbose",
     ]
 
+    # Start background monitors
+    stop_event = threading.Event()
+    tailer = threading.Thread(target=_tail_progress_log, args=(stop_event,), daemon=True)
+    monitor = threading.Thread(target=_monitor_results, args=(stop_event,), daemon=True)
+    tailer.start()
+    monitor.start()
+
     try:
-        proc = subprocess.run(
-            cmd,
-            cwd=str(PROJECT_ROOT),
-        )
+        proc = subprocess.run(cmd, cwd=str(PROJECT_ROOT))
         return proc.returncode == 0
+
     except FileNotFoundError:
         print("\n  [ERROR] 'claude' CLI not found. Install Claude Code first:")
         print("    npm install -g @anthropic-ai/claude-code")
@@ -112,6 +163,10 @@ def _run_session(batch_size: int, session_num: int, dry_run: bool = False) -> bo
     except Exception as e:
         print(f"\n  [ERROR] Session #{session_num} failed: {e}")
         return False
+    finally:
+        stop_event.set()
+        tailer.join(timeout=3)
+        monitor.join(timeout=3)
 
 
 def main() -> None:
@@ -198,7 +253,7 @@ Press Ctrl+C at any time to stop. Progress is saved automatically.
             else:
                 consecutive_failures += 1
                 if consecutive_failures >= 3:
-                    print(f"\n  [WARN] 3 consecutive failures — waiting 5 minutes before retry")
+                    print(f"\n  [WARN] 3 consecutive failures - waiting 5 minutes before retry")
                     time.sleep(300)
                     consecutive_failures = 0
 

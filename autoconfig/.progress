@@ -25,3 +25,14 @@
 [normal] Fold 0/90 complete (acc=48.2%)
 [normal] Fold 6/90 complete (acc=47.8%)
 [normal] Fold 23/87 complete (acc=45.8%)
+[normal] Fold 30/87 complete (acc=51.2%)
+[normal] Fold 7/90 complete (acc=53.5%)
+[normal] Fold 4/90 complete (acc=48.4%)
+[normal] All 8 folds complete
+[normal] Computing aggregate metrics...
+[normal] Backtest finished in 123.9s
+[normal] Fold 27/87 complete (acc=59.2%)
+[normal] Fold 31/87 complete (acc=47.7%)
+[normal] All 31 folds complete
+[normal] Computing aggregate metrics...
+[normal] Backtest finished in 183.8s
