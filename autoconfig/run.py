@@ -58,7 +58,16 @@ This is session #{session_num}. There are {n_done} experiments completed so far.
 
 Run {batch_size} experiments this session following the program.md workflow.
 After each experiment, record results in autoconfig/results.tsv.
-If you find improvements, update autoconfig/best_config.json.
+If you find improvements, update autoconfig/best_config.json (including strategy_profiles).
+
+The stock universe has ~250 tickers across US mega/mid-cap, UK FTSE, EU blue chips,
+crypto proxies, and user watchlist. Use --universe medium (30 stocks) for fast iteration,
+--universe large (80 stocks) for validation, --universe full (~250 stocks) for final checks.
+Every 10 experiments, validate winners against --universe large and --stress-test.
+
+Also optimise per-profile strategy parameters (conservative, day_trader, swing,
+crisis_alpha, trend_follower) using --strategy-profile <name>. Save improved profile
+params to best_config.json under the strategy_profiles key.
 
 IMPORTANT: Work from the E:/Coding/StockMarketAI directory.
 IMPORTANT: NEVER modify config.json — only use --overrides for experiments.

@@ -12,6 +12,58 @@
     "drawdown_threshold": 0.15,
     "drawdown_size_reduction": 0.5
   },
+  "strategy_profiles": {
+    "conservative": {
+      "threshold_buy": 0.68,
+      "threshold_sell": 0.35,
+      "max_positions": 3,
+      "position_size_fraction": 0.08,
+      "atr_stop_multiplier": 1.2,
+      "atr_profit_multiplier": 1.8,
+      "min_signal_strength": 0.15,
+      "min_consensus_pct": 65
+    },
+    "day_trader": {
+      "threshold_buy": 0.60,
+      "threshold_sell": 0.42,
+      "max_positions": 6,
+      "position_size_fraction": 0.15,
+      "atr_stop_multiplier": 1.5,
+      "atr_profit_multiplier": 2.5,
+      "min_signal_strength": 0.10,
+      "min_consensus_pct": 60
+    },
+    "swing": {
+      "threshold_buy": 0.55,
+      "threshold_sell": 0.40,
+      "max_positions": 5,
+      "position_size_fraction": 0.18,
+      "atr_stop_multiplier": 2.0,
+      "atr_profit_multiplier": 3.0,
+      "min_signal_strength": 0.08,
+      "min_consensus_pct": 55
+    },
+    "crisis_alpha": {
+      "threshold_buy": 0.72,
+      "threshold_sell": 0.30,
+      "max_positions": 2,
+      "position_size_fraction": 0.10,
+      "atr_stop_multiplier": 1.0,
+      "atr_profit_multiplier": 2.0,
+      "min_signal_strength": 0.20,
+      "min_consensus_pct": 75
+    },
+    "trend_follower": {
+      "threshold_buy": 0.52,
+      "threshold_sell": 0.45,
+      "max_positions": 8,
+      "position_size_fraction": 0.20,
+      "atr_stop_multiplier": 2.5,
+      "atr_profit_multiplier": 4.0,
+      "min_signal_strength": 0.05,
+      "min_consensus_pct": 50
+    }
+  },
   "_meta": {
     "score": 65.1221,
     "baseline_score": 41.5612,
@@ -26,6 +78,6 @@
       "max_drawdown_pct": 3.17,
       "total_trades": 16
     },
-    "notes": "Higher buy threshold (0.65 vs 0.58) = far fewer but higher quality trades. Sell threshold 0.48 (vs 0.42) = quicker exits. Smaller positions (5% vs 12%) = lower drawdown. Wider profit target (3.5x vs 2.5x ATR) = let winners run."
+    "notes": "Higher buy threshold (0.65 vs 0.58) = far fewer but higher quality trades. Sell threshold 0.48 (vs 0.42) = quicker exits. Smaller positions (5% vs 12%) = lower drawdown. Wider profit target (3.5x vs 2.5x ATR) = let winners run. Strategy profiles at default values — not yet optimised by autoconfig."
   }
 }

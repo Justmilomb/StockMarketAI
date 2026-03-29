@@ -88,8 +88,8 @@ cd /e/Coding/StockMarketAI && python autoconfig/experiment.py --fast --no-mirofi
 **Universe options** (ALWAYS use a universe — never just the watchlist):
 - `--universe small` — 15 stocks, fastest iteration
 - `--universe medium` — 30 stocks, good balance (default for most experiments)
-- `--universe large` — 60 stocks, thorough validation
-- `--universe full` — 100+ stocks, final validation only
+- `--universe large` — 80 stocks, thorough validation
+- `--universe full` — ~250 stocks (US mega/mid, UK FTSE, EU blue chips, crypto proxies), final validation only
 - `--sector tech` — tech stocks only (test sector-specific patterns)
 - `--sector volatile` — high-vol stocks (stress test)
 - `--sector finance` / `healthcare` / `energy` etc.
