@@ -133,7 +133,7 @@ def get_universe(size: str = "medium", seed: int | None = None) -> List[str]:
     """Return a stock universe for backtesting.
 
     Args:
-        size: "small" (15), "medium" (30), "large" (80), "full" (~250)
+        size: "small" (30), "medium" (100), "large" (180), "full" (~250)
         seed: Random seed for reproducible subsets. None = random.
 
     Returns:
@@ -142,8 +142,8 @@ def get_universe(size: str = "medium", seed: int | None = None) -> List[str]:
     if size == "full":
         return list(FULL_UNIVERSE)
 
-    counts = {"small": 15, "medium": 30, "large": 80}
-    n = counts.get(size, 30)
+    counts = {"small": 30, "medium": 100, "large": 180}
+    n = counts.get(size, 100)
 
     rng = random.Random(seed)
 

@@ -31,7 +31,10 @@
       "Bash(python -c \":*)",
       "Bash(rm -rf .venv)",
       "Bash(.venv/Scripts/python.exe --version)",
-      "WebFetch(domain:raw.githubusercontent.com)"
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Read(//c/Users/milo/AppData/Roaming/Python/Python314/site-packages/lightgbm/lib/**)",
+      "Read(//c/Users/milo/AppData/Roaming/Python/Python314/site-packages/lightgbm/**)",
+      "WebSearch"
     ]
   }
 }

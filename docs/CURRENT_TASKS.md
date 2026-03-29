@@ -73,12 +73,26 @@
 - [x] Hub integration: config.json (capital=10, strategy_profiles), ai_service.py (selector injection), terminal state/views (Strategy column, regime→strategy display) — 2026-03-28
 - [x] Backtesting integration: per-ticker overrides in simulator, regime-aware strategy per fold in engine — 2026-03-28
 
+**Phase 3.1 — Multi-Asset Expansion (Stocks + Crypto + Polymarket)**
+- [x] AssetClass type + asset_class fields on all signal/consensus/risk dataclasses (types_shared.py) — 2026-03-29
+- [x] Asset registry pattern (asset_registry.py) — 2026-03-29
+- [x] Multi-asset config expansion (config.json: crypto, polymarket sections) — 2026-03-29
+- [x] Per-asset AppState with switch_asset_class() (terminal/state.py, desktop/state.py) — 2026-03-29
+- [x] Multi-broker routing (broker_service.py: get_broker(asset_class)) — 2026-03-29
+- [x] Database asset_class column + migration (database.py) — 2026-03-29
+- [x] ai_service.py asset-class-aware config routing — 2026-03-29
+- [x] Crypto package: 8 files (data_loader, features, ensemble, regime, broker, strategy, types, __init__) — 2026-03-29
+- [x] Polymarket package: 8 files (data_loader, features, model, regime, broker, strategy, types, __init__) — 2026-03-29
+- [x] TUI asset switching (1/2/3 keybindings, header, per-asset watchlist columns, help modal) — 2026-03-29
+- [x] Desktop asset switching (1/2/3 shortcuts, header, status bar) — 2026-03-29
+
 ### In Progress
 - [ ] (none currently)
 
 ### Up Next
 - [ ] Add pytest test suite — unit tests for features_advanced, ensemble, timeframe, regime, consensus, risk_manager, forecaster_statistical, forecaster_deep, meta_ensemble
 - [ ] Integration tests for all new ensemble modules
+- [ ] Backtesting + autoconfig integration for crypto/polymarket
 - [ ] Persistent trade log with performance tracking per signal source (ensemble vs personas vs regime)
 - [ ] Integration tests for Trading 212 broker (mocked API)
 - [ ] Dashboard views for model performance and consensus breakdowns
@@ -105,4 +119,6 @@
 - **Key new modules:** `backtesting/types.py`, `backtesting/data_prep.py`, `backtesting/simulator.py`, `backtesting/engine.py`, `backtesting/metrics.py`, `backtesting/runner.py`, `backtest.py`.
 - **Phase 3.05 complete:** Multi-strategy system added. 5 trading profiles selected per-ticker by regime, consensus quality, volatility, and historical performance. Stress testing against 5 crisis periods (2008 crash, COVID, 2022 bear, 2018 selloff, 2023 bank crisis). Small capital support (£10 with fractional shares). Backtesting integration with regime-aware per-fold strategy selection.
 - **Key new modules:** `strategy_profiles.py`, `strategy_selector.py`. Modified: `types_shared.py`, `strategy.py`, `risk_manager.py`, `ai_service.py`, `config.json`, `terminal/state.py`, `terminal/views.py`, `terminal/app.py`, `backtesting/types.py`, `backtesting/simulator.py`, `backtesting/engine.py`, `autoconfig/universe.py`, `autoconfig/experiment.py`.
+- **Phase 3.1 complete:** Multi-asset expansion. Three asset classes (stocks, crypto, polymarket) with full pipeline support. Registry pattern routes data loading, features, ensemble, regime, broker, and strategy to asset-specific implementations. Crypto reuses OHLCV pipeline with higher thresholds. Polymarket uses edge detection (AI_prob - market_prob) instead of classification. TUI/desktop switch via 1/2/3 keys. Zero breakage to existing stock functionality.
+- **Key new packages:** `crypto/` (8 files), `polymarket/` (8 files). New files: `asset_registry.py`. Modified: `types_shared.py`, `config.json`, `ai_service.py`, `broker_service.py`, `database.py`, `terminal/state.py`, `terminal/app.py`, `terminal/views.py`, `desktop/state.py`, `desktop/app.py`.
 - **Next focus:** Pytest test suite coverage, then production hardening (Phase 4).

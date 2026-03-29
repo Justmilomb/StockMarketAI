@@ -5,6 +5,7 @@ from typing import Dict, List, Literal
 
 
 RegimeType = Literal["trending_up", "trending_down", "mean_reverting", "high_volatility", "unknown"]
+AssetClass = Literal["stocks", "crypto", "polymarket"]
 
 
 @dataclass
@@ -17,6 +18,7 @@ class ModelSignal:
     confidence: float
     feature_group: str
     horizon_days: int = 1
+    asset_class: AssetClass = "stocks"
 
 
 @dataclass
@@ -33,6 +35,7 @@ class ConsensusResult:
     bear_count: int
     regime: RegimeType = "unknown"
     horizon_breakdown: Dict[int, float] = field(default_factory=dict)
+    asset_class: AssetClass = "stocks"
 
 
 @dataclass
@@ -47,6 +50,7 @@ class RiskAssessment:
     kelly_fraction: float
     risk_score: float
     reason: str = ""
+    asset_class: AssetClass = "stocks"
 
 
 @dataclass
@@ -59,6 +63,7 @@ class PersonaSignal:
     recommendation: str
     confidence: float
     reasoning: str
+    asset_class: AssetClass = "stocks"
 
 
 
@@ -114,6 +119,7 @@ class StrategyAssignment:
     reason: str
     regime: RegimeType
     confidence: float
+    asset_class: AssetClass = "stocks"
 
 
 # Default feature group definitions — populated by features_advanced on import,
@@ -163,6 +169,7 @@ class ForecasterSignal:
     forecast_return: float  # Expected return over horizon
     horizon_days: int = 1
     model_name: str = ""  # e.g. "arima", "ets", "nbeats"
+    asset_class: AssetClass = "stocks"
 
 
 @dataclass
@@ -176,6 +183,7 @@ class MetaEnsembleResult:
     stat_probability: float
     deep_probability: float  # 0.5 if unavailable
     family_weights: Dict[str, float] = field(default_factory=dict)
+    asset_class: AssetClass = "stocks"
 
 
 # ── Pipeline tracking types ───────────────────────────────────────────

@@ -6,6 +6,8 @@ from typing import Any, Dict, List, Literal, Optional
 
 import pandas as pd
 
+from types_shared import AssetClass
+
 
 Mode = Literal["recommendation", "full_auto_limited"]
 
@@ -85,3 +87,35 @@ class AppState:
     # Strategy selector — per-ticker profile assignments
     strategy_assignments: Dict[str, Any] = field(default_factory=dict)
     regime_strategy_map: Dict[str, str] = field(default_factory=dict)
+
+    # ── Multi-asset state ────────────────────────────────────────────
+    active_asset_class: AssetClass = "stocks"
+    enabled_asset_classes: List[AssetClass] = field(default_factory=lambda: ["stocks"])
+
+    # Per-asset caches — the active asset's data lives in the fields above
+    # (signals, consensus_data, etc.). These dicts store background data
+    # for inactive asset classes so switching is instant.
+    signals_by_asset: Dict[AssetClass, Optional[pd.DataFrame]] = field(default_factory=dict)
+    consensus_by_asset: Dict[AssetClass, Dict[str, Any]] = field(default_factory=dict)
+    regime_by_asset: Dict[AssetClass, str] = field(default_factory=dict)
+    positions_by_asset: Dict[AssetClass, List[Dict[str, Any]]] = field(default_factory=dict)
+
+    def switch_asset_class(self, asset_class: AssetClass) -> None:
+        """Switch the active asset class, swapping cached data in/out."""
+        if asset_class == self.active_asset_class:
+            return
+
+        # Save current asset's live data to cache
+        self.signals_by_asset[self.active_asset_class] = self.signals
+        self.consensus_by_asset[self.active_asset_class] = self.consensus_data
+        self.regime_by_asset[self.active_asset_class] = self.current_regime
+        self.positions_by_asset[self.active_asset_class] = self.positions
+
+        # Load new asset's data from cache
+        self.active_asset_class = asset_class
+        self.signals = self.signals_by_asset.get(asset_class)
+        self.consensus_data = self.consensus_by_asset.get(asset_class, {})
+        self.current_regime = self.regime_by_asset.get(asset_class, "unknown")
+        self.positions = self.positions_by_asset.get(asset_class, [])
+        self.selected_ticker = ""
+        self.chart_data = []

@@ -60,18 +60,45 @@ class WatchlistView(Panel):
         yield Label(title, classes="panel-title", id="watchlist-title")
         yield self.table
 
+    _STOCK_COLS = ("Ticker", "Verdict", "Live Px", "Day %", "Prob", "Signal", "AI Rec", "Consensus", "Conf", "Sentiment", "Strategy")
+    _POLY_COLS = ("Market", "Mkt Prob", "AI Prob", "Edge %", "Signal", "Volume", "Liquidity", "Resolves", "Conf", "Category")
+    _CRYPTO_COLS = ("Pair", "Verdict", "Price", "24h %", "Prob", "Signal", "AI Rec", "Consensus", "Conf", "Vol", "Strategy")
+
+    def _active_columns(self) -> tuple[str, ...]:
+        asset = self.state.active_asset_class
+        if asset == "polymarket":
+            return self._POLY_COLS
+        if asset == "crypto":
+            return self._CRYPTO_COLS
+        return self._STOCK_COLS
+
     def on_mount(self) -> None:
-        self.table.add_columns("Ticker", "Verdict", "Live Px", "Day %", "Prob", "Signal", "AI Rec", "Consensus", "Conf", "Sentiment", "Strategy")
+        self.table.add_columns(*self._active_columns())
+        self._current_cols = self._active_columns()
         self.refresh_view()
 
     def refresh_view(self) -> None:
-        title = f"WATCHLIST [{self.state.active_watchlist}]" if self.state.active_watchlist else "WATCHLIST"
+        asset = self.state.active_asset_class
+        asset_label = {"stocks": "", "crypto": "CRYPTO ", "polymarket": "POLY "}.get(asset, "")
+        title = f"{asset_label}WATCHLIST [{self.state.active_watchlist}]" if self.state.active_watchlist else f"{asset_label}WATCHLIST"
         try:
             self.query_one("#watchlist-title", Label).update(title)
         except Exception:
             pass
 
-        self.table.clear()
+        # Rebuild columns if asset class changed
+        needed = self._active_columns()
+        if hasattr(self, '_current_cols') and self._current_cols != needed:
+            self.table.clear(columns=True)
+            self.table.add_columns(*needed)
+            self._current_cols = needed
+        else:
+            self.table.clear()
+        # Polymarket has its own rendering path
+        if asset == "polymarket":
+            self._render_polymarket_rows()
+            return
+
         # Extract held tickers for highlighting (case-insensitive)
         held_tickers = {p.get("ticker"): p for p in self.state.positions}
         held_upper = {t.upper() for t in held_tickers if t}
@@ -263,6 +290,57 @@ class WatchlistView(Panel):
                 "-", "-", "-", "-",
             )
 
+    def _render_polymarket_rows(self) -> None:
+        """Render polymarket edge-based rows.
+
+        Polymarket columns: Market | Mkt Prob | AI Prob | Edge % | Signal | Volume | Liquidity | Resolves | Conf | Category
+        Data comes from consensus_data which stores edge detection results.
+        """
+        if self.state.signals is not None and not self.state.signals.empty:
+            for _, row in self.state.signals.head(30).iterrows():
+                question = str(row.get("ticker", row.get("question", "?")))
+                # Truncate long questions
+                if len(question) > 40:
+                    question = question[:37] + "..."
+
+                mkt_prob = float(row.get("market_prob", row.get("prob_up", 0.5)))
+                ai_prob = float(row.get("ai_prob", mkt_prob))
+                edge = float(row.get("edge_pct", (ai_prob - mkt_prob) * 100))
+                signal = str(row.get("signal", "HOLD"))
+                volume = float(row.get("volume", 0))
+                liquidity = float(row.get("liquidity", 0))
+                resolves = str(row.get("resolves", "-"))
+                conf = float(row.get("confidence", 0))
+                category = str(row.get("category", "-"))
+
+                mkt_str = f"{mkt_prob:.0%}"
+                ai_str = f"{ai_prob:.0%}"
+
+                if edge > 3:
+                    edge_str = f"[#00ff00]+{edge:.1f}%[/]"
+                elif edge < -3:
+                    edge_str = f"[#ff0000]{edge:.1f}%[/]"
+                else:
+                    edge_str = f"[#ffb000]{edge:+.1f}%[/]"
+
+                if "BUY_YES" in signal.upper():
+                    sig_str = "[#00ff00]BUY YES[/]"
+                elif "BUY_NO" in signal.upper():
+                    sig_str = "[#ff0000]BUY NO[/]"
+                else:
+                    sig_str = f"[#ffb000]{signal}[/]"
+
+                vol_str = f"${volume:,.0f}" if volume > 0 else "-"
+                liq_str = f"${liquidity:,.0f}" if liquidity > 0 else "-"
+                conf_str = f"{conf:.2f}" if conf > 0 else "-"
+
+                self.table.add_row(
+                    question, mkt_str, ai_str, edge_str, sig_str,
+                    vol_str, liq_str, resolves, conf_str, category,
+                )
+        elif not self.state.consensus_data:
+            self.table.add_row("No markets loaded", "-", "-", "-", "-", "-", "-", "-", "-", "-")
+
 
 # ═══════════════════════════════════════════════════════════════════════
 #  POSITIONS VIEW
@@ -386,7 +464,14 @@ class SettingsView(Panel):
         regime_strat = self.state.regime_strategy_map.get(regime, "")
         strat_color = _strat_colors.get(regime_strat, "#aaaaaa")
 
+        _asset_colors: dict[str, str] = {
+            "stocks": "#00ff00", "crypto": "#ff9900", "polymarket": "#00bbff",
+        }
+        asset = self.state.active_asset_class
+        asset_color = _asset_colors.get(asset, "#ffffff")
+
         lines = [
+            f"Asset:      [{asset_color}]{asset.upper()}[/]",
             f"Mode:       {mode_color}{self.state.mode}[/]",
             f"Regime:     [{regime_color}]{regime}[/] ({self.state.regime_confidence:.0%})",
             f"Strategy:   [{strat_color}]{regime_strat or '-'}[/]",
@@ -832,6 +917,11 @@ class HelpModal(ModalScreen):
     @staticmethod
     def _help_text() -> str:
         return (
+            "[#00bfff bold]─── ASSET CLASS ───[/]\n"
+            "  [#ffffff]1[/]         Switch to Stocks\n"
+            "  [#ffffff]2[/]         Switch to Polymarket\n"
+            "  [#ffffff]3[/]         Switch to Crypto\n"
+            "\n"
             "[#00bfff bold]─── NAVIGATION ───[/]\n"
             "  [#ffffff]?[/]         Show this help screen\n"
             "  [#ffffff]q[/]         Quit terminal\n"

@@ -9,16 +9,39 @@ Output: dist/StockMarketAI.exe
 """
 
 import sys
+import importlib
 from pathlib import Path
 
 PROJECT_ROOT = str(Path(SPECPATH).parent.parent)
 
+# ── Locate native DLLs for xgboost and lightgbm ────────────────────
+_native_binaries = []
+
+def _find_dll(package_name, dll_glob):
+    """Find a native DLL inside an installed package."""
+    try:
+        pkg = importlib.import_module(package_name)
+        pkg_dir = Path(pkg.__file__).parent
+        for dll in pkg_dir.rglob(dll_glob):
+            # (source_path, dest_dir_inside_bundle)
+            _native_binaries.append((str(dll), str(dll.parent.relative_to(pkg_dir.parent))))
+            return
+    except Exception:
+        pass
+
+_find_dll('xgboost', 'xgboost.dll')
+_find_dll('lightgbm', 'lib_lightgbm.dll')
+
+
 a = Analysis(
     [str(Path(PROJECT_ROOT) / 'desktop' / 'main.py')],
     pathex=[PROJECT_ROOT],
-    binaries=[],
+    binaries=_native_binaries,
     datas=[
         (str(Path(PROJECT_ROOT) / 'config.json'), '.'),
+        # xgboost and lightgbm need their VERSION files at runtime
+        (str(Path(importlib.import_module('xgboost').__file__).parent / 'VERSION'), 'xgboost'),
+        (str(Path(importlib.import_module('lightgbm').__file__).parent / 'VERSION.txt'), 'lightgbm'),
     ],
     hiddenimports=[
         # PySide6
@@ -31,6 +54,7 @@ a = Analysis(
         'pyqtgraph.graphicsItems.PlotItem',
         # Data science
         'numpy',
+        'numpy.testing',
         'pandas',
         'sklearn',
         'sklearn.ensemble',
@@ -39,11 +63,17 @@ a = Analysis(
         'sklearn.neighbors',
         'scipy',
         'scipy.stats',
+        'scipy.sparse',
+        'scipy._lib',
+        'scipy._lib.array_api_compat',
+        'scipy._lib.array_api_compat.numpy',
         'statsmodels',
         'statsmodels.tsa',
         'joblib',
         # ML boosting (optional)
         'xgboost',
+        'xgboost.core',
+        'xgboost.tracker',
         'lightgbm',
         # Data
         'yfinance',
@@ -55,6 +85,7 @@ a = Analysis(
         'broker_service',
         'news_agent',
         'claude_client',
+        'claude_personas',
         'database',
         'accuracy_tracker',
         'pipeline_tracker',
@@ -73,9 +104,27 @@ a = Analysis(
         'meta_ensemble',
         'forecaster_statistical',
         'forecaster_deep',
-        'gemini_personas',
         'types_shared',
+        'asset_registry',
         'terminal.state',
+        'mirofish',
+        # Multi-asset packages
+        'crypto',
+        'crypto.types',
+        'crypto.data_loader',
+        'crypto.features',
+        'crypto.ensemble',
+        'crypto.regime',
+        'crypto.broker',
+        'crypto.strategy',
+        'polymarket',
+        'polymarket.types',
+        'polymarket.data_loader',
+        'polymarket.features',
+        'polymarket.model',
+        'polymarket.regime',
+        'polymarket.broker',
+        'polymarket.strategy',
     ],
     hookspath=[],
     hooksconfig={},
@@ -108,7 +157,7 @@ exe = EXE(
     upx=True,
     upx_exclude=[],
     runtime_tmpdir=None,
-    console=False,  # No console window
+    console=True,  # Keep console visible during development
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,

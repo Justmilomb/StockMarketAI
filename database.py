@@ -26,6 +26,7 @@ class HistoryManager:
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
+        self._apply_migrations()
 
     def _init_db(self):
         with sqlite3.connect(self.db_path) as conn:
@@ -40,7 +41,8 @@ class HistoryManager:
                     signals_json TEXT,
                     positions_json TEXT,
                     news_json TEXT,
-                    account_json TEXT
+                    account_json TEXT,
+                    asset_class TEXT DEFAULT 'stocks'
                 );
                 CREATE INDEX IF NOT EXISTS idx_date ON snapshots(date);
 
@@ -88,7 +90,8 @@ class HistoryManager:
                     predicted_signal TEXT,
                     actual_direction INTEGER,
                     actual_return REAL,
-                    resolved_at TEXT
+                    resolved_at TEXT,
+                    asset_class TEXT DEFAULT 'stocks'
                 );
                 CREATE INDEX IF NOT EXISTS idx_pred_ticker ON prediction_log(ticker);
                 CREATE INDEX IF NOT EXISTS idx_pred_source ON prediction_log(source);
@@ -162,6 +165,27 @@ class HistoryManager:
                 CREATE INDEX IF NOT EXISTS idx_bt_folds_run ON backtest_folds(run_id);
             """)
 
+    # ── Migrations ─────────────────────────────────────────────────────
+
+    @staticmethod
+    def _column_exists(conn: sqlite3.Connection, table: str, column: str) -> bool:
+        """Check whether *column* already exists on *table*."""
+        cursor = conn.execute(f"PRAGMA table_info({table})")
+        return any(row[1] == column for row in cursor.fetchall())
+
+    def _apply_migrations(self) -> None:
+        """Add columns that may be missing from databases created before
+        the multi-asset-class update."""
+        with sqlite3.connect(self.db_path) as conn:
+            if not self._column_exists(conn, "snapshots", "asset_class"):
+                conn.execute(
+                    "ALTER TABLE snapshots ADD COLUMN asset_class TEXT DEFAULT 'stocks'"
+                )
+            if not self._column_exists(conn, "prediction_log", "asset_class"):
+                conn.execute(
+                    "ALTER TABLE prediction_log ADD COLUMN asset_class TEXT DEFAULT 'stocks'"
+                )
+
     # ── Serialisation helpers ──────────────────────────────────────────
 
     @staticmethod
@@ -181,7 +205,7 @@ class HistoryManager:
 
     # ── Snapshots ──────────────────────────────────────────────────────
 
-    def save_snapshot(self, state: Any) -> None:
+    def save_snapshot(self, state: Any, asset_class: str = "stocks") -> None:
         """Save a point-in-time snapshot of the terminal state."""
         now = datetime.now()
         date_str = now.strftime("%Y-%m-%d")
@@ -201,10 +225,12 @@ class HistoryManager:
         with sqlite3.connect(self.db_path) as conn:
             conn.execute(
                 "INSERT INTO snapshots (date, mode, equity, pnl, signals_json, "
-                "positions_json, news_json, account_json) VALUES (?,?,?,?,?,?,?,?)",
+                "positions_json, news_json, account_json, asset_class) "
+                "VALUES (?,?,?,?,?,?,?,?,?)",
                 (date_str, state.mode,
                  state.account_info.get("total", 0.0) if state.account_info else 0.0,
-                 state.unrealised_pnl, signals_json, positions_json, news_json, account_json),
+                 state.unrealised_pnl, signals_json, positions_json, news_json,
+                 account_json, asset_class),
             )
 
     def get_snapshot(self, date_str: str) -> Optional[Dict]:
@@ -342,12 +368,17 @@ class HistoryManager:
 
     # ── Prediction Log ──────────────────────────────────────────────
 
-    def log_prediction(self, ticker: str, source: str, probability: float, signal: str) -> None:
+    def log_prediction(
+        self, ticker: str, source: str, probability: float, signal: str,
+        asset_class: str = "stocks",
+    ) -> None:
         """Insert an unresolved prediction."""
         with sqlite3.connect(self.db_path) as conn:
             conn.execute(
-                "INSERT INTO prediction_log (ticker, source, predicted_probability, predicted_signal) VALUES (?, ?, ?, ?)",
-                (ticker, source, probability, signal),
+                "INSERT INTO prediction_log "
+                "(ticker, source, predicted_probability, predicted_signal, asset_class) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (ticker, source, probability, signal, asset_class),
             )
 
     def resolve_predictions(self, ticker: str, actual_direction: int, actual_return: float) -> int:

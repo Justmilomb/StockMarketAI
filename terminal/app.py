@@ -72,6 +72,9 @@ class TradingTerminalApp(App):  # type: ignore[misc]
         ("p", "show_pies", "Pies"),
         ("e", "show_instruments", "Instruments"),
         ("l", "toggle_protect", "Lock"),
+        ("1", "switch_asset('stocks')", "Stocks"),
+        ("2", "switch_asset('polymarket')", "Polymarket"),
+        ("3", "switch_asset('crypto')", "Crypto"),
     ]
 
     def __init__(self, config_path: Path | str = "config.json") -> None:
@@ -148,14 +151,20 @@ class TradingTerminalApp(App):  # type: ignore[misc]
             max_daily_loss=t_cfg.get("max_daily_loss", 0.05),
             active_watchlist=self.config.get("active_watchlist", "Default"),
             protected_tickers=set(self.config.get("protected_tickers", [])),
+            active_asset_class=self.config.get("active_asset_class", "stocks"),
+            enabled_asset_classes=self.config.get("enabled_asset_classes", ["stocks"]),
         )
 
     # ── Layout ─────────────────────────────────────────────────────────
 
-    def compose(self) -> ComposeResult:
+    def _header_text(self) -> str:
         mode_str = "AUTO" if self.state.mode == "full_auto_limited" else "ADVISOR"
+        asset = self.state.active_asset_class.upper()
+        return f"TERMINAL [#{mode_str}] | {asset} | BLOOMBERG AI CORE"
+
+    def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
-        yield Label(f"TERMINAL [#{mode_str}] | BLOOMBERG AI CORE", id="app-header-title")
+        yield Label(self._header_text(), id="app-header-title")
         with Grid(id="main-grid"):
             # Left column (rows 1-3)
             self.settings_view = SettingsView(self.state)
@@ -250,18 +259,25 @@ class TradingTerminalApp(App):  # type: ignore[misc]
                 pass
 
     def _get_active_tickers(self) -> List[str]:
-        # Get all tickers from all watchlists
-        watchlists = self.config.get("watchlists", {})
-        all_tickers = set()
-        for tickers in watchlists.values():
-            all_tickers.update(tickers)
-        
+        asset = self.state.active_asset_class
+        all_tickers: set[str] = set()
+
+        if asset == "stocks":
+            watchlists = self.config.get("watchlists", {})
+            for tickers in watchlists.values():
+                all_tickers.update(tickers)
+        else:
+            asset_cfg = self.config.get(asset, {})
+            watchlists = asset_cfg.get("watchlists", {})
+            for tickers in watchlists.values():
+                all_tickers.update(tickers)
+
         # Add held tickers
         for pos in self.state.positions:
             t = pos.get("ticker")
             if t:
                 all_tickers.add(t)
-                
+
         return sorted(list(all_tickers))
 
     # ── Auto-sync T212 positions → watchlist ─────────────────────────
@@ -613,17 +629,76 @@ class TradingTerminalApp(App):  # type: ignore[misc]
         
         mode_label = "AUTO" if new_mode == "full_auto_limited" else "ADVISOR"
         try:
-            self.query_one("#app-header-title", Label).update(f"TERMINAL [#{mode_label}] | BLOOMBERG AI CORE")
+            self.query_one("#app-header-title", Label).update(self._header_text())
         except Exception:
             pass
             
         self.notify(f"Trading Mode: {mode_label.title()}", severity="information")
         self.refresh_data()
 
+    # ── Asset Class Switching ─────────────────────────────────────────
+
+    def action_switch_asset(self, asset_class: str) -> None:
+        """Switch the active asset class (1=stocks, 2=polymarket, 3=crypto)."""
+        from types_shared import AssetClass
+        valid: list[AssetClass] = ["stocks", "polymarket", "crypto"]
+        if asset_class not in valid:
+            return
+
+        if asset_class == self.state.active_asset_class:
+            self.notify(f"Already on {asset_class.title()}", severity="information")
+            return
+
+        # Check if asset class is enabled
+        enabled = self.config.get("enabled_asset_classes", ["stocks"])
+        asset_cfg = self.config.get(asset_class, {})
+        if asset_class != "stocks" and not asset_cfg.get("enabled", False):
+            self.notify(
+                f"{asset_class.title()} is disabled — set '{asset_class}.enabled: true' in config.json",
+                severity="warning",
+            )
+            return
+
+        # Swap state data (cache old, load new)
+        self.state.switch_asset_class(asset_class)
+
+        # Switch watchlist to the asset class's active watchlist
+        if asset_class == "stocks":
+            self.state.active_watchlist = self.config.get("active_watchlist", "Default")
+        else:
+            asset_wl = asset_cfg.get("active_watchlist", "")
+            self.state.active_watchlist = asset_wl
+
+        # Persist to config
+        self.config["active_asset_class"] = asset_class
+        if asset_class not in enabled:
+            enabled.append(asset_class)
+            self.config["enabled_asset_classes"] = enabled
+        self._save_config()
+
+        # Update header
+        try:
+            self.query_one("#app-header-title", Label).update(self._header_text())
+        except Exception:
+            pass
+
+        # Refresh views
+        if self.settings_view:
+            self.settings_view.refresh_view()
+        if self.watchlist_view:
+            self.watchlist_view.refresh_view()
+
+        self.notify(f"Switched to {asset_class.title()}", severity="information")
+        self.refresh_data(force_signals=True)
+
     # ── Watchlist Cycling ──────────────────────────────────────────────
 
     def action_cycle_watchlist(self) -> None:
-        watchlists = self.config.get("watchlists", {})
+        asset = self.state.active_asset_class
+        if asset == "stocks":
+            watchlists = self.config.get("watchlists", {})
+        else:
+            watchlists = self.config.get(asset, {}).get("watchlists", {})
         if not watchlists:
             return
         keys = list(watchlists.keys())
@@ -631,7 +706,10 @@ class TradingTerminalApp(App):  # type: ignore[misc]
         next_idx = (current_idx + 1) % len(keys)
         self.state.active_watchlist = keys[next_idx]
 
-        self.config["active_watchlist"] = self.state.active_watchlist
+        if asset == "stocks":
+            self.config["active_watchlist"] = self.state.active_watchlist
+        else:
+            self.config[asset]["active_watchlist"] = self.state.active_watchlist
         self._save_config()
 
         # Update news agent tickers

@@ -36,6 +36,7 @@ from strategy_selector import StrategySelector
 from strategy_profiles import load_profiles_from_config, REGIME_DEFAULT_MAPPING
 from timeframe import MultiTimeframeEnsemble
 from types_shared import (
+    AssetClass,
     ConsensusResult,
     EnsembleConfig,
     ForecasterSignal,
@@ -84,13 +85,25 @@ class AiService:
     _last_features_df: pd.DataFrame | None = None
 
     # Strategy selector assignments for TUI display
-    _last_strategy_assignments: Dict[str, Any] = {}
+    _last_strategy_assignments: Dict[str, Any] = field(default_factory=dict)
 
     def load_config(self) -> ConfigDict:
         if self._config_cache is None:
             with self.config_path.open("r", encoding="utf-8") as f:
                 self._config_cache = json.load(f)
         return self._config_cache
+
+    def get_asset_config(
+        self, cfg: ConfigDict, asset_class: AssetClass, key: str, default: Any = None,
+    ) -> Any:
+        """Read a config value with asset-class-specific override.
+
+        Checks cfg[asset_class][key] first, falls back to cfg[key].
+        """
+        asset_section = cfg.get(asset_class, {})
+        if key in asset_section:
+            return asset_section[key]
+        return cfg.get(key, default)
 
     def _get_universe_data(
         self,
@@ -191,10 +204,10 @@ class AiService:
         self._timeframe_ensemble = mte
         return mte
 
-    def _get_regime(self, cfg: ConfigDict) -> RegimeDetector:
+    def _get_regime(self, cfg: ConfigDict, asset_class: AssetClass = "stocks") -> RegimeDetector:
         if self._regime_detector is not None:
             return self._regime_detector
-        regime_cfg = cfg.get("regime", {})
+        regime_cfg = self.get_asset_config(cfg, asset_class, "regime", {})
         self._regime_detector = RegimeDetector(regime_cfg)
         return self._regime_detector
 
@@ -209,10 +222,10 @@ class AiService:
         self._persona_analyzer = ClaudePersonaAnalyzer(client, persona_list)
         return self._persona_analyzer
 
-    def _get_risk_manager(self, cfg: ConfigDict) -> RiskManager:
+    def _get_risk_manager(self, cfg: ConfigDict, asset_class: AssetClass = "stocks") -> RiskManager:
         if self._risk_manager is not None:
             return self._risk_manager
-        risk_cfg = cfg.get("risk", {})
+        risk_cfg = self.get_asset_config(cfg, asset_class, "risk", {})
         self._risk_manager = RiskManager(risk_cfg)
         return self._risk_manager
 
@@ -292,6 +305,7 @@ class AiService:
         self,
         held_tickers: List[str] | None = None,
         protected_tickers: set[str] | None = None,
+        asset_class: AssetClass = "stocks",
     ) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """1000-analyst signal pipeline with three-family meta-ensemble.
 
@@ -322,9 +336,9 @@ class AiService:
 
         # 1. Fetch universe data (180 calendar days ≈ 126 trading days —
         #    enough for N-BEATS which needs lookback(60)+horizon(20)+buffer)
-        tickers_cfg = cfg.get("watchlists", {}).get(
-            cfg.get("active_watchlist", ""), cfg.get("tickers", [])
-        )
+        watchlists = self.get_asset_config(cfg, asset_class, "watchlists", {})
+        active_wl = self.get_asset_config(cfg, asset_class, "active_watchlist", "")
+        tickers_cfg = watchlists.get(active_wl, cfg.get("tickers", []))
         n_tickers = len(set(tickers_cfg) | set(held_tickers or []))
         self._track("start_stage", "data_fetch", n_tickers)
         universe_data = self._get_universe_data(

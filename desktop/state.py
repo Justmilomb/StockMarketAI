@@ -27,6 +27,8 @@ def init_state(config: Dict[str, Any]) -> AppState:
         max_daily_loss=t_cfg.get("max_daily_loss", 0.05),
         active_watchlist=config.get("active_watchlist", "Default"),
         protected_tickers=set(config.get("protected_tickers", [])),
+        active_asset_class=config.get("active_asset_class", "stocks"),
+        enabled_asset_classes=config.get("enabled_asset_classes", ["stocks"]),
     )
 
 

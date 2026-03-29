@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from broker import Broker, LogBroker, LogBrokerConfig
 from trading212 import Trading212Broker, Trading212BrokerConfig
+from types_shared import AssetClass
 
 
 ConfigDict = Dict[str, Any]
@@ -16,12 +17,29 @@ class BrokerService:
     """
     Broker-agnostic facade that chooses and manages the concrete broker
     implementation (LogBroker vs Trading212Broker) based on configuration.
+
+    Supports multi-broker routing: different asset classes (stocks, crypto,
+    polymarket) can each have their own broker instance.  The default
+    ``broker`` property delegates to the stocks broker for backwards
+    compatibility.
     """
 
     config: ConfigDict
     _broker: Broker | None = None
+    _brokers: Dict[AssetClass, Broker] = field(default_factory=dict)
 
-    def _create_broker(self) -> Broker:
+    def _create_broker(self, asset_class: AssetClass = "stocks") -> Broker:
+        """Create and return a broker for the given asset class.
+
+        Currently only stocks brokers are created here.  Crypto and
+        polymarket brokers will register themselves via ``register_broker``
+        once their implementations exist.
+        """
+        if asset_class != "stocks":
+            # Non-stock asset classes are not yet supported for auto-creation;
+            # they must be registered externally via register_broker().
+            return LogBroker(LogBrokerConfig())
+
         broker_cfg = self.config.get("broker", {}) or {}
         broker_type = broker_cfg.get("type", "log")
 
@@ -43,10 +61,21 @@ class BrokerService:
 
         return LogBroker(LogBrokerConfig())
 
+    def get_broker(self, asset_class: AssetClass = "stocks") -> Broker:
+        """Return the broker for *asset_class*, creating it on first access."""
+        if asset_class not in self._brokers:
+            self._brokers[asset_class] = self._create_broker(asset_class)
+        return self._brokers[asset_class]
+
+    def register_broker(self, asset_class: AssetClass, broker: Broker) -> None:
+        """Register an externally-created broker for a given asset class."""
+        self._brokers[asset_class] = broker
+
     @property
     def broker(self) -> Broker:
+        """Default broker — delegates to the stocks broker for backwards compat."""
         if self._broker is None:
-            self._broker = self._create_broker()
+            self._broker = self.get_broker("stocks")
         return self._broker
 
     @property

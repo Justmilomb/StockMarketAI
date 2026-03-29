@@ -93,13 +93,17 @@ def _build_backtest_config(cfg: dict, fast: bool = False,
     if no_mirofish:
         use_mirofish = False
 
+    # Autoconfig uses step_days=120 (~15 folds) for speed.
+    # Config.json's step_days=20 is for the live terminal, not experiments.
+    step_days = 120
+
     return BacktestConfig(
         start_date=bt_cfg.get("start_date", cfg.get("start_date", "2018-01-01")),
         end_date=bt_cfg.get("end_date", cfg.get("end_date", "2026-03-27")),
         tickers=tickers,
         min_train_days=bt_cfg.get("min_train_days", 252),
         test_window_days=bt_cfg.get("test_window_days", 20),
-        step_days=bt_cfg.get("step_days", 20),
+        step_days=step_days,
         expanding_window=bt_cfg.get("expanding_window", True),
         initial_capital=cfg.get("capital", 100_000),
         max_positions=strategy.get("max_positions", 8),
@@ -113,7 +117,7 @@ def _build_backtest_config(cfg: dict, fast: bool = False,
         atr_profit_multiplier=risk.get("atr_profit_multiplier", 2.5),
         use_mirofish=use_mirofish,
         mirofish_n_sims=bt_cfg.get("mirofish_n_sims", 12),
-        n_processes=bt_cfg.get("n_processes"),
+        n_processes=bt_cfg.get("n_processes"),  # null = use all cores
         mode="fast" if fast else "full",
     )
 
@@ -284,6 +288,31 @@ def _compute_crisis_resilience(
     }
 
 
+def _sanitise_overrides(overrides: Dict[str, Any] | None) -> Dict[str, Any] | None:
+    """Strip backtesting internals that the agent should never override.
+
+    The autoconfig agent is only allowed to tune strategy, risk, consensus,
+    mirofish, ai, ensemble, timeframes, forecasters, and regime params.
+    Backtesting infrastructure (step_days, n_processes, mode, etc.) is
+    locked down to prevent degenerate experiments.
+    """
+    if overrides is None:
+        return None
+
+    overrides = copy.deepcopy(overrides)
+
+    # Remove entire backtesting section — agents must not touch it
+    if "backtesting" in overrides:
+        stripped = overrides.pop("backtesting")
+        if stripped:
+            print(
+                f"  [guardrail] Stripped backtesting overrides: {stripped}",
+                file=sys.stderr, flush=True,
+            )
+
+    return overrides if overrides else None
+
+
 def run_experiment(
     overrides: Dict[str, Any] | None = None,
     config_file: str | None = None,
@@ -299,6 +328,9 @@ def run_experiment(
 ) -> Dict[str, Any]:
     """Run a single backtest experiment and return structured results."""
     t0 = time.time()
+
+    # --- Guardrail: strip backtesting overrides from agent --------------------
+    overrides = _sanitise_overrides(overrides)
 
     # --- Resolve crisis period date overrides --------------------------------
     if crisis:
@@ -457,12 +489,13 @@ def main() -> None:
         "--config-file", type=str, default=None,
         help="Path to a JSON file with config overrides",
     )
-    parser.add_argument("--fast", action="store_true", help="Fast mode (signal accuracy only)")
+    parser.add_argument("--fast", action="store_true",
+                        help="DEPRECATED — ignored. Full mode always used for trade metrics.")
     parser.add_argument("--no-mirofish", action="store_true", help="Disable MiroFish")
     parser.add_argument(
         "--universe", type=str, default=None,
         choices=["small", "medium", "large", "full"],
-        help="Stock universe size: small (15), medium (30), large (60), full (100+)",
+        help="Stock universe size: small (30), medium (100), large (180), full (~250)",
     )
     parser.add_argument(
         "--sector", type=str, default=None,
@@ -500,7 +533,7 @@ def main() -> None:
     result = run_experiment(
         overrides=overrides,
         config_file=args.config_file,
-        fast=args.fast,
+        fast=False,  # Always full mode — fast produces zero trade metrics
         no_mirofish=args.no_mirofish,
         universe=args.universe,
         sector=args.sector,

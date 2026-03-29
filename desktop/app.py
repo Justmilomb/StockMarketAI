@@ -122,8 +122,9 @@ class MainWindow(QMainWindow):
 
         # Header label
         mode_str = "AUTO" if self.state.mode == "full_auto_limited" else "ADVISOR"
+        asset_str = self.state.active_asset_class.upper()
         self._header_label = QLabel(
-            f"  TERMINAL [{mode_str}] | BLOOMBERG AI CORE",
+            f"  TERMINAL [{mode_str}] | {asset_str} | BLOOMBERG AI CORE",
         )
         self._header_label.setFixedHeight(28)
         self._header_label.setStyleSheet(
@@ -176,8 +177,8 @@ class MainWindow(QMainWindow):
         status = QStatusBar()
         self.setStatusBar(status)
         self._status_label = QLabel(
-            "  ? Help | R Refresh | A Mode | W Watchlist | T Trade | "
-            "C Chat | G Chart | H History | Q Quit",
+            "  1 Stocks | 2 Poly | 3 Crypto | ? Help | R Refresh | A Mode | "
+            "W Watchlist | T Trade | C Chat | G Chart | H History | Q Quit",
         )
         status.addPermanentWidget(self._status_label, 1)
 
@@ -208,6 +209,9 @@ class MainWindow(QMainWindow):
             ("P", self.action_show_pies),
             ("E", self.action_show_instruments),
             ("L", self.action_toggle_protect),
+            ("1", lambda: self._switch_asset("stocks")),
+            ("2", lambda: self._switch_asset("polymarket")),
+            ("3", lambda: self._switch_asset("crypto")),
         ]
         for key, slot in shortcuts:
             QShortcut(QKeySequence(key), self, slot)
@@ -388,12 +392,40 @@ class MainWindow(QMainWindow):
         HelpDialog(self).exec()
 
     @Slot()
+    def _update_header(self) -> None:
+        mode_str = "AUTO" if self.state.mode == "full_auto_limited" else "ADVISOR"
+        asset_str = self.state.active_asset_class.upper()
+        self._header_label.setText(
+            f"  TERMINAL [{mode_str}] | {asset_str} | BLOOMBERG AI CORE",
+        )
+
+    def _switch_asset(self, asset_class: str) -> None:
+        """Switch active asset class (1=stocks, 2=polymarket, 3=crypto)."""
+        if asset_class == self.state.active_asset_class:
+            return
+        asset_cfg = self.config.get(asset_class, {})
+        if asset_class != "stocks" and not asset_cfg.get("enabled", False):
+            self.statusBar().showMessage(
+                f"{asset_class.title()} is disabled in config.json", 3000,
+            )
+            return
+        self.state.switch_asset_class(asset_class)
+        if asset_class == "stocks":
+            self.state.active_watchlist = self.config.get("active_watchlist", "Default")
+        else:
+            self.state.active_watchlist = asset_cfg.get("active_watchlist", "")
+        self._save_config_key("active_asset_class", asset_class)
+        self._update_header()
+        self._refresh_all_panels()
+        self.statusBar().showMessage(f"Switched to {asset_class.title()}", 3000)
+
     def action_toggle_mode(self) -> None:
         if self.state.mode == "recommendation":
             self.state.mode = "full_auto_limited"
         else:
             self.state.mode = "recommendation"
         self._save_config_key("terminal.mode", self.state.mode)
+        self._update_header()
         self._refresh_all_panels()
         self.statusBar().showMessage(
             f"Mode: {self.state.mode}", 3000,
