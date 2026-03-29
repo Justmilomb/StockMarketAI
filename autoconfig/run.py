@@ -96,24 +96,13 @@ def _run_session(batch_size: int, session_num: int, dry_run: bool = False) -> bo
     print(f"{'='*70}\n")
 
     try:
-        # Claude -p mode buffers all output until done. To show live fold
-        # progress, experiment.py writes to .progress and we tail it here.
-        progress_file = AUTOCONFIG_DIR / ".progress"
-        try:
-            progress_file.write_text("", encoding="utf-8")
-        except Exception:
-            pass
-
+        # Stream all Claude output directly to terminal for full visibility
         proc = subprocess.Popen(
             cmd,
             cwd=str(PROJECT_ROOT),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
         )
 
-        # Tail the progress file while Claude works
-        _tail_progress_until_done(proc, progress_file)
+        proc.wait()
 
         return proc.returncode == 0
     except subprocess.TimeoutExpired:

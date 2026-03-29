@@ -12,16 +12,17 @@ from types_shared import ConsensusResult, RiskAssessment
 logger = logging.getLogger(__name__)
 
 # Default configuration for risk management parameters.
-_DEFAULT_CONFIG: Dict[str, float | int] = {
+_DEFAULT_CONFIG: Dict[str, float | int | bool] = {
     "kelly_fraction_cap": 0.25,
     "max_position_pct": 0.15,
     "atr_stop_multiplier": 2.0,
     "atr_profit_multiplier": 3.0,
     "drawdown_threshold": 0.10,
     "drawdown_size_reduction": 0.5,
-    "min_position_dollars": 50.0,
+    "min_position_dollars": 1.0,
     "max_open_positions": 10,
     "cash_buffer_pct": 0.05,
+    "fractional_shares": True,
 }
 
 
@@ -33,7 +34,7 @@ class RiskManager:
     concentration checks.
     """
 
-    def __init__(self, config: Dict[str, float | int] | None = None) -> None:
+    def __init__(self, config: Dict[str, float | int | bool] | None = None) -> None:
         merged = dict(_DEFAULT_CONFIG)
         if config:
             merged.update(config)
@@ -47,6 +48,7 @@ class RiskManager:
         self._min_position_dollars: float = float(merged["min_position_dollars"])
         self._max_open_positions: int = int(merged["max_open_positions"])
         self._cash_buffer_pct: float = float(merged["cash_buffer_pct"])
+        self._fractional_shares: bool = bool(merged["fractional_shares"])
 
     # ------------------------------------------------------------------
     # Core sizing helpers
@@ -256,10 +258,16 @@ class RiskManager:
         if size_dollars < self._min_position_dollars:
             size_dollars = 0.0
 
-        # Step 8: Shares from dollar size
-        shares = math.floor(size_dollars / price) if size_dollars > 0 else 0.0
+        # Step 8: Shares from dollar size (fractional for T212, whole otherwise)
+        if size_dollars > 0:
+            if self._fractional_shares:
+                shares = round(size_dollars / price, 6)
+            else:
+                shares = float(math.floor(size_dollars / price))
+        else:
+            shares = 0.0
 
-        # Recompute exact dollar exposure from whole shares
+        # Recompute exact dollar exposure
         position_dollars = shares * price
 
         # Stop-loss and take-profit

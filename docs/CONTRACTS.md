@@ -342,20 +342,28 @@ Breaking any of these is a regression.
 
 ---
 
-## AiService ↔ strategy
+## AiService ↔ strategy_selector + strategy
 
-**Access pattern:** AiService passes consensus probabilities to `generate_signals()`.
+**Access pattern:** AiService creates a `StrategySelector`, calls `select_strategies()` to get per-ticker `StrategyAssignment`s, converts them to per-ticker `StrategyConfig`s, then passes those to `generate_signals()`.
+
+**AiService calls on strategy_selector:**
+| Function | When | Returns |
+|----------|------|---------|
+| `StrategySelector.select_strategies(regime, consensus, volatility)` | Signal generation (step 7) | `Dict[str, StrategyAssignment]` |
+| `StrategySelector.to_strategy_config(profile)` | Per-ticker conversion | `StrategyConfig` |
 
 **AiService calls on strategy:**
 | Function | When | Returns |
 |----------|------|---------|
-| `generate_signals(prob_up, meta_latest, config, held_tickers)` | Signal generation | `DataFrame` with columns [ticker, date, prob_up, signal] |
+| `generate_signals(prob_up, meta_latest, config, held_tickers, protected_tickers, per_ticker_configs)` | Signal generation | `DataFrame` with columns [ticker, date, prob_up, signal] |
 
 **Invariants:**
 - `signal` is always one of: `"buy"`, `"sell"`, `"hold"`
-- Buy signals limited to `config.max_positions` count
+- Buy signals limited to `config.max_positions` count (global cap)
 - Sell signals only emitted for tickers in `held_tickers`
 - Output sorted by `prob_up` descending
+- When `per_ticker_configs` is None, behaviour is identical to the legacy single-config path
+- When `strategy_profiles.enabled` is False in config, no per-ticker selection occurs
 
 ---
 

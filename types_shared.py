@@ -82,6 +82,40 @@ class RegimeState:
     trend_strength: float
 
 
+# ── Strategy selection types ──────────────────────────────────────────
+
+StrategyProfileName = Literal[
+    "conservative", "day_trader", "swing", "crisis_alpha", "trend_follower",
+]
+
+
+@dataclass(frozen=True)
+class StrategyProfile:
+    """Complete strategy configuration for one trading style."""
+
+    name: StrategyProfileName
+    threshold_buy: float
+    threshold_sell: float
+    max_positions: int
+    position_size_fraction: float
+    atr_stop_multiplier: float
+    atr_profit_multiplier: float
+    min_signal_strength: float
+    min_consensus_pct: float
+    description: str = ""
+
+
+@dataclass
+class StrategyAssignment:
+    """Records which strategy was selected for a ticker and why."""
+
+    ticker: str
+    profile: StrategyProfile
+    reason: str
+    regime: RegimeType
+    confidence: float
+
+
 # Default feature group definitions — populated by features_advanced on import,
 # but declared here so other modules can reference the structure.
 FEATURE_GROUP_NAMES: List[str] = [

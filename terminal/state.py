@@ -81,3 +81,7 @@ class AppState:
     mirofish_signals: Dict[str, Any] = field(default_factory=dict)
     mirofish_agent_count: int = 0
     mirofish_sim_count: int = 0
+
+    # Strategy selector — per-ticker profile assignments
+    strategy_assignments: Dict[str, Any] = field(default_factory=dict)
+    regime_strategy_map: Dict[str, str] = field(default_factory=dict)

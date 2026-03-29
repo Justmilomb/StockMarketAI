@@ -12,7 +12,7 @@ while covering the full universe over many experiments.
 from __future__ import annotations
 
 import random
-from typing import List
+from typing import Dict, List
 
 # ---------------------------------------------------------------------------
 # Universe: ~120 liquid stocks across sectors and geographies
@@ -125,6 +125,29 @@ SECTOR_GROUPS = {
     "uk_ftse": UNIVERSE_UK,
     "eu_blue": UNIVERSE_EU,
 }
+
+# ---------------------------------------------------------------------------
+# Crisis periods for stress testing
+# Each defines a date window covering a significant market dislocation.
+# ---------------------------------------------------------------------------
+
+CRISIS_PERIODS: Dict[str, Dict[str, str]] = {
+    "2008_financial_crisis": {"start": "2007-10-01", "end": "2009-03-31"},
+    "2020_covid_crash": {"start": "2020-02-01", "end": "2020-06-30"},
+    "2022_bear_market": {"start": "2022-01-01", "end": "2022-12-31"},
+    "2018_q4_selloff": {"start": "2018-10-01", "end": "2019-01-31"},
+    "2023_bank_crisis": {"start": "2023-03-01", "end": "2023-05-31"},
+}
+
+
+def get_crisis_period(name: str) -> Dict[str, str] | None:
+    """Return start/end dates for a named crisis period, or None if unknown."""
+    return CRISIS_PERIODS.get(name)
+
+
+def get_all_crisis_periods() -> Dict[str, Dict[str, str]]:
+    """Return a copy of all crisis period definitions."""
+    return dict(CRISIS_PERIODS)
 
 
 if __name__ == "__main__":

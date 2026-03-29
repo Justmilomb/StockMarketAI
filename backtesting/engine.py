@@ -364,7 +364,73 @@ class BacktestEngine:
         if not sorted_dates:
             return [], []
 
-        sim = TradeSimulator(self._config)
+        # -- Per-ticker strategy overrides (regime-aware) -------------------
+        per_ticker_overrides: Dict[str, Dict[str, float]] | None = None
+
+        if self._config.use_strategy_selector:
+            try:
+                from strategy_selector import StrategySelector
+                from strategy_profiles import DEFAULT_PROFILES, REGIME_DEFAULT_MAPPING
+                from types_shared import RegimeState, ConsensusResult
+
+                # Detect regime from training-period data
+                regime_str = self._detect_simple_regime(universe_data, split.train_end)
+                # Map range_bound -> mean_reverting for consistency with types_shared
+                if regime_str == "range_bound":
+                    regime_str = "mean_reverting"
+
+                regime_state = RegimeState(
+                    regime=regime_str,
+                    confidence=0.6,  # moderate confidence for backtest regime detection
+                    vix_proxy=0.0,
+                    breadth=0.0,
+                    trend_strength=0.0,
+                )
+
+                # Build synthetic ConsensusResult per ticker from test predictions
+                consensus_dict: Dict[str, ConsensusResult] = {}
+                for ticker in test_feats:
+                    probs = [
+                        day_preds.get(ticker, 0.5)
+                        for day_preds in predictions
+                        if ticker in day_preds
+                    ]
+                    avg_prob = sum(probs) / len(probs) if probs else 0.5
+                    consensus_dict[ticker] = ConsensusResult(
+                        ticker=ticker,
+                        probability=avg_prob,
+                        consensus_pct=avg_prob * 100,
+                        confidence=0.5,
+                        signal_strength=abs(avg_prob - 0.5) * 2,
+                        disagreement=0.2,
+                        bull_count=5 if avg_prob > 0.5 else 2,
+                        bear_count=2 if avg_prob > 0.5 else 5,
+                    )
+
+                selector = StrategySelector(
+                    profiles=DEFAULT_PROFILES,
+                    capital=self._config.initial_capital,
+                )
+                assignments = selector.select_strategies(regime_state, consensus_dict)
+
+                per_ticker_overrides = {}
+                for ticker, assignment in assignments.items():
+                    p = assignment.profile
+                    per_ticker_overrides[ticker] = {
+                        "threshold_buy": p.threshold_buy,
+                        "threshold_sell": p.threshold_sell,
+                        "position_size_fraction": p.position_size_fraction,
+                        "atr_stop_multiplier": p.atr_stop_multiplier,
+                        "atr_profit_multiplier": p.atr_profit_multiplier,
+                        "max_positions": p.max_positions,
+                        "strategy_profile": p.name,
+                    }
+
+            except Exception as e:
+                logger.warning("Strategy selector failed in fold %d: %s", split.fold_id, e)
+                per_ticker_overrides = None
+
+        sim = TradeSimulator(self._config, per_ticker_overrides=per_ticker_overrides)
 
         for day_idx, day_date in enumerate(sorted_dates):
             if day_idx >= len(predictions):

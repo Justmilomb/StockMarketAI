@@ -63,13 +63,22 @@
 - [x] CLI entry point `backtest.py` with --fast/--full/--ticker/--folds flags — 2026-03-27
 - [x] Backtesting config section in config.json — 2026-03-27
 
+**Phase 3.05 — Multi-Strategy System + Stress Testing**
+- [x] Strategy types in types_shared.py (StrategyProfile, StrategyAssignment, StrategyProfileName) — 2026-03-28
+- [x] 5 strategy profiles (conservative, day_trader, swing, crisis_alpha, trend_follower) in strategy_profiles.py — 2026-03-28
+- [x] Regime-aware strategy selector with 5-step cascade (strategy_selector.py) — 2026-03-28
+- [x] Per-ticker config support in strategy.py — 2026-03-28
+- [x] Small capital fixes: min_position £1, fractional shares (risk_manager.py) — 2026-03-28
+- [x] Crisis period definitions and stress testing in autoconfig (universe.py, experiment.py) — 2026-03-28
+- [x] Hub integration: config.json (capital=10, strategy_profiles), ai_service.py (selector injection), terminal state/views (Strategy column, regime→strategy display) — 2026-03-28
+- [x] Backtesting integration: per-ticker overrides in simulator, regime-aware strategy per fold in engine — 2026-03-28
+
 ### In Progress
 - [ ] (none currently)
 
 ### Up Next
 - [ ] Add pytest test suite — unit tests for features_advanced, ensemble, timeframe, regime, consensus, risk_manager, forecaster_statistical, forecaster_deep, meta_ensemble
 - [ ] Integration tests for all new ensemble modules
-- [ ] Advanced position sizing strategies (volatility-adjusted Kelly, asymmetric risk/reward)
 - [ ] Persistent trade log with performance tracking per signal source (ensemble vs personas vs regime)
 - [ ] Integration tests for Trading 212 broker (mocked API)
 - [ ] Dashboard views for model performance and consensus breakdowns
@@ -94,4 +103,6 @@
 - **Total model count:** 36 ML models + 12 ARIMA/ETS baselines + N-BEATS (optional) + 5 Claude personas + 1000 MiroFish agents × 16 Monte Carlo sims = 16,000+ independent agent simulations per ticker.
 - **Phase 3.0 complete:** Backtesting engine built. Walk-forward validation with parallel fold execution, realistic trade simulation (stops, slippage, sizing), and comprehensive performance metrics (Sharpe, Sortino, Calmar, attribution by signal band). CLI: `python backtest.py --full` or `python backtest.py --fast`.
 - **Key new modules:** `backtesting/types.py`, `backtesting/data_prep.py`, `backtesting/simulator.py`, `backtesting/engine.py`, `backtesting/metrics.py`, `backtesting/runner.py`, `backtest.py`.
+- **Phase 3.05 complete:** Multi-strategy system added. 5 trading profiles selected per-ticker by regime, consensus quality, volatility, and historical performance. Stress testing against 5 crisis periods (2008 crash, COVID, 2022 bear, 2018 selloff, 2023 bank crisis). Small capital support (£10 with fractional shares). Backtesting integration with regime-aware per-fold strategy selection.
+- **Key new modules:** `strategy_profiles.py`, `strategy_selector.py`. Modified: `types_shared.py`, `strategy.py`, `risk_manager.py`, `ai_service.py`, `config.json`, `terminal/state.py`, `terminal/views.py`, `terminal/app.py`, `backtesting/types.py`, `backtesting/simulator.py`, `backtesting/engine.py`, `autoconfig/universe.py`, `autoconfig/experiment.py`.
 - **Next focus:** Pytest test suite coverage, then production hardening (Phase 4).

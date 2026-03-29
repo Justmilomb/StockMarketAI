@@ -552,6 +552,17 @@ class TradingTerminalApp(App):  # type: ignore[misc]
             self.state.regime_confidence = regime.confidence
         self.state.ensemble_model_count = self.ai_service.get_ensemble_model_count()
 
+        # Update strategy selector assignments
+        self.state.strategy_assignments = getattr(self.ai_service, "_last_strategy_assignments", {})
+        # Regime→strategy mapping from config
+        cfg = self.ai_service.load_config()
+        sp_cfg = cfg.get("strategy_profiles", {})
+        from strategy_profiles import REGIME_DEFAULT_MAPPING
+        mapping = dict(REGIME_DEFAULT_MAPPING)
+        if sp_cfg.get("regime_mapping"):
+            mapping.update(sp_cfg["regime_mapping"])
+        self.state.regime_strategy_map = mapping
+
         # Update meta-ensemble / forecaster metadata
         meta_data = self.ai_service.get_meta_ensemble_data()
         if meta_data:

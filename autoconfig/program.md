@@ -69,6 +69,16 @@ Pick ONE or TWO parameters to change per experiment. Don't change everything at 
 {"mirofish": {"agent_distribution": {"momentum": N, "mean_reversion": N, ...}}}
 ```
 
+**Strategy profile parameters** (per-profile overrides for the 5 trading profiles):
+
+| Profile | Default buy | Default sell | Size | Stop | TP | Best for |
+|---------|-------------|-------------|------|------|----|----------|
+| `conservative` | 0.68 | 0.35 | 8% | 1.2x ATR | 1.8x ATR | High vol, tiny capital |
+| `day_trader` | 0.60 | 0.42 | 15% | 1.5x ATR | 2.5x ATR | Mean-reverting markets |
+| `swing` | 0.55 | 0.40 | 18% | 2.0x ATR | 3.0x ATR | Default / unknown regime |
+| `crisis_alpha` | 0.72 | 0.30 | 10% | 1.0x ATR | 2.0x ATR | Contrarian in panics |
+| `trend_follower` | 0.52 | 0.45 | 20% | 2.5x ATR | 4.0x ATR | Strong uptrends |
+
 ### Step 2: Run the experiment
 
 ```bash
@@ -85,11 +95,18 @@ cd /e/Coding/StockMarketAI && python autoconfig/experiment.py --fast --no-mirofi
 - `--sector finance` / `healthcare` / `energy` etc.
 - `--universe-seed N` — use same seed for comparable experiments
 
+**Strategy testing flags:**
+- `--strategy-profile conservative` — test a specific profile's parameters as overrides
+- `--use-strategy-selector` — enable regime-aware per-ticker strategy selection in the backtest
+- `--crisis 2020_covid_crash` — override dates to a specific crisis period
+- `--stress-test` — run ALL crisis periods and compute a resilience-blended score
+
 **Speed tiers** (use the fastest tier that tests what you need):
 - `--fast --no-mirofish --universe small` — ~1-3 min. Quick screening.
 - `--fast --no-mirofish --universe medium` — ~3-8 min. Standard experiments.
 - `--fast --universe medium` — ~10-20 min. With MiroFish. Use when testing MiroFish params.
 - `--universe large` — ~20-60 min. Full trade simulation. Validate top candidates only.
+- `--stress-test --universe medium` — ~30-60 min. Full + all crisis periods. Final validation.
 
 **IMPORTANT: Use `--universe-seed 42` for the first pass of each parameter** so results are comparable. Then re-test winners with different seeds to check they generalise.
 
@@ -117,12 +134,15 @@ Use your results history to guide exploration:
 - **Early phase** (experiments 1-20): Try broad strokes. Sweep each parameter independently to find which ones matter most.
 - **Middle phase** (20-50): Focus on the parameters that showed the biggest impact. Try combinations.
 - **Late phase** (50+): Fine-tune. Small increments around the best values found.
+- **Multi-strategy phase** (when single-strategy is optimised): Test each profile independently, then test the adaptive selector.
 
 **Search strategies:**
 - Binary search: If threshold_buy=0.55 scored X and 0.65 scored Y, try 0.60
 - Grid sweep: Systematically try 5-7 values across a parameter's range
 - Synergy: Once you find two individually-good changes, try them together
 - Ablation: Remove one change from the best config to verify each part helps
+- **Per-profile sweep**: Test each of the 5 profiles independently using `--strategy-profile <name>` to find the best params for each trading style
+- **Regime-specific**: Use `--crisis <name>` to test how a config performs during specific market dislocations
 
 ### Step 7: Periodic validation
 
@@ -130,8 +150,42 @@ Every 10 experiments, run the current best config through validation:
 1. `--universe large` with `--fast --no-mirofish` — does it generalise to 60 stocks?
 2. `--universe medium` without `--fast` — do the trade metrics (Sharpe, win rate) hold up?
 3. `--sector volatile` — does it survive high-volatility stocks?
+4. `--stress-test --universe medium` — does it survive crises? (score blends 60% normal + 40% crisis resilience)
+5. `--use-strategy-selector --universe medium` — does the adaptive system beat the static config?
 
-Record each as a validation run with notes like "validation:large", "validation:full", "validation:volatile".
+Record each as a validation run with notes like "validation:large", "validation:stress", "validation:adaptive".
+
+### Step 8: Multi-strategy optimisation
+
+Once single-strategy experiments are well-explored, optimise each profile independently:
+
+1. **Test each profile as a standalone strategy:**
+```bash
+python autoconfig/experiment.py --strategy-profile conservative --universe medium --universe-seed 42 2>/dev/null
+python autoconfig/experiment.py --strategy-profile day_trader --universe medium --universe-seed 42 2>/dev/null
+python autoconfig/experiment.py --strategy-profile swing --universe medium --universe-seed 42 2>/dev/null
+python autoconfig/experiment.py --strategy-profile crisis_alpha --universe medium --universe-seed 42 2>/dev/null
+python autoconfig/experiment.py --strategy-profile trend_follower --universe medium --universe-seed 42 2>/dev/null
+```
+
+2. **Optimise each profile's parameters** — use overrides ON TOP of the profile:
+```bash
+python autoconfig/experiment.py --strategy-profile conservative --overrides '{"strategy": {"threshold_buy": 0.70}}' --universe medium 2>/dev/null
+```
+
+3. **Test crisis resilience per profile:**
+```bash
+python autoconfig/experiment.py --strategy-profile crisis_alpha --crisis 2020_covid_crash --universe medium 2>/dev/null
+python autoconfig/experiment.py --strategy-profile conservative --stress-test --universe medium 2>/dev/null
+```
+
+4. **Test the adaptive selector vs best static config:**
+```bash
+python autoconfig/experiment.py --use-strategy-selector --universe medium --universe-seed 42 2>/dev/null
+python autoconfig/experiment.py --use-strategy-selector --stress-test --universe medium 2>/dev/null
+```
+
+Record profile-specific results with notes like "profile:conservative", "profile:crisis_alpha+covid".
 
 ---
 

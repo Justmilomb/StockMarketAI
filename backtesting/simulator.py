@@ -27,8 +27,13 @@ logger = logging.getLogger(__name__)
 class TradeSimulator:
     """Simulates a portfolio with realistic trade execution."""
 
-    def __init__(self, config: BacktestConfig) -> None:
+    def __init__(
+        self,
+        config: BacktestConfig,
+        per_ticker_overrides: Dict[str, Dict[str, float]] | None = None,
+    ) -> None:
         self._config = config
+        self._per_ticker_overrides: Dict[str, Dict[str, float]] = per_ticker_overrides or {}
         self._cash: float = config.initial_capital
         self._positions: Dict[str, Position] = {}
         self._trades: List[TradeRecord] = []
@@ -130,11 +135,11 @@ class TradeSimulator:
         signals: Dict[str, float],
     ) -> None:
         """Sell positions where signal drops below threshold."""
-        threshold = self._config.threshold_sell
-
         for ticker in list(self._positions.keys()):
             if ticker not in signals:
                 continue
+            overrides = self._per_ticker_overrides.get(ticker, {})
+            threshold = overrides.get("threshold_sell", self._config.threshold_sell)
             if signals[ticker] > threshold:
                 continue  # Signal still okay — hold
 
@@ -154,52 +159,72 @@ class TradeSimulator:
         atr_values: Dict[str, float],
     ) -> None:
         """Open new positions for strong buy signals."""
-        threshold = self._config.threshold_buy
-        max_pos = self._config.max_positions
+        global_max_pos = self._config.max_positions
 
-        if len(self._positions) >= max_pos:
+        if len(self._positions) >= global_max_pos:
             return
 
         # Rank tickers by signal strength (highest probability first)
-        buy_candidates = [
-            (ticker, prob)
-            for ticker, prob in signals.items()
-            if prob >= threshold
-            and ticker not in self._positions
-            and ticker in prices
-        ]
+        # Use per-ticker buy threshold when available
+        buy_candidates = []
+        for ticker, prob in signals.items():
+            if ticker in self._positions or ticker not in prices:
+                continue
+            overrides = self._per_ticker_overrides.get(ticker, {})
+            threshold = overrides.get("threshold_buy", self._config.threshold_buy)
+            if prob >= threshold:
+                buy_candidates.append((ticker, prob))
         buy_candidates.sort(key=lambda x: x[1], reverse=True)
 
-        slots = max_pos - len(self._positions)
+        slots = global_max_pos - len(self._positions)
         for ticker, prob in buy_candidates[:slots]:
+            overrides = self._per_ticker_overrides.get(ticker, {})
+
+            # Per-ticker max_positions cap (global cap still applies)
+            per_ticker_max = int(overrides.get("max_positions", global_max_pos))
+            effective_max = min(global_max_pos, per_ticker_max)
+            if len(self._positions) >= effective_max:
+                break
+
             price_data = prices[ticker]
             close_price = price_data["close"]
 
-            # Position sizing: fraction of equity
+            # Position sizing: fraction of equity (per-ticker override or config)
+            size_fraction = overrides.get(
+                "position_size_fraction", self._config.position_size_fraction,
+            )
             equity = self._cash + sum(
                 prices.get(t, {}).get("close", p.entry_price) * p.quantity
                 for t, p in self._positions.items()
             )
-            position_value = equity * self._config.position_size_fraction
+            position_value = equity * size_fraction
             if position_value > self._cash:
                 position_value = self._cash * 0.95  # Leave 5% cash buffer
 
-            if position_value < 10.0:
+            if position_value < 1.0:
                 continue  # Not enough cash
 
             # Fill at close with slippage
             fill_price = close_price * (1.0 + self._config.slippage_pct)
             quantity = position_value / fill_price
 
-            # Stop-loss and take-profit from ATR
+            # Stop-loss and take-profit from ATR (per-ticker overrides)
             atr = atr_values.get(ticker, close_price * 0.02)
-            stop_loss = fill_price - (atr * self._config.atr_stop_multiplier)
-            take_profit = fill_price + (atr * self._config.atr_profit_multiplier)
+            atr_stop_mult = overrides.get(
+                "atr_stop_multiplier", self._config.atr_stop_multiplier,
+            )
+            atr_profit_mult = overrides.get(
+                "atr_profit_multiplier", self._config.atr_profit_multiplier,
+            )
+            stop_loss = fill_price - (atr * atr_stop_mult)
+            take_profit = fill_price + (atr * atr_profit_mult)
 
             # Execute
             cost = fill_price * quantity + self._config.commission_per_trade
             if cost > self._cash:
                 continue
+
+            strategy_profile = str(overrides.get("strategy_profile", ""))
 
             self._cash -= cost
             self._positions[ticker] = Position(
@@ -210,6 +235,7 @@ class TradeSimulator:
                 stop_loss=stop_loss,
                 take_profit=take_profit,
                 signal_prob=prob,
+                strategy_profile=strategy_profile,
             )
 
     def _close_position(
@@ -243,6 +269,7 @@ class TradeSimulator:
             hold_days=max(hold_days, 1),
             exit_reason=exit_reason,
             signal_prob=pos.signal_prob,
+            strategy_profile=pos.strategy_profile,
         ))
 
     def _record_snapshot(

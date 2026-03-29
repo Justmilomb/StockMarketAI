@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date
-from typing import Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 
 # ---------------------------------------------------------------------------
@@ -50,6 +50,10 @@ class BacktestConfig:
     n_processes: int | None = None    # None = all cores
     mode: Literal["fast", "full"] = "full"
 
+    # -- Strategy selection ----------------------------------------------------
+    use_strategy_selector: bool = False
+    strategy_profiles_override: Dict[str, Any] = field(default_factory=dict)
+
 
 # ---------------------------------------------------------------------------
 # Walk-forward split
@@ -83,6 +87,7 @@ class Position:
     stop_loss: float
     take_profit: float
     signal_prob: float               # P(up) when entry was triggered
+    strategy_profile: str = ""
 
 
 @dataclass
@@ -100,6 +105,7 @@ class TradeRecord:
     hold_days: int
     exit_reason: str                 # "signal" | "stop_loss" | "take_profit" | "end_of_fold"
     signal_prob: float               # P(up) at entry
+    strategy_profile: str = ""
 
 
 @dataclass

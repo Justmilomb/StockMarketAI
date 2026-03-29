@@ -28,7 +28,7 @@
     "max_positions": 8,
     "position_size_fraction": 0.12
   },
-  "capital": 100000,
+  "capital": 10,
   "ai": {
     "sklearn_weight": 0.5,
     "ai_weight": 0.3,
@@ -81,7 +81,19 @@
     "atr_stop_multiplier": 1.8,
     "atr_profit_multiplier": 2.5,
     "drawdown_threshold": 0.15,
-    "drawdown_size_reduction": 0.5
+    "drawdown_size_reduction": 0.5,
+    "min_position_dollars": 1.0,
+    "fractional_shares": true
+  },
+  "strategy_profiles": {
+    "enabled": true,
+    "regime_mapping": {
+      "trending_up": "trend_follower",
+      "trending_down": "conservative",
+      "mean_reverting": "day_trader",
+      "high_volatility": "crisis_alpha",
+      "unknown": "swing"
+    }
   },
   "claude_personas": {
     "enabled": true,

@@ -32,6 +32,8 @@ from pipeline_tracker import PipelineTracker
 from regime import RegimeDetector
 from risk_manager import RiskManager
 from strategy import StrategyConfig, generate_signals
+from strategy_selector import StrategySelector
+from strategy_profiles import load_profiles_from_config, REGIME_DEFAULT_MAPPING
 from timeframe import MultiTimeframeEnsemble
 from types_shared import (
     ConsensusResult,
@@ -80,6 +82,9 @@ class AiService:
 
     # Expose latest features for auto_engine risk manager
     _last_features_df: pd.DataFrame | None = None
+
+    # Strategy selector assignments for TUI display
+    _last_strategy_assignments: Dict[str, Any] = {}
 
     def load_config(self) -> ConfigDict:
         if self._config_cache is None:
@@ -725,7 +730,7 @@ class AiService:
                 # Legacy fallback
                 p_final[i] = w_sklearn * p_sklearn[i] + w_ai * p_ai[i] + w_news * p_news[i]
 
-        # 7. Generate strategy signals
+        # 7. Generate strategy signals (regime-aware per-ticker selection)
         strat_cfg_raw = cfg.get("strategy", {})
         strat_cfg = StrategyConfig(
             threshold_buy=strat_cfg_raw.get("threshold_buy", 0.6),
@@ -734,10 +739,43 @@ class AiService:
             position_size_fraction=strat_cfg_raw.get("position_size_fraction", 0.2),
         )
 
+        per_ticker_configs: Dict[str, StrategyConfig] | None = None
+        strategy_assignments: Dict[str, Any] = {}
+
+        strategy_profiles_cfg = cfg.get("strategy_profiles", {})
+        if strategy_profiles_cfg.get("enabled", False) and regime_state:
+            capital = float(cfg.get("capital", 100_000))
+            profiles = load_profiles_from_config(cfg)
+            regime_mapping_raw = strategy_profiles_cfg.get("regime_mapping")
+            regime_mapping = dict(REGIME_DEFAULT_MAPPING)
+            if regime_mapping_raw:
+                regime_mapping.update(regime_mapping_raw)
+            selector = StrategySelector(
+                profiles=profiles,
+                regime_mapping=regime_mapping,
+                capital=capital,
+            )
+            assignments = selector.select_strategies(
+                regime=regime_state,
+                consensus=consensus_results,
+            )
+            # Convert assignments to per-ticker StrategyConfigs
+            per_ticker_configs = {}
+            for ticker, assignment in assignments.items():
+                per_ticker_configs[ticker] = StrategySelector.to_strategy_config(
+                    assignment.profile
+                )
+            strategy_assignments = {
+                ticker: {"name": a.profile.name, "reason": a.reason, "regime": a.regime}
+                for ticker, a in assignments.items()
+            }
+            self._last_strategy_assignments = strategy_assignments
+
         signals_df = generate_signals(
             p_final, latest_meta_df, strat_cfg,
             held_tickers=held_tickers or [],
             protected_tickers=protected_tickers,
+            per_ticker_configs=per_ticker_configs,
         )
         self._track("complete_stage", "risk", "signals generated")
 

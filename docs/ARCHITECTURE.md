@@ -101,7 +101,7 @@ The system generates signals through a structured, multi-layered process:
 
 6. **Consensus Aggregation** — `consensus.ConsensusEngine.compute_all()` combines all model signals (ML + Statistical + Deep + Gemini), regime weighting, and horizon breakdown into a unified consensus score.
 
-7. **Strategy Signal Generation** — `strategy.generate_signals()` converts consensus scores into actionable buy/sell/hold decisions, bounded by position limits.
+7. **Strategy Signal Generation** — `strategy_selector.StrategySelector.select_strategies()` assigns one of 5 trading profiles (conservative, day_trader, swing, crisis_alpha, trend_follower) per ticker based on regime, consensus quality, volatility, and performance history. `strategy.generate_signals()` then applies per-ticker thresholds to convert consensus scores into actionable buy/sell/hold decisions.
 
 8. **Risk-Managed Order Sizing** — `risk_manager.RiskManager.generate_risk_enhanced_orders()` calculates position sizes via Kelly criterion, volatility adjustment, and portfolio concentration limits.
 

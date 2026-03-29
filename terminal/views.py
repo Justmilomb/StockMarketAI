@@ -61,7 +61,7 @@ class WatchlistView(Panel):
         yield self.table
 
     def on_mount(self) -> None:
-        self.table.add_columns("Ticker", "Verdict", "Live Px", "Day %", "Prob", "Signal", "AI Rec", "Consensus", "Conf", "Sentiment")
+        self.table.add_columns("Ticker", "Verdict", "Live Px", "Day %", "Prob", "Signal", "AI Rec", "Consensus", "Conf", "Sentiment", "Strategy")
         self.refresh_view()
 
     def refresh_view(self) -> None:
@@ -207,9 +207,25 @@ class WatchlistView(Panel):
                     else:
                         verdict_str = f"[bold {verdict_colors[verdict]}]{verdict}[/]"
 
+                # Strategy profile for this ticker
+                _strat_colors: dict[str, str] = {
+                    "conservative": "#888888",
+                    "day_trader": "#00cccc",
+                    "swing": "#cccc00",
+                    "crisis_alpha": "#ff4444",
+                    "trend_follower": "#00cc00",
+                }
+                strat_assign = self.state.strategy_assignments.get(ticker)
+                if strat_assign:
+                    sname = strat_assign.get("name", "") if isinstance(strat_assign, dict) else getattr(strat_assign, "profile", None) and strat_assign.profile.name or ""
+                    scolor = _strat_colors.get(sname, "#aaaaaa")
+                    strat_str = f"[{scolor}]{sname}[/]"
+                else:
+                    strat_str = "-"
+
                 self.table.add_row(
                     ticker_display, verdict_str, live_px_str, day_pct_str,
-                    prob_str, signal_str, ai_rec_str, cons_str, conf_str, sent_str,
+                    prob_str, signal_str, ai_rec_str, cons_str, conf_str, sent_str, strat_str,
                 )
 
         # Show held positions that aren't in the signals DF yet
@@ -361,9 +377,19 @@ class SettingsView(Panel):
         }
         regime_color = regime_colors.get(regime, "#666666")
 
+        # Active strategy for current regime
+        _strat_colors: dict[str, str] = {
+            "conservative": "#888888", "day_trader": "#00cccc",
+            "swing": "#cccc00", "crisis_alpha": "#ff4444",
+            "trend_follower": "#00cc00",
+        }
+        regime_strat = self.state.regime_strategy_map.get(regime, "")
+        strat_color = _strat_colors.get(regime_strat, "#aaaaaa")
+
         lines = [
             f"Mode:       {mode_color}{self.state.mode}[/]",
             f"Regime:     [{regime_color}]{regime}[/] ({self.state.regime_confidence:.0%})",
+            f"Strategy:   [{strat_color}]{regime_strat or '-'}[/]",
             f"Models:     [#ffffff]{self.state.ensemble_model_count}[/]",
             f"Balance:    [#ffffff]${balance:,.2f}[/]",
             f"Invested:   [#ffffff]${invested:,.2f}[/]",
