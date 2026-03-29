@@ -1,0 +1,90 @@
+"""AI recommend dialog — get AI stock recommendations."""
+from __future__ import annotations
+from typing import List
+from PySide6.QtGui import QColor
+from PySide6.QtWidgets import (
+    QDialog, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
+    QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout,
+)
+
+class AiRecommendDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("AI Recommendations")
+        self.setMinimumSize(500, 400)
+        self.selected_tickers: List[str] = []
+
+        layout = QVBoxLayout(self)
+
+        title = QLabel("AI RECOMMENDATIONS")
+        title.setStyleSheet("color: #ffb000; font-weight: bold;")
+        layout.addWidget(title)
+
+        cat_row = QHBoxLayout()
+        self._category = QLineEdit()
+        self._category.setPlaceholderText("Category (e.g. tech, dividend, volatile)")
+        cat_row.addWidget(self._category, 1)
+        get_btn = QPushButton("Get Recommendations")
+        get_btn.clicked.connect(self._get_recs)
+        cat_row.addWidget(get_btn)
+        layout.addLayout(cat_row)
+
+        self._status = QLabel("")
+        self._status.setStyleSheet("color: #888888; font-size: 11px;")
+        layout.addWidget(self._status)
+
+        self._table = QTableWidget(0, 2)
+        self._table.setHorizontalHeaderLabels(["Ticker", "Reason"])
+        self._table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self._table.verticalHeader().setVisible(False)
+        layout.addWidget(self._table, 1)
+
+        buttons = QHBoxLayout()
+        add_sel = QPushButton("Add Selected")
+        add_sel.clicked.connect(self._add_selected)
+        add_all = QPushButton("Add All")
+        add_all.clicked.connect(self._add_all)
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(self.reject)
+        buttons.addWidget(add_sel)
+        buttons.addWidget(add_all)
+        buttons.addWidget(close_btn)
+        layout.addLayout(buttons)
+
+    def _get_recs(self) -> None:
+        self._status.setText("Getting recommendations... (AI not yet connected)")
+        self._status.setStyleSheet("color: #ffb000; font-size: 11px;")
+
+    def populate_results(self, results: List[dict]) -> None:
+        self._table.setRowCount(len(results))
+        for row, r in enumerate(results):
+            ticker = r.get("symbol", r.get("ticker", ""))
+            reason = r.get("reason", "")
+            t_item = QTableWidgetItem(ticker)
+            t_item.setForeground(QColor("#00bfff"))
+            r_item = QTableWidgetItem(reason)
+            r_item.setForeground(QColor("#ffd700"))
+            self._table.setItem(row, 0, t_item)
+            self._table.setItem(row, 1, r_item)
+        self._status.setText(f"Got {len(results)} recommendations")
+        self._status.setStyleSheet("color: #00ff00; font-size: 11px;")
+
+    def _add_selected(self) -> None:
+        row = self._table.currentRow()
+        if row >= 0:
+            item = self._table.item(row, 0)
+            if item:
+                self.selected_tickers = [item.text()]
+                self.accept()
+
+    def _add_all(self) -> None:
+        tickers = []
+        for row in range(self._table.rowCount()):
+            item = self._table.item(row, 0)
+            if item:
+                tickers.append(item.text())
+        if tickers:
+            self.selected_tickers = tickers
+            self.accept()
