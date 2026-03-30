@@ -71,7 +71,7 @@ def _build_prompt(batch_size: int, session_num: int) -> str:
         f"- NEVER override backtesting params (step_days, n_processes, mode)\n"
         f"- NEVER use --universe small or medium — only --universe full\n"
         f"- No --universe-seed needed — full universe is deterministic\n"
-        f"- ALWAYS pipe output: python -u autoconfig/experiment.py [args] 2>&1 | tee autoconfig/.progress.log\n"
+        f"- ALWAYS pipe output: ./venv/bin/python -u autoconfig/experiment.py [args] 2>&1 | tee autoconfig/.progress.log\n"
         f"- Sanity-check: if total_trades=0 or win_rate=0, experiment is broken — don't record it\n\n"
         f"IMPORTANT: Work from the {PROJECT_ROOT} directory.\n"
         f"IMPORTANT: NEVER modify config.json — only use --overrides for experiments.\n"
