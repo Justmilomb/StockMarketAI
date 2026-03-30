@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import os
+import subprocess
 import time
 import warnings
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -30,6 +31,19 @@ from backtesting.types import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _detect_cpu_count() -> int:
+    """Detect available CPU cores, preferring nproc over os.cpu_count()."""
+    try:
+        return int(subprocess.check_output(["nproc"], text=True).strip())
+    except (FileNotFoundError, ValueError, subprocess.SubprocessError):
+        pass
+    try:
+        return len(os.sched_getaffinity(0))
+    except (AttributeError, OSError):
+        pass
+    return os.cpu_count() or 4
 
 
 class BacktestRunner:
@@ -95,7 +109,7 @@ class BacktestRunner:
         _progress(f"Generated {len(splits)} walk-forward folds")
 
         # 4. Run folds
-        n_cores = self._config.n_processes or os.cpu_count() or 4
+        n_cores = self._config.n_processes or _detect_cpu_count()
         use_parallel = n_cores > 1 and len(splits) > 1
 
         if use_parallel:
