@@ -28,7 +28,7 @@ cd /home/milomilomilomb/StockMarketAI && python -u autoconfig/experiment.py --no
 ### NEVER override backtesting infrastructure
 You must NEVER pass any of these in `--overrides`:
 - `backtesting.step_days` — locked at 120 (gives ~15 folds, good balance)
-- `backtesting.n_processes` — locked at null (auto-detects all cores)
+- `backtesting.n_processes` — locked at null (uses cpu_cores from config.json)
 - `backtesting.min_train_days`
 - `backtesting.test_window_days`
 - `backtesting.expanding_window`
@@ -42,7 +42,7 @@ Fast mode skips trade simulation entirely. All trade metrics (Sharpe, win rate, 
 ### ALWAYS use `--universe full`
 - Every experiment runs against the full ~250 ticker universe.
 - No subsampling — this eliminates seed noise and makes every experiment directly comparable.
-- The 32-core machine handles it fine.
+- The machine uses 32 cores (configured via cpu_cores in config.json).
 
 ### ALWAYS use `--no-mirofish` unless specifically testing MiroFish params
 MiroFish adds significant runtime. Only enable it when testing MiroFish-specific parameters.
@@ -122,7 +122,7 @@ cd /home/milomilomilomb/StockMarketAI && python -u autoconfig/experiment.py --no
 - `--fast` — produces zero trade metrics, completely useless
 - `--universe small` or `--universe medium` — always use `--universe full`
 
-**Expected runtimes (32-core machine, ~250 tickers):**
+**Expected runtimes (32-core config, ~250 tickers):**
 - `--no-mirofish --universe full` — ~10-20 min per experiment (standard)
 - `--universe full` (with MiroFish) — ~30-60 min (MiroFish tuning)
 - `--stress-test --universe full` — ~60-90 min (crisis validation)
