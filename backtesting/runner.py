@@ -33,36 +33,16 @@ from backtesting.types import (
 logger = logging.getLogger(__name__)
 
 
-def _detect_cpu_count() -> int:
-    """Return configured CPU core limit from cpu_config."""
-    from cpu_config import get_cpu_cores
-    return get_cpu_cores()
+def _detect_parallel_folds() -> int:
+    """Return configured max parallel folds from cpu_config."""
+    from cpu_config import get_max_parallel_folds
+    return get_max_parallel_folds()
 
 
-def _detect_max_parallel_folds() -> int:
-    """Determine safe number of parallel folds based on available memory.
-
-    Each fold can consume ~1-2GB. Running too many in parallel causes OOM
-    kills. Caps at cpu_cores but limits based on total system memory.
-    """
-    import shutil
-    from cpu_config import get_cpu_cores
-
-    cores = get_cpu_cores()
-
-    try:
-        mem_bytes = os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES")
-        mem_gb = mem_bytes / (1024 ** 3)
-    except (ValueError, OSError, AttributeError):
-        try:
-            total, _, _ = shutil.disk_usage("/")
-            mem_gb = 16  # fallback guess
-        except Exception:
-            mem_gb = 16
-
-    # ~2GB per fold is a safe estimate
-    safe_folds = max(1, int(mem_gb // 2))
-    return min(safe_folds, cores)
+def _detect_n_jobs_per_fold() -> int:
+    """Return n_jobs for scikit-learn inside each parallel fold worker."""
+    from cpu_config import get_n_jobs_per_fold
+    return get_n_jobs_per_fold()
 
 
 class BacktestRunner:
@@ -128,14 +108,15 @@ class BacktestRunner:
         _progress(f"Generated {len(splits)} walk-forward folds")
 
         # 4. Run folds
-        n_cores = self._config.n_processes or _detect_max_parallel_folds()
-        use_parallel = n_cores > 1 and len(splits) > 1
+        n_workers = self._config.n_processes or _detect_parallel_folds()
+        use_parallel = n_workers > 1 and len(splits) > 1
 
         if use_parallel:
-            _progress(f"Running {len(splits)} folds across {n_cores} parallel workers (n_jobs={_detect_cpu_count()} per model)...")
+            n_jobs = _detect_n_jobs_per_fold()
+            _progress(f"Running {len(splits)} folds across {n_workers} workers × {n_jobs} threads each = {n_workers * n_jobs} total threads")
             folds = self._run_parallel(
                 splits, features_by_ticker, labels_by_ticker,
-                universe_data, n_cores, _progress,
+                universe_data, n_workers, _progress,
             )
         else:
             _progress(f"Running {len(splits)} folds serially...")

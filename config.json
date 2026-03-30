@@ -19,6 +19,7 @@
   ],
   "active_watchlist": "Trading 212",
   "cpu_cores": 32,
+  "max_parallel_folds": 8,
   "start_date": "2015-01-01",
   "end_date": "2026-03-14",
   "data_dir": "data",

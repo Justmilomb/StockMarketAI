@@ -3,6 +3,9 @@
 Every module that spawns processes, threads, or sets scikit-learn n_jobs
 should call ``get_cpu_cores()`` instead of using ``os.cpu_count()`` or
 hard-coding ``n_jobs=-1``.
+
+For parallel fold execution, use ``get_max_parallel_folds()`` and
+``get_n_jobs_per_fold()`` to avoid over-subscribing the CPU.
 """
 
 from __future__ import annotations
@@ -13,6 +16,15 @@ from functools import lru_cache
 from pathlib import Path
 
 _CONFIG_PATH = Path(__file__).resolve().parent / "config.json"
+
+
+@lru_cache(maxsize=1)
+def _load_config() -> dict:
+    try:
+        with _CONFIG_PATH.open("r", encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return {}
 
 
 @lru_cache(maxsize=1)
@@ -28,12 +40,7 @@ def get_cpu_cores() -> int:
     smaller machine can never request more cores than exist.
     """
     physical = os.cpu_count() or 4
-
-    try:
-        with _CONFIG_PATH.open("r", encoding="utf-8") as f:
-            raw = json.load(f).get("cpu_cores")
-    except (OSError, json.JSONDecodeError):
-        return physical
+    raw = _load_config().get("cpu_cores")
 
     if raw is None:
         return physical
@@ -42,9 +49,30 @@ def get_cpu_cores() -> int:
     return max(1, min(configured, physical))
 
 
+def get_max_parallel_folds() -> int:
+    """Return the max number of parallel backtest folds.
+
+    Reads ``config.json`` → ``"max_parallel_folds"``.
+    Defaults to ``cpu_cores // 4`` (balances memory vs CPU).
+    """
+    raw = _load_config().get("max_parallel_folds")
+    if raw is not None:
+        return max(1, int(raw))
+    return max(1, get_cpu_cores() // 4)
+
+
+def get_n_jobs_per_fold() -> int:
+    """Return n_jobs for scikit-learn models running inside a parallel fold.
+
+    Divides total cores across parallel folds so total threads ≈ total cores.
+    """
+    folds = get_max_parallel_folds()
+    return max(1, get_cpu_cores() // folds)
+
+
 def get_n_jobs() -> int:
     """Return a value suitable for scikit-learn's ``n_jobs`` parameter.
 
-    scikit-learn interprets positive ints as an explicit core count.
+    When called outside of backtesting (e.g. live pipeline), uses all cores.
     """
     return get_cpu_cores()

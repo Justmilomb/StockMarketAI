@@ -33,9 +33,9 @@ logger = logging.getLogger(__name__)
 
 
 def _get_n_jobs() -> int:
-    """Lazy import to avoid circular deps in subprocess workers."""
-    from cpu_config import get_n_jobs
-    return get_n_jobs()
+    """Lazy import — uses fold-aware n_jobs to avoid over-subscribing CPU."""
+    from cpu_config import get_n_jobs_per_fold
+    return get_n_jobs_per_fold()
 
 
 class BacktestEngine:
