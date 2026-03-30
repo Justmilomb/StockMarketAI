@@ -117,7 +117,7 @@ def _build_backtest_config(cfg: dict, fast: bool = False,
         atr_profit_multiplier=risk.get("atr_profit_multiplier", 2.5),
         use_mirofish=use_mirofish,
         mirofish_n_sims=bt_cfg.get("mirofish_n_sims", 12),
-        n_processes=bt_cfg.get("n_processes"),  # null = use all cores
+        n_processes=bt_cfg.get("n_processes"),  # null = uses cpu_cores from config.json
         mode="fast" if fast else "full",
     )
 
