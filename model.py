@@ -8,6 +8,8 @@ import joblib
 import numpy as np
 import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
+
+from cpu_config import get_n_jobs
 from sklearn.metrics import accuracy_score, classification_report
 
 
@@ -69,7 +71,7 @@ def train_model(
         n_estimators=config.n_estimators,
         max_depth=config.max_depth,
         random_state=config.random_state,
-        n_jobs=-1,
+        n_jobs=get_n_jobs(),
     )
     clf.fit(X_train, y_train)
 

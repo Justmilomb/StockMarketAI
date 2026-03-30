@@ -56,7 +56,9 @@ _NEUTRAL_PROB = 0.5
 _NEUTRAL_RETURN = 0.0
 _NEUTRAL_CONF = 0.0
 
-_MAX_WORKERS = os.cpu_count() or 4
+from cpu_config import get_cpu_cores
+
+_MAX_WORKERS = get_cpu_cores()
 
 
 class StatisticalForecaster:

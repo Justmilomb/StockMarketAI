@@ -34,16 +34,9 @@ logger = logging.getLogger(__name__)
 
 
 def _detect_cpu_count() -> int:
-    """Detect available CPU cores, preferring nproc over os.cpu_count()."""
-    try:
-        return int(subprocess.check_output(["nproc"], text=True).strip())
-    except (FileNotFoundError, ValueError, subprocess.SubprocessError):
-        pass
-    try:
-        return len(os.sched_getaffinity(0))
-    except (AttributeError, OSError):
-        pass
-    return os.cpu_count() or 4
+    """Return configured CPU core limit from cpu_config."""
+    from cpu_config import get_cpu_cores
+    return get_cpu_cores()
 
 
 class BacktestRunner:
