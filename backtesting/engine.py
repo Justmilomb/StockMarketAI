@@ -32,6 +32,12 @@ from backtesting.types import (
 logger = logging.getLogger(__name__)
 
 
+def _get_n_jobs() -> int:
+    """Lazy import to avoid circular deps in subprocess workers."""
+    from cpu_config import get_n_jobs
+    return get_n_jobs()
+
+
 class BacktestEngine:
     """Runs backtests for individual walk-forward folds."""
 
@@ -226,7 +232,7 @@ class BacktestEngine:
         class SimpleEnsemble:
             def __init__(self) -> None:
                 self.models = [
-                    RandomForestClassifier(n_estimators=200, max_depth=8, random_state=42, n_jobs=-1),
+                    RandomForestClassifier(n_estimators=200, max_depth=8, random_state=42, n_jobs=_get_n_jobs()),
                     GradientBoostingClassifier(n_estimators=100, max_depth=4, random_state=42),
                     LogisticRegression(max_iter=500, random_state=42),
                 ]

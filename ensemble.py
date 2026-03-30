@@ -20,6 +20,8 @@ import joblib
 import numpy as np
 import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
+
+from cpu_config import get_n_jobs
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score
 from sklearn.neighbors import KNeighborsClassifier
@@ -147,7 +149,7 @@ def _create_sklearn_model(spec: ModelSpec) -> Any:
             n_estimators=int(params.get("n_estimators", 200)),
             max_depth=params.get("max_depth"),  # None is valid
             random_state=42,
-            n_jobs=-1,
+            n_jobs=get_n_jobs(),
         )
 
     if model_type == "XGBoost":
@@ -159,7 +161,7 @@ def _create_sklearn_model(spec: ModelSpec) -> Any:
             learning_rate=float(params.get("learning_rate", 0.1)),
             random_state=42,
             eval_metric="logloss",
-            n_jobs=-1,
+            n_jobs=get_n_jobs(),
         )
 
     if model_type == "LightGBM":
@@ -169,7 +171,7 @@ def _create_sklearn_model(spec: ModelSpec) -> Any:
             n_estimators=int(params.get("n_estimators", 200)),
             num_leaves=int(params.get("num_leaves", 31)),
             random_state=42,
-            n_jobs=-1,
+            n_jobs=get_n_jobs(),
             verbose=-1,
         )
 
@@ -190,7 +192,7 @@ def _create_sklearn_model(spec: ModelSpec) -> Any:
     if model_type == "KNN":
         return KNeighborsClassifier(
             n_neighbors=int(params.get("n_neighbors", 20)),
-            n_jobs=-1,
+            n_jobs=get_n_jobs(),
         )
 
     raise ValueError(f"Unknown model_type '{model_type}'")

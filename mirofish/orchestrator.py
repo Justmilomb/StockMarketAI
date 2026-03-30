@@ -18,6 +18,8 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 
+from cpu_config import get_cpu_cores as _get_cpu_cores
+
 from mirofish.signals import aggregate_simulations, extract_signal_from_aggregate
 from mirofish.simulation import run_single_simulation
 from mirofish.types import MarketContext, MiroFishSignal, SimulationConfig
@@ -71,7 +73,7 @@ class MiroFishOrchestrator:
 
     def __init__(self, config: SimulationConfig | None = None) -> None:
         self._config = config or SimulationConfig()
-        self._n_processes = self._config.n_processes or os.cpu_count() or 4
+        self._n_processes = self._config.n_processes or _get_cpu_cores()
 
     @classmethod
     def from_config_dict(cls, raw: Dict[str, Any]) -> MiroFishOrchestrator:
