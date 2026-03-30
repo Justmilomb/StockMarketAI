@@ -113,6 +113,9 @@ class BacktestRunner:
 
         if use_parallel:
             n_jobs = _detect_n_jobs_per_fold()
+            from cpu_config import get_cpu_cores, _load_config
+            _raw = _load_config()
+            _progress(f"[debug] cpu_cores={get_cpu_cores()}, config_raw={_raw.get('cpu_cores')}, max_folds={_raw.get('max_parallel_folds')}, os.cpu_count={os.cpu_count()}")
             _progress(f"Running {len(splits)} folds across {n_workers} workers × {n_jobs} threads each = {n_workers * n_jobs} total threads")
             folds = self._run_parallel(
                 splits, features_by_ticker, labels_by_ticker,
