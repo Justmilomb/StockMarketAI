@@ -1,6 +1,6 @@
 """AI recommend dialog — get AI stock recommendations."""
 from __future__ import annotations
-from typing import List
+from typing import Any, List
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QDialog, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
@@ -53,9 +53,19 @@ class AiRecommendDialog(QDialog):
         buttons.addWidget(close_btn)
         layout.addLayout(buttons)
 
+    def set_request_callback(self, fn: Any) -> None:
+        """Set callback for background AI recommendation requests."""
+        self._request_callback = fn
+
     def _get_recs(self) -> None:
-        self._status.setText("Getting recommendations... (AI not yet connected)")
-        self._status.setStyleSheet("color: #ffb000; font-size: 11px;")
+        category = self._category.text().strip()
+        if hasattr(self, '_request_callback') and self._request_callback:
+            self._status.setText("Getting AI recommendations...")
+            self._status.setStyleSheet("color: #ffb000; font-size: 11px;")
+            self._request_callback(category)
+        else:
+            self._status.setText("AI not connected")
+            self._status.setStyleSheet("color: #ff0000; font-size: 11px;")
 
     def populate_results(self, results: List[dict]) -> None:
         self._table.setRowCount(len(results))

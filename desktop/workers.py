@@ -63,7 +63,7 @@ class RefreshWorker(QThread):
                 result["account_info"] = {}
 
             try:
-                result["recent_orders"] = self._broker.get_orders()
+                result["recent_orders"] = self._broker.get_pending_orders()
             except Exception:
                 result["recent_orders"] = []
 
@@ -87,7 +87,7 @@ class RefreshWorker(QThread):
             # News sentiment
             if self._news:
                 try:
-                    result["news_sentiment"] = self._news.get_all_sentiment()
+                    result["news_sentiment"] = self._news.news_data
                 except Exception:
                     result["news_sentiment"] = {}
 
@@ -96,7 +96,7 @@ class RefreshWorker(QThread):
                 try:
                     if self._news:
                         try:
-                            news_data = self._news.get_all_sentiment()
+                            news_data = self._news.news_data
                             self._ai.update_news_data(news_data)
                         except Exception:
                             pass

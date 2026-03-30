@@ -89,6 +89,15 @@ class AiService:
 
     def load_config(self) -> ConfigDict:
         if self._config_cache is None:
+            if not self.config_path.exists():
+                # Desktop app creates the default; if running headless, use
+                # the desktop state module's DEFAULT_CONFIG as fallback.
+                try:
+                    from desktop.state import DEFAULT_CONFIG
+                    self._config_cache = dict(DEFAULT_CONFIG)
+                except ImportError:
+                    self._config_cache = {"watchlists": {"Default": []}, "active_watchlist": "Default"}
+                return self._config_cache
             with self.config_path.open("r", encoding="utf-8") as f:
                 self._config_cache = json.load(f)
         return self._config_cache
@@ -351,11 +360,14 @@ class AiService:
             for ticker, df_t in universe_data.items():
                 if len(df_t) >= 2:
                     try:
-                        self._accuracy_tracker.resolve_outcomes(
-                            ticker,
-                            actual_close_today=float(df_t["Close"].iloc[-1]),
-                            actual_close_yesterday=float(df_t["Close"].iloc[-2]),
-                        )
+                        close_today = pd.to_numeric(df_t["Close"].iloc[-1], errors="coerce")
+                        close_yesterday = pd.to_numeric(df_t["Close"].iloc[-2], errors="coerce")
+                        if pd.notna(close_today) and pd.notna(close_yesterday):
+                            self._accuracy_tracker.resolve_outcomes(
+                                ticker,
+                                actual_close_today=float(close_today),
+                                actual_close_yesterday=float(close_yesterday),
+                            )
                     except Exception:
                         pass
 

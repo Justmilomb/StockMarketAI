@@ -14,10 +14,11 @@ id	score	accuracy	win_rate	sharpe	profit_factor	max_dd	duration	overrides	notes
 
 2. Read `autoconfig/best_config.json` if it exists — this is the current best config. If it doesn't exist, the current `config.json` is your baseline.
 
-3. Run the **baseline experiment** (no overrides) to establish the starting point:
+3. Run the **baseline experiment** (no overrides) to establish the starting point. First find your project root, then:
 ```bash
-cd /home/milomilomilomb/StockMarketAI && ./venv/bin/python -u autoconfig/experiment.py --no-mirofish --universe full 2>&1 | tee autoconfig/.progress.log
+cd $PROJECT_ROOT && python -u autoconfig/experiment.py --no-mirofish --universe full 2>&1 | tee autoconfig/.progress.log
 ```
+(If `$PROJECT_ROOT` is not set, replace it with the full path to StockMarketAI, e.g., `/home/user/StockMarketAI` or `C:/Users/user/StockMarketAI`)
 
 4. Record the baseline result in `results.tsv` with id=next and notes="baseline".
 
@@ -107,8 +108,9 @@ Pick ONE or TWO parameters to change per experiment. Don't change everything at 
 
 **Standard command (use this for every experiment):**
 ```bash
-cd /home/milomilomilomb/StockMarketAI && ./venv/bin/./venv/bin/python -u autoconfig/experiment.py --no-mirofish --universe full --overrides '{"strategy": {"threshold_buy": 0.60}}' 2>&1 | tee autoconfig/.progress.log
+cd $PROJECT_ROOT && python -u autoconfig/experiment.py --no-mirofish --universe full --overrides '{"strategy": {"threshold_buy": 0.60}}' 2>&1 | tee autoconfig/.progress.log
 ```
+(Replace `$PROJECT_ROOT` with your full path to StockMarketAI if not set in your shell)
 
 **Flags you may add:**
 - `--universe large` — 80 stocks, for validation runs only

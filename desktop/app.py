@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from desktop.state import init_state, load_config
+from desktop.state import init_state, load_config, resolve_config_path
 from desktop.panels.settings import SettingsPanel
 from desktop.panels.watchlist import WatchlistPanel
 from desktop.panels.positions import PositionsPanel
@@ -32,7 +32,7 @@ from desktop.panels.chat import ChatPanel
 from desktop.panels.news import NewsPanel
 from desktop.panels.chart import ChartPanel
 from desktop.panels.pipeline import PipelinePanel
-from desktop.workers import RefreshWorker
+from desktop.workers import BackgroundTask, RefreshWorker
 
 
 class MainWindow(QMainWindow):
@@ -40,8 +40,9 @@ class MainWindow(QMainWindow):
 
     def __init__(self, config_path: Path | str = "config.json") -> None:
         super().__init__()
-        self.config_path = Path(config_path)
+        self.config_path = resolve_config_path(config_path)
         self.config: Dict[str, Any] = load_config(self.config_path)
+        self._is_fresh_config = self._detect_fresh_config()
         self.state = init_state(self.config)
 
         # ── Services ──────────────────────────────────────────────────
@@ -95,8 +96,9 @@ class MainWindow(QMainWindow):
         self._signal_cache_seconds: float = 120.0
         self._pipeline_timeout_seconds: float = 600.0
 
-        # Active worker reference (prevent GC)
+        # Active worker references (prevent GC)
         self._refresh_worker: Optional[RefreshWorker] = None
+        self._active_workers: List[BackgroundTask] = []
 
         # ── Build UI ──────────────────────────────────────────────────
         self._build_ui()
@@ -112,6 +114,12 @@ class MainWindow(QMainWindow):
         """Create the 3x4 grid layout with all panels."""
         self.setWindowTitle("StockMarketAI Terminal")
         self.setMinimumSize(1280, 720)
+
+        # ── Menu bar ─────────────────────────────────────────────────
+        menu_bar = self.menuBar()
+        file_menu = menu_bar.addMenu("File")
+        file_menu.addAction("Import Config...", self._import_config)
+        file_menu.addAction("Export Config...", self._export_config)
 
         # Central widget
         central = QWidget()
@@ -247,8 +255,15 @@ class MainWindow(QMainWindow):
         )
         self._pipeline_poll_timer.start(250)
 
+    def _detect_fresh_config(self) -> bool:
+        """True if config was just created with defaults (no real tickers)."""
+        watchlists = self.config.get("watchlists", {})
+        return all(len(v) == 0 for v in watchlists.values())
+
     def _restore_state(self) -> None:
-        """Load chat history and trigger initial data refresh."""
+        """Load chat history, wire signals, trigger initial data refresh."""
+        # Wire chat submission
+        self.chat_panel.message_submitted.connect(self._handle_chat_message)
         if self.history_manager:
             try:
                 saved_chat = self.history_manager.load_chat_history(50)
@@ -266,6 +281,10 @@ class MainWindow(QMainWindow):
                 self.news_agent.start()
             except Exception:
                 pass
+
+        # First launch with default config — prompt user to import
+        if self._is_fresh_config:
+            QTimer.singleShot(500, self._prompt_first_run_import)
 
         # Initial data fetch
         QTimer.singleShot(100, self.action_refresh_data)
@@ -450,19 +469,144 @@ class MainWindow(QMainWindow):
 
     @Slot()
     def action_suggest_ticker(self) -> None:
-        self.statusBar().showMessage("AI suggesting ticker...", 3000)
+        self.statusBar().showMessage("AI suggesting ticker...", 10000)
+        self._run_background(
+            lambda: self.ai_service.suggest_new_ticker(),
+            self._on_suggest_result,
+        )
+
+    def _on_suggest_result(self, suggestion: str) -> None:
+        if suggestion:
+            self.config = load_config(self.config_path)
+            self.statusBar().showMessage(f"AI suggested: {suggestion}", 5000)
+            self._add_chat_response(f"[AI SUGGEST] Added {suggestion} to watchlist.")
+            self._refresh_all_panels()
+        else:
+            self.statusBar().showMessage("AI had no suggestions", 3000)
 
     @Slot()
     def action_generate_insights(self) -> None:
-        self.statusBar().showMessage("Generating AI insights...", 3000)
+        self.statusBar().showMessage("Generating AI insights...", 10000)
+        self._run_background(
+            lambda: self.ai_service.generate_portfolio_analysis(
+                self.state.positions, self.state.signals,
+            ),
+            self._on_insights_result,
+        )
+
+    def _on_insights_result(self, analysis: str) -> None:
+        self.statusBar().showMessage("", 0)
+        self.state.ai_insights = analysis
+        self._add_chat_response(f"[AI INSIGHTS]\n{analysis}")
 
     @Slot()
     def action_refresh_news(self) -> None:
-        self.statusBar().showMessage("Refreshing news...", 3000)
+        if not self.news_agent:
+            self.statusBar().showMessage("News agent not available", 3000)
+            return
+        self.statusBar().showMessage("Refreshing news...", 10000)
+        self._run_background(
+            lambda: (self.news_agent.fetch_now(), self.news_agent.news_data)[-1],
+            self._on_news_refreshed,
+        )
+
+    def _on_news_refreshed(self, news_data: Any) -> None:
+        self.state.news_sentiment = news_data
+        self.news_panel.refresh_view(self.state)
+        self.statusBar().showMessage("News refreshed", 3000)
 
     @Slot()
     def action_focus_chat(self) -> None:
         self.chat_panel.focus_input()
+
+    def _handle_chat_message(self, message: str) -> None:
+        """User submitted a chat message — persist, display, process in background."""
+        self.state.chat_history.append({"role": "user", "text": message})
+        if self.history_manager:
+            try:
+                self.history_manager.save_chat_message("user", message)
+            except Exception:
+                pass
+        self.chat_panel.refresh_view(self.state)
+
+        if not self._claude_client:
+            self._add_chat_response("Claude client not available.")
+            return
+
+        # Snapshot context for background thread
+        msg_lower = message.lower()
+        is_color_grade = any(
+            p in msg_lower
+            for p in ["colour grade", "color grade", "grade portfolio", "grade stocks", "grade my", "grade the"]
+        )
+        self.statusBar().showMessage("AI thinking...", 10000)
+        self._run_background(
+            lambda: self._do_chat(message),
+            lambda response: self._on_chat_result(response, is_color_grade),
+        )
+
+    def _do_chat(self, message: str) -> str:
+        """Background: call Claude with full context."""
+        memory_summary = ""
+        if self.history_manager:
+            try:
+                memory_summary = self.history_manager.get_memory_summary()
+            except Exception:
+                pass
+        return self._claude_client.chat_with_context(
+            user_message=message,
+            positions=self.state.positions,
+            signals=self.state.signals,
+            news_data=self.state.news_sentiment,
+            account_info=self.state.account_info,
+            chat_history=self.state.chat_history,
+            protected_tickers=self.state.protected_tickers,
+            regime=self.state.current_regime,
+            regime_confidence=self.state.regime_confidence,
+            consensus_data=self.state.consensus_data,
+            meta_ensemble_data=self.state.meta_ensemble_data,
+            memory_summary=memory_summary,
+            live_data=self.state.live_data,
+        )
+
+    def _on_chat_result(self, response: str, is_color_grade: bool) -> None:
+        """Main thread: add response, parse color grades if applicable."""
+        self.statusBar().showMessage("", 0)
+        self._add_chat_response(response)
+        if is_color_grade and response:
+            self._parse_color_grades(response)
+
+    def _parse_color_grades(self, response: str) -> None:
+        """Parse AI response for per-ticker colour grades (GREEN/RED/ORANGE)."""
+        import re
+        grades: dict[str, str] = {}
+        pattern = re.compile(
+            r'\*{0,2}([A-Z][A-Z0-9.]{0,9})\*{0,2}\s*[:—\-–]\s*(GREEN|RED|ORANGE)',
+            re.IGNORECASE,
+        )
+        for match in pattern.finditer(response):
+            ticker = match.group(1).upper()
+            grade = match.group(2).upper()
+            grades[ticker] = grade
+
+        if grades and self.state.signals is not None and not self.state.signals.empty:
+            signal_tickers = set(self.state.signals["ticker"].tolist())
+            mapped: dict[str, str] = {}
+            for sig_ticker in signal_tickers:
+                sig_upper = sig_ticker.upper()
+                if sig_upper in grades:
+                    mapped[sig_ticker] = grades[sig_upper]
+                else:
+                    for grade_ticker, grade_val in grades.items():
+                        if grade_ticker in sig_upper or sig_upper.startswith(grade_ticker):
+                            mapped[sig_ticker] = grade_val
+                            break
+            if mapped:
+                grades = mapped
+
+        if grades:
+            self.state.ai_color_grades = grades
+            self.watchlist_panel.refresh_view(self.state)
 
     @Slot()
     def action_show_chart(self) -> None:
@@ -479,10 +623,27 @@ class MainWindow(QMainWindow):
         from desktop.dialogs.trade import TradeDialog
         dlg = TradeDialog(ticker, self)
         if dlg.exec() and dlg.result_data:
+            trade = dlg.result_data
             self.statusBar().showMessage(
-                f"Order: {dlg.result_data['side']} {dlg.result_data['quantity']} "
-                f"{dlg.result_data['ticker']}", 5000,
+                f"Submitting: {trade['side']} {trade['quantity']} {trade['ticker']}...", 10000,
             )
+            self._run_background(
+                lambda: self.broker_service.submit_order(
+                    ticker=trade["ticker"],
+                    side=trade["side"].lower(),
+                    quantity=trade["quantity"],
+                    order_type=trade["order_type"],
+                    limit_price=trade.get("price") if trade["order_type"] in ("limit", "stop_limit") else None,
+                    stop_price=trade.get("price") if trade["order_type"] in ("stop", "stop_limit") else None,
+                ),
+                self._on_trade_result,
+            )
+
+    def _on_trade_result(self, result: Dict[str, Any]) -> None:
+        self.state.recent_orders.append(result)
+        self.orders_panel.refresh_view(self.state)
+        self.statusBar().showMessage("Order submitted", 5000)
+        self.action_refresh_data()
 
     @Slot()
     def action_add_ticker(self) -> None:
@@ -514,60 +675,283 @@ class MainWindow(QMainWindow):
     def action_search_ticker(self) -> None:
         from desktop.dialogs.search_ticker import SearchTickerDialog
         dlg = SearchTickerDialog(self)
+        self._search_dialog = dlg  # prevent GC
+
+        def do_search(query: str) -> None:
+            self._run_background(
+                lambda: self._claude_client.search_tickers(query) if self._claude_client else [],
+                lambda results: dlg.populate_results(results) if dlg.isVisible() else None,
+            )
+
+        dlg.set_search_callback(do_search)
         if dlg.exec() and dlg.selected_ticker:
-            watchlist_name = self.state.active_watchlist
-            wl = self.config.get("watchlists", {}).get(watchlist_name, [])
-            if dlg.selected_ticker not in wl:
-                wl.append(dlg.selected_ticker)
-                self._save_config_key(f"watchlists.{watchlist_name}", wl)
-                self.statusBar().showMessage(f"Added {dlg.selected_ticker}", 3000)
+            self._add_ticker_to_watchlist(dlg.selected_ticker)
+        self._search_dialog = None
 
     @Slot()
     def action_ai_recommend(self) -> None:
         from desktop.dialogs.ai_recommend import AiRecommendDialog
         dlg = AiRecommendDialog(self)
+        self._recommend_dialog = dlg  # prevent GC
+
+        def do_recommend(category: str) -> None:
+            tickers = self._get_active_tickers()
+            self._run_background(
+                lambda: self._claude_client.recommend_tickers(tickers, category=category, count=5) if self._claude_client else [],
+                lambda results: dlg.populate_results(results) if dlg.isVisible() else None,
+            )
+
+        dlg.set_request_callback(do_recommend)
         if dlg.exec() and dlg.selected_tickers:
-            watchlist_name = self.state.active_watchlist
-            wl = self.config.get("watchlists", {}).get(watchlist_name, [])
-            added = []
             for t in dlg.selected_tickers:
-                if t not in wl:
-                    wl.append(t)
-                    added.append(t)
-            if added:
-                self._save_config_key(f"watchlists.{watchlist_name}", wl)
-                self.statusBar().showMessage(f"Added {', '.join(added)}", 3000)
+                self._add_ticker_to_watchlist(t)
+        self._recommend_dialog = None
+
+    def _get_active_tickers(self) -> List[str]:
+        """Get all tickers from the active asset class's watchlists."""
+        asset = self.state.active_asset_class
+        tickers: set[str] = set()
+        if asset == "stocks":
+            for wl in self.config.get("watchlists", {}).values():
+                tickers.update(wl)
+        else:
+            for wl in self.config.get(asset, {}).get("watchlists", {}).values():
+                tickers.update(wl)
+        for pos in self.state.positions:
+            t = pos.get("ticker")
+            if t:
+                tickers.add(t)
+        return sorted(tickers)
+
+    def _add_ticker_to_watchlist(self, ticker: str) -> None:
+        """Add a ticker to the active watchlist and refresh."""
+        ticker = ticker.upper().strip()
+        if not ticker:
+            return
+        asset = self.state.active_asset_class
+        if asset == "stocks":
+            watchlists = self.config.get("watchlists", {})
+        else:
+            watchlists = self.config.get(asset, {}).get("watchlists", {})
+        active = self.state.active_watchlist
+        if active in watchlists:
+            if ticker not in watchlists[active]:
+                watchlists[active].append(ticker)
+                self._save_config()
+                self.ai_service._config_cache = None
+                if self.news_agent:
+                    self.news_agent.update_tickers(self._get_active_tickers())
+                self.statusBar().showMessage(f"Added {ticker}", 3000)
+                self._refresh_all_panels()
 
     @Slot()
     def action_ai_optimise(self) -> None:
-        self.statusBar().showMessage("AI optimise running...", 3000)
+        self._add_chat_response("[AI OPTIMIZER] Analyzing recent performance to tune algorithm weights...")
+        self.statusBar().showMessage("AI optimise running...", 30000)
+        self._run_background(self._do_ai_optimise, self._on_optimise_result)
+
+    def _do_ai_optimise(self) -> Dict[str, Any]:
+        """Background: gather history, ask Claude, return changes."""
+        history_lines = []
+        if self.history_manager:
+            dates = self.history_manager.get_recent_dates(7)
+            for d in dates:
+                snap = self.history_manager.get_snapshot(d)
+                if snap:
+                    history_lines.append(
+                        f"  {snap['date']}: equity=${snap['equity']:.2f}, pnl=${snap['pnl']:.2f}, mode={snap['mode']}"
+                    )
+
+        ai_cfg = self.config.get("ai", {})
+        strat_cfg = self.config.get("strategy", {})
+        tf_cfg = self.config.get("timeframes", {}).get("weights", {})
+        risk_cfg = self.config.get("risk", {})
+        current = {
+            "sklearn_weight": ai_cfg.get("sklearn_weight", 0.5),
+            "ai_weight": ai_cfg.get("ai_weight", 0.3),
+            "news_weight": ai_cfg.get("news_weight", 0.2),
+            "threshold_buy": strat_cfg.get("threshold_buy", 0.55),
+            "threshold_sell": strat_cfg.get("threshold_sell", 0.45),
+            "tf_weight_1d": float(tf_cfg.get("1", 0.7)),
+            "tf_weight_5d": float(tf_cfg.get("5", 0.2)),
+            "tf_weight_20d": float(tf_cfg.get("20", 0.1)),
+            "kelly_fraction_cap": risk_cfg.get("kelly_fraction_cap", 0.35),
+            "atr_stop_multiplier": risk_cfg.get("atr_stop_multiplier", 1.5),
+        }
+        history_text = "\n".join(history_lines) if history_lines else "  No history yet (first run)"
+
+        if not self._claude_client:
+            return {"error": "Claude client not available"}
+
+        prompt = (
+            "You are a quant advisor tuning a DAY TRADING algorithm "
+            "that favours medium-to-high risk, volatile instruments.\n\n"
+            f"Recent performance:\n{history_text}\n\n"
+            f"Current config:\n{json.dumps(current, indent=2)}\n\n"
+            "Rules:\n"
+            "- sklearn_weight + ai_weight + news_weight should sum to ~1.0\n"
+            "- threshold_buy: 0.50-0.70 (lower = more aggressive)\n"
+            "- threshold_sell: 0.30-0.50 (higher = quicker exits)\n"
+            "- tf_weight_1d + tf_weight_5d + tf_weight_20d should sum to ~1.0\n"
+            "  (day trading should heavily favour 1d)\n"
+            "- kelly_fraction_cap: 0.20-0.50 (higher = more aggressive sizing)\n"
+            "- atr_stop_multiplier: 1.0-3.0 (lower = tighter stops)\n"
+            "- Only change values if data supports it. Keep current if unsure.\n\n"
+            "Respond strictly as JSON:\n"
+            '{"changes": {"sklearn_weight": 0.5, "ai_weight": 0.3, "news_weight": 0.2, '
+            '"threshold_buy": 0.55, "threshold_sell": 0.45, '
+            '"tf_weight_1d": 0.7, "tf_weight_5d": 0.2, "tf_weight_20d": 0.1, '
+            '"kelly_fraction_cap": 0.35, "atr_stop_multiplier": 1.5}, '
+            '"explanation": "one paragraph explaining why these changes"}'
+        )
+
+        text = self._claude_client._call(prompt, task_type="medium")
+        if not text:
+            return {"error": "Could not reach AI"}
+
+        obj = self._claude_client._parse_json(text)
+        changes = obj.get("changes", {})
+        explanation = obj.get("explanation", "No explanation provided.")
+        return {"changes": changes, "explanation": explanation, "current": current}
+
+    def _on_optimise_result(self, result: Dict[str, Any]) -> None:
+        """Main thread: apply config changes from optimizer."""
+        self.statusBar().showMessage("", 0)
+        if "error" in result:
+            self._add_chat_response(f"[AI OPTIMIZER] {result['error']}")
+            return
+
+        changes = result.get("changes", {})
+        explanation = result.get("explanation", "")
+        current = result.get("current", {})
+
+        if not changes:
+            self._add_chat_response(f"[AI OPTIMIZER] No changes recommended.\n{explanation}")
+            return
+
+        diff_lines = []
+        for key, new_val in changes.items():
+            old_val = current.get(key)
+            if old_val is not None and float(old_val) != float(new_val):
+                diff_lines.append(f"  {key}: {old_val} -> {new_val}")
+
+        if not diff_lines:
+            self._add_chat_response(f"[AI OPTIMIZER] Current weights are optimal. No changes.\n{explanation}")
+            return
+
+        self._add_chat_response(
+            "[AI OPTIMIZER] Applying changes:\n" + "\n".join(diff_lines) + f"\n\nReason: {explanation}"
+        )
+
+        # Apply changes
+        ai_cfg = self.config.get("ai", {})
+        strat_cfg = self.config.get("strategy", {})
+        risk_cfg = self.config.get("risk", {})
+
+        for key in ("sklearn_weight", "ai_weight", "news_weight"):
+            if key in changes:
+                val = max(0.0, min(1.0, float(changes[key])))
+                old = ai_cfg.get(key, 0)
+                ai_cfg[key] = val
+                if self.history_manager:
+                    self.history_manager.log_config_change("AI_OPTIMIZER", key, str(old), str(val), explanation[:200])
+
+        for key in ("threshold_buy", "threshold_sell"):
+            if key in changes:
+                val = float(changes[key])
+                val = max(0.50, min(0.70, val)) if key == "threshold_buy" else max(0.30, min(0.50, val))
+                old = strat_cfg.get(key, 0)
+                strat_cfg[key] = val
+                if self.history_manager:
+                    self.history_manager.log_config_change("AI_OPTIMIZER", key, str(old), str(val), explanation[:200])
+
+        tf_weights = self.config.get("timeframes", {}).get("weights", {})
+        tf_keys = {"tf_weight_1d": "1", "tf_weight_5d": "5", "tf_weight_20d": "20"}
+        for opt_key, cfg_key in tf_keys.items():
+            if opt_key in changes:
+                val = max(0.05, min(0.90, float(changes[opt_key])))
+                old = tf_weights.get(cfg_key, 0)
+                tf_weights[cfg_key] = val
+                if self.history_manager:
+                    self.history_manager.log_config_change("AI_OPTIMIZER", opt_key, str(old), str(val), explanation[:200])
+        self.config.setdefault("timeframes", {})["weights"] = tf_weights
+
+        risk_bounds = {"kelly_fraction_cap": (0.20, 0.50), "atr_stop_multiplier": (1.0, 3.0)}
+        for key, (lo, hi) in risk_bounds.items():
+            if key in changes:
+                val = max(lo, min(hi, float(changes[key])))
+                old = risk_cfg.get(key, 0)
+                risk_cfg[key] = val
+                if self.history_manager:
+                    self.history_manager.log_config_change("AI_OPTIMIZER", key, str(old), str(val), explanation[:200])
+        self.config["risk"] = risk_cfg
+        self.config["ai"] = ai_cfg
+        self.config["strategy"] = strat_cfg
+        self._save_config()
+        self.ai_service._config_cache = None
+
+        self._add_chat_response("[AI OPTIMIZER] Changes applied and saved to config.json.")
 
     @Slot()
     def action_show_history(self) -> None:
         from desktop.dialogs.history import HistoryDialog
         dlg = HistoryDialog(self)
-        # Populate with whatever history we have in state
-        if self.state.order_history:
-            dlg.populate_orders(self.state.order_history)
-        if self.state.dividend_history:
-            dlg.populate_dividends(self.state.dividend_history)
-        if self.state.transaction_history:
-            dlg.populate_transactions(self.state.transaction_history)
+        self._history_dialog = dlg
+
+        def load_history() -> Dict[str, List[Any]]:
+            return {
+                "orders": self.broker_service.get_order_history(limit=50).get("items", []),
+                "dividends": self.broker_service.get_dividends(limit=50).get("items", []),
+                "transactions": self.broker_service.get_transactions(limit=50).get("items", []),
+            }
+
+        def on_loaded(data: Dict[str, List[Any]]) -> None:
+            self.state.order_history = data["orders"]
+            self.state.dividend_history = data["dividends"]
+            self.state.transaction_history = data["transactions"]
+            if dlg.isVisible():
+                dlg.populate_orders(data["orders"])
+                dlg.populate_dividends(data["dividends"])
+                dlg.populate_transactions(data["transactions"])
+
+        self._run_background(load_history, on_loaded)
         dlg.exec()
+        self._history_dialog = None
 
     @Slot()
     def action_show_pies(self) -> None:
         from desktop.dialogs.pies import PiesDialog
         dlg = PiesDialog(self)
-        if self.state.pies:
-            dlg.populate_pies(self.state.pies)
+        self._pies_dialog = dlg
+
+        def on_loaded(pies: List[Dict[str, Any]]) -> None:
+            self.state.pies = pies
+            if dlg.isVisible():
+                dlg.populate_pies(pies)
+
+        self._run_background(
+            lambda: self.broker_service.get_pies(),
+            on_loaded,
+        )
         dlg.exec()
+        self._pies_dialog = None
 
     @Slot()
     def action_show_instruments(self) -> None:
         from desktop.dialogs.instruments import InstrumentsDialog
         dlg = InstrumentsDialog(self)
+        self._instruments_dialog = dlg
+
+        def on_loaded(instruments: List[Dict[str, Any]]) -> None:
+            if dlg.isVisible():
+                dlg.populate(instruments)
+
+        self._run_background(
+            lambda: self.broker_service.get_instruments(),
+            on_loaded,
+        )
         dlg.exec()
+        self._instruments_dialog = None
 
     @Slot()
     def action_toggle_protect(self) -> None:
@@ -590,17 +974,130 @@ class MainWindow(QMainWindow):
     # ══════════════════════════════════════════════════════════════════
 
     def _ai_market_scan(self) -> None:
-        pass  # Phase 9
+        """Scan cached signals for strong buy/sell/risk alerts."""
+        if self.state.signals is None or self.state.signals.empty:
+            return
+        alerts: List[str] = []
+        for _, row in self.state.signals.iterrows():
+            ticker = row.get("ticker", "")
+            prob = float(row.get("prob_up", 0.5))
+            signal = str(row.get("signal", ""))
+            if prob >= 0.7 and "BUY" in signal.upper():
+                alerts.append(f"  STRONG BUY: {ticker} (prob={prob:.2f})")
+            elif prob <= 0.3 and "SELL" in signal.upper():
+                alerts.append(f"  STRONG SELL: {ticker} (prob={prob:.2f})")
+
+        # Check for risky positions
+        for pos in self.state.positions:
+            pnl = float(pos.get("pnl", pos.get("unrealised_pnl", 0)))
+            if pnl < -50:
+                alerts.append(f"  RISK: {pos.get('ticker', '?')} unrealised PnL ${pnl:.2f}")
+
+        if alerts:
+            self._add_chat_response("[MARKET SCAN]\n" + "\n".join(alerts))
 
     def _auto_optimize(self) -> None:
-        pass  # Phase 9
+        """Periodic self-optimization — skip if insufficient data."""
+        tracker = getattr(self.ai_service, "_accuracy_tracker", None)
+        if tracker is None:
+            return
+        try:
+            stats = tracker.get_rolling_accuracy("final", window_days=14)
+            if stats <= 0.0:
+                return
+        except Exception:
+            return
+        self.action_ai_optimise()
 
     def _daily_stock_discovery(self) -> None:
-        pass  # Phase 9
+        """Ask AI for 5 new volatile ticker suggestions."""
+        if not self._claude_client:
+            return
+        current = self._get_active_tickers()
+
+        def do_discover() -> List[str]:
+            prompt = (
+                "You are a stock screener for day trading. "
+                f"Current watchlist: {', '.join(current[:20])}\n\n"
+                "Suggest 5 new high-volatility US stocks NOT in the watchlist. "
+                "Focus on stocks with high average daily volume and recent price movement.\n"
+                "Respond strictly as JSON: {\"tickers\": [\"TICKER1\", \"TICKER2\", ...]}"
+            )
+            text = self._claude_client._call(prompt, task_type="simple")
+            if text:
+                obj = self._claude_client._parse_json(text)
+                return obj.get("tickers", [])
+            return []
+
+        def on_discovered(tickers: List[str]) -> None:
+            added = []
+            for t in tickers:
+                t = t.upper().strip()
+                if t and t not in current:
+                    self._add_ticker_to_watchlist(t)
+                    added.append(t)
+            if added:
+                self._add_chat_response(f"[DAILY DISCOVERY] Added {', '.join(added)} to watchlist.")
+
+        self._run_background(do_discover, on_discovered)
 
     # ══════════════════════════════════════════════════════════════════
     #  Config Helpers
     # ══════════════════════════════════════════════════════════════════
+
+    def _prompt_first_run_import(self) -> None:
+        """On first launch with an empty default config, ask user to import."""
+        from PySide6.QtWidgets import QMessageBox
+        reply = QMessageBox.question(
+            self,
+            "Welcome to StockMarketAI",
+            "No config.json was found, so a default was created.\n\n"
+            "Would you like to import your config now?\n"
+            "(You can also do this later via File > Import Config)",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            self._import_config()
+
+    def _save_config(self) -> None:
+        """Save the full config dict to config.json."""
+        with self.config_path.open("w", encoding="utf-8") as f:
+            json.dump(self.config, f, indent=2)
+
+    def _import_config(self) -> None:
+        """Import a config.json file via file picker."""
+        from PySide6.QtWidgets import QFileDialog, QMessageBox
+        path, _ = QFileDialog.getOpenFileName(self, "Import Config", "", "JSON Files (*.json)")
+        if not path:
+            return
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                new_config = json.load(f)
+            if "watchlists" not in new_config:
+                QMessageBox.warning(self, "Invalid Config", "Config must contain 'watchlists' key.")
+                return
+            with self.config_path.open("w", encoding="utf-8") as f:
+                json.dump(new_config, f, indent=2)
+            self.config = new_config
+            self.state = init_state(self.config)
+            self.ai_service._config_cache = None
+            self._refresh_all_panels()
+            self.statusBar().showMessage("Config imported successfully", 5000)
+        except Exception as e:
+            QMessageBox.critical(self, "Import Error", str(e))
+
+    def _export_config(self) -> None:
+        """Export current config.json via file picker."""
+        from PySide6.QtWidgets import QFileDialog
+        path, _ = QFileDialog.getSaveFileName(self, "Export Config", "config.json", "JSON Files (*.json)")
+        if not path:
+            return
+        try:
+            import shutil
+            shutil.copy2(self.config_path, path)
+            self.statusBar().showMessage(f"Config exported to {path}", 5000)
+        except Exception as e:
+            self.statusBar().showMessage(f"Export error: {e}", 5000)
 
     def _save_config_key(self, dotpath: str, value: Any) -> None:
         """Update a single key in config.json using dot notation."""
@@ -613,6 +1110,44 @@ class MainWindow(QMainWindow):
         with self.config_path.open("w", encoding="utf-8") as f:
             json.dump(cfg, f, indent=2)
         self.config = cfg
+
+    # ══════════════════════════════════════════════════════════════════
+    #  Background Task Helper
+    # ══════════════════════════════════════════════════════════════════
+
+    def _run_background(
+        self,
+        fn: Any,
+        on_result: Any,
+        on_error: Optional[Any] = None,
+    ) -> BackgroundTask:
+        """Spawn a BackgroundTask, wire signals, prevent GC."""
+        worker = BackgroundTask(fn)
+        worker.result_ready.connect(on_result)
+        worker.error_occurred.connect(on_error or self._on_background_error)
+        self._active_workers.append(worker)
+        worker.finished.connect(lambda w=worker: self._cleanup_worker(w))
+        worker.start()
+        return worker
+
+    def _cleanup_worker(self, worker: BackgroundTask) -> None:
+        try:
+            self._active_workers.remove(worker)
+        except ValueError:
+            pass
+
+    def _on_background_error(self, error_msg: str) -> None:
+        self.statusBar().showMessage(f"Error: {error_msg}", 5000)
+
+    def _add_chat_response(self, response: str) -> None:
+        """Append AI response to chat history, persist, refresh panel."""
+        self.state.chat_history.append({"role": "ai", "text": response})
+        if self.history_manager:
+            try:
+                self.history_manager.save_chat_message("ai", response)
+            except Exception:
+                pass
+        self.chat_panel.refresh_view(self.state)
 
     # ══════════════════════════════════════════════════════════════════
     #  Cleanup

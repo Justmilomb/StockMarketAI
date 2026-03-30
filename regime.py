@@ -135,7 +135,7 @@ class RegimeDetector:
         if len(spy_data) < 21:
             return 0.0
 
-        daily_returns = spy_data["Close"].pct_change().dropna()
+        daily_returns = pd.to_numeric(spy_data["Close"], errors="coerce").pct_change().dropna()
         rolling_std = daily_returns.rolling(window=20).std()
         latest_std = rolling_std.iloc[-1]
 
@@ -157,8 +157,9 @@ class RegimeDetector:
             if df.empty or len(df) < 50 or "Close" not in df.columns:
                 continue
 
-            ma_50 = df["Close"].rolling(window=50).mean()
-            latest_close = df["Close"].iloc[-1]
+            close_numeric = pd.to_numeric(df["Close"], errors="coerce")
+            ma_50 = close_numeric.rolling(window=50).mean()
+            latest_close = close_numeric.iloc[-1]
             latest_ma = ma_50.iloc[-1]
 
             if pd.isna(latest_close) or pd.isna(latest_ma):
@@ -180,9 +181,9 @@ class RegimeDetector:
         if len(spy_data) < period * 3:
             return 0.0
 
-        high = spy_data["High"].values.astype(float)
-        low = spy_data["Low"].values.astype(float)
-        close = spy_data["Close"].values.astype(float)
+        high = pd.to_numeric(spy_data["High"], errors="coerce").fillna(method="ffill").values
+        low = pd.to_numeric(spy_data["Low"], errors="coerce").fillna(method="ffill").values
+        close = pd.to_numeric(spy_data["Close"], errors="coerce").fillna(method="ffill").values
         n = len(high)
 
         # Step 1: True Range, +DM, -DM (raw, per-bar)

@@ -1,10 +1,13 @@
 """Chat panel — AI conversation with QTextEdit + QLineEdit."""
 from __future__ import annotations
 from typing import Any
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QGroupBox, QLineEdit, QTextEdit, QVBoxLayout
 
+
 class ChatPanel(QGroupBox):
+    message_submitted = Signal(str)
+
     def __init__(self, state: Any) -> None:
         super().__init__("CHAT")
         layout = QVBoxLayout(self)
@@ -16,8 +19,15 @@ class ChatPanel(QGroupBox):
 
         self._input = QLineEdit()
         self._input.setPlaceholderText("Type a message...")
+        self._input.returnPressed.connect(self._on_submit)
         layout.addWidget(self._input)
         self.refresh_view(state)
+
+    def _on_submit(self) -> None:
+        text = self._input.text().strip()
+        if text:
+            self._input.clear()
+            self.message_submitted.emit(text)
 
     def refresh_view(self, state: Any) -> None:
         history = state.chat_history[-20:] if state.chat_history else []

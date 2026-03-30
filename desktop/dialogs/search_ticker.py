@@ -1,6 +1,6 @@
 """Search ticker dialog — AI-powered ticker search."""
 from __future__ import annotations
-from typing import List
+from typing import Any, List
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QDialog, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
@@ -50,9 +50,21 @@ class SearchTickerDialog(QDialog):
         buttons.addWidget(close_btn)
         layout.addLayout(buttons)
 
+    def set_search_callback(self, fn: Any) -> None:
+        """Set callback for background AI search requests."""
+        self._search_callback = fn
+
     def _search(self) -> None:
-        self._status.setText("Searching... (AI search not yet connected)")
-        self._status.setStyleSheet("color: #ffb000; font-size: 11px;")
+        query = self._input.text().strip()
+        if not query:
+            return
+        if hasattr(self, '_search_callback') and self._search_callback:
+            self._status.setText("Searching...")
+            self._status.setStyleSheet("color: #ffb000; font-size: 11px;")
+            self._search_callback(query)
+        else:
+            self._status.setText("AI search not connected")
+            self._status.setStyleSheet("color: #ff0000; font-size: 11px;")
 
     def populate_results(self, results: List[dict]) -> None:
         """Called by the main window after a background search completes."""

@@ -9,6 +9,26 @@ import concurrent.futures
 
 DEFAULT_DATA_DIR = Path("data")
 
+# ── Shared OHLCV validation ───────────────────────────────────────────
+
+_OHLCV_COLS = ("Open", "High", "Low", "Close", "Volume")
+_OHLCV_LOWER = ("open", "high", "low", "close", "volume")
+
+
+def sanitise_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
+    """Coerce OHLCV columns to numeric and drop rows with NaN Close.
+
+    Handles both capitalised (yfinance) and lowercase (features) column names.
+    Safe to call multiple times — already-numeric columns are unaffected.
+    """
+    for col in _OHLCV_COLS + _OHLCV_LOWER:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+    close_col = "Close" if "Close" in df.columns else "close" if "close" in df.columns else None
+    if close_col:
+        df = df.dropna(subset=[close_col])
+    return df
+
 
 def _clean_ticker(ticker: str) -> str:
     """
@@ -84,6 +104,8 @@ def fetch_ticker_data(
                 first_col = df.columns[0]
                 df[first_col] = pd.to_datetime(df[first_col], errors="coerce")
                 df = df.set_index(first_col)
+
+            df = sanitise_ohlcv(df)
 
             # Sanity check: if the cached file has suspiciously few rows
             # relative to the requested date range, discard it and re-fetch.
@@ -171,7 +193,7 @@ def fetch_universe_data(
 
     for ticker, df in results:
         if not df.empty:
-            universe_data[ticker] = df
+            universe_data[ticker] = sanitise_ohlcv(df)
     return universe_data
 
 

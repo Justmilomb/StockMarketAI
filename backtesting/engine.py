@@ -461,12 +461,15 @@ class BacktestEngine:
                     continue
 
                 row = day_rows.iloc[0]
-                day_prices[ticker] = {
-                    "open": float(row["Open"]),
-                    "high": float(row["High"]),
-                    "low": float(row["Low"]),
-                    "close": float(row["Close"]),
-                }
+                try:
+                    day_prices[ticker] = {
+                        "open": float(pd.to_numeric(row["Open"], errors="coerce")),
+                        "high": float(pd.to_numeric(row["High"], errors="coerce")),
+                        "low": float(pd.to_numeric(row["Low"], errors="coerce")),
+                        "close": float(pd.to_numeric(row["Close"], errors="coerce")),
+                    }
+                except (ValueError, TypeError):
+                    continue  # Skip corrupted price data
 
                 # ATR from recent data
                 atr = _compute_atr(ticker_df, day_date, period=14)
@@ -481,12 +484,15 @@ class BacktestEngine:
             df = price_data[ticker]
             if not df.empty:
                 last_row = df.iloc[-1]
-                last_prices[ticker] = {
-                    "open": float(last_row["Open"]),
-                    "high": float(last_row["High"]),
-                    "low": float(last_row["Low"]),
-                    "close": float(last_row["Close"]),
-                }
+                try:
+                    last_prices[ticker] = {
+                        "open": float(pd.to_numeric(last_row["Open"], errors="coerce")),
+                        "high": float(pd.to_numeric(last_row["High"], errors="coerce")),
+                        "low": float(pd.to_numeric(last_row["Low"], errors="coerce")),
+                        "close": float(pd.to_numeric(last_row["Close"], errors="coerce")),
+                    }
+                except (ValueError, TypeError):
+                    continue  # Skip tickers with corrupted price data
         if last_prices:
             sim.close_all_positions(sorted_dates[-1], last_prices)
 
@@ -658,7 +664,9 @@ class BacktestEngine:
             sliced = df.loc[mask]
             if len(sliced) < 60:
                 continue
-            closes = sliced["Close"].values[-60:]
+            closes = pd.to_numeric(sliced["Close"], errors="coerce").dropna().values[-60:]
+            if len(closes) < 10:
+                continue
             rets = np.diff(closes) / np.maximum(closes[:-1], 1e-8)
             returns_all.extend(rets.tolist())
 
@@ -694,18 +702,24 @@ def _compute_atr(df: pd.DataFrame, up_to_date: date, period: int = 14) -> float:
     mask = _date_mask(df.index, up_to_date)
     idx = df.index.get_indexer(df.index[mask])
     if len(idx) == 0:
-        return float(df["Close"].iloc[-1]) * 0.02
+        fallback = pd.to_numeric(df["Close"].iloc[-1], errors="coerce")
+        return (float(fallback) * 0.02) if pd.notna(fallback) else 0.0
 
     end_pos = idx[0]
     start_pos = max(0, end_pos - period)
     sub = df.iloc[start_pos:end_pos + 1]
 
     if len(sub) < 2:
-        return float(df["Close"].iloc[-1]) * 0.02
+        fallback = pd.to_numeric(df["Close"].iloc[-1], errors="coerce")
+        return (float(fallback) * 0.02) if pd.notna(fallback) else 0.0
 
-    highs = sub["High"].values
-    lows = sub["Low"].values
-    closes = sub["Close"].values
+    highs = pd.to_numeric(sub["High"], errors="coerce").values
+    lows = pd.to_numeric(sub["Low"], errors="coerce").values
+    closes = pd.to_numeric(sub["Close"], errors="coerce").values
+
+    # Skip if any NaNs from coercion
+    if np.isnan(highs).any() or np.isnan(lows).any() or np.isnan(closes).any():
+        return float(np.nanmean(closes)) * 0.02 if len(closes) > 0 else 0.0
 
     tr = np.maximum(
         highs[1:] - lows[1:],
