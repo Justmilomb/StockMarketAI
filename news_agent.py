@@ -62,20 +62,31 @@ class NewsAgent:
     def stop(self) -> None:
         self._running = False
 
+    def fetch_now(self) -> None:
+        """Immediately fetch news without waiting for the interval."""
+        try:
+            self._fetch_all()
+        except Exception as e:
+            print(f"[news_agent] Immediate fetch error: {e}")
+
     def _run_loop(self) -> None:
+        # Fetch immediately on start, then sleep-and-repeat
         while self._running:
             try:
                 self._fetch_all()
             except Exception as e:
                 print(f"[news_agent] Error in fetch loop: {e}")
-            time.sleep(self.refresh_interval)
+            if self._running:
+                time.sleep(self.refresh_interval)
 
     def _fetch_all(self) -> None:
         from data_loader import _clean_ticker
 
         tickers = list(self._tickers)
         if not tickers:
+            print("[news_agent] No tickers to fetch — skipping")
             return
+        print(f"[news_agent] Fetching news for {len(tickers)} tickers")
 
         # Phase 1: Fetch ALL headlines in parallel (I/O bound, fast)
         ticker_headlines: Dict[str, List[str]] = {}

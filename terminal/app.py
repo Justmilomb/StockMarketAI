@@ -323,8 +323,11 @@ class TradingTerminalApp(App):  # type: ignore[misc]
             watchlists[active] = current
             self._save_config()
             self.ai_service._config_cache = None
+            print(f"[app] ✓ Synced {len(added)} T212 positions to watchlist: {added}")
             if self.news_agent:
-                self.news_agent.update_tickers(self._get_active_tickers())
+                new_tickers = self._get_active_tickers()
+                self.news_agent.update_tickers(new_tickers)
+                print(f"[app] ✓ News agent now tracking {len(new_tickers)} tickers")
 
     # ── Daily Stock Discovery ─────────────────────────────────────────
 
@@ -451,6 +454,8 @@ class TradingTerminalApp(App):  # type: ignore[misc]
                 held_tickers = [p.get("ticker") for p in positions if p.get("ticker")]
 
                 # 2a. Auto-sync: ensure every T212 position is on the active watchlist
+                if held_tickers:
+                    print(f"[app] Loaded {len(held_tickers)} positions from Trading212: {held_tickers}")
                 self._sync_held_to_watchlist(held_tickers)
 
                 # 3. Only run the full AI pipeline on cooldown
