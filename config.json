@@ -146,7 +146,7 @@
     "n_agents": 1000,
     "n_ticks": 80,
     "n_simulations": 16,
-    "n_processes": 32,
+    "n_processes": null,
     "price_impact_factor": 0.001,
     "base_volatility": 0.02,
     "liquidity": 1.0,
@@ -179,7 +179,7 @@
     "use_statistical": true,
     "use_mirofish": true,
     "mirofish_n_sims": 12,
-    "n_processes": 32
+    "n_processes": null
   },
   "terminal": {
     "mode": "recommendation",
