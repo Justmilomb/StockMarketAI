@@ -53,12 +53,12 @@ def get_max_parallel_folds() -> int:
     """Return the max number of parallel backtest folds.
 
     Reads ``config.json`` → ``"max_parallel_folds"``.
-    Defaults to ``cpu_cores // 4`` (balances memory vs CPU).
+    Defaults to all CPU cores (each fold runs in its own process).
     """
     raw = _load_config().get("max_parallel_folds")
     if raw is not None:
         return max(1, int(raw))
-    return max(1, get_cpu_cores() // 4)
+    return max(2, get_cpu_cores())
 
 
 def get_n_jobs_per_fold() -> int:

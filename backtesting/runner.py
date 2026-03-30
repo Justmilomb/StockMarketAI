@@ -9,7 +9,8 @@ from __future__ import annotations
 
 import logging
 import os
-import subprocess
+import pickle
+import tempfile
 import time
 import warnings
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -31,6 +32,9 @@ from backtesting.types import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Shared data loaded once per worker process via initializer
+_worker_shared_data: Dict[str, Any] = {}
 
 
 def _detect_parallel_folds() -> int:
@@ -107,15 +111,30 @@ class BacktestRunner:
 
         _progress(f"Generated {len(splits)} walk-forward folds")
 
-        # 4. Run folds
-        n_workers = self._config.n_processes or _detect_parallel_folds()
-        use_parallel = n_workers > 1 and len(splits) > 1
+        # 4. Run folds — always prefer parallel when multiple folds exist
+        detected_folds = _detect_parallel_folds()
+        if self._config.n_processes is not None and self._config.n_processes > 1:
+            n_workers = self._config.n_processes
+        else:
+            n_workers = detected_folds
+        # Ensure we use at least as many workers as cores allow
+        n_workers = max(n_workers, 2)
+        use_parallel = len(splits) > 1
+
+        from cpu_config import get_cpu_cores, _load_config as _load_cpu_config
+        _raw = _load_cpu_config()
+        _progress(
+            f"[debug] cpu_cores={get_cpu_cores()}, "
+            f"config_raw={_raw.get('cpu_cores')}, "
+            f"max_folds={_raw.get('max_parallel_folds')}, "
+            f"os.cpu_count={os.cpu_count()}, "
+            f"n_processes_cfg={self._config.n_processes}, "
+            f"detected_folds={detected_folds}, "
+            f"n_workers={n_workers}"
+        )
 
         if use_parallel:
             n_jobs = _detect_n_jobs_per_fold()
-            from cpu_config import get_cpu_cores, _load_config
-            _raw = _load_config()
-            _progress(f"[debug] cpu_cores={get_cpu_cores()}, config_raw={_raw.get('cpu_cores')}, max_folds={_raw.get('max_parallel_folds')}, os.cpu_count={os.cpu_count()}")
             _progress(f"Running {len(splits)} folds across {n_workers} workers × {n_jobs} threads each = {n_workers * n_jobs} total threads")
             folds = self._run_parallel(
                 splits, features_by_ticker, labels_by_ticker,
@@ -200,27 +219,39 @@ class BacktestRunner:
     ) -> List[FoldResult]:
         """Run folds in parallel using ProcessPoolExecutor.
 
-        Data is serialised via standard Python multiprocessing (pickle)
-        for cross-process transfer — this is internal computation, not
-        deserialisation of untrusted external data.
+        Shared data (features, labels, universe) is written to a temp file
+        once, then each worker reads it at startup via the process initializer.
+        This avoids re-pickling the full dataset for every fold submission
+        (the old .tolist() approach was 10-100x slower).
         """
-        # Serialise shared data once (avoids repeated pickle overhead)
-        shared_feats = _serialise_dataframes(features_by_ticker)
-        shared_labels = _serialise_series(labels_by_ticker)
-        shared_universe = _serialise_dataframes(universe_data)
         config_dict = _config_to_dict(self._config)
-
         results: Dict[int, FoldResult] = {}
+        tmp_path: Optional[str] = None
 
         try:
-            with ProcessPoolExecutor(max_workers=n_cores) as executor:
+            # Write shared data to temp file — workers load once via initializer
+            on_progress("Serialising shared data for workers...")
+            t_ser = time.time()
+            shared_data = {
+                "features": features_by_ticker,
+                "labels": labels_by_ticker,
+                "universe": universe_data,
+            }
+            fd, tmp_path = tempfile.mkstemp(suffix=".pkl")
+            with os.fdopen(fd, "wb") as tmp:
+                pickle.dump(shared_data, tmp, protocol=pickle.HIGHEST_PROTOCOL)
+            ser_mb = os.path.getsize(tmp_path) / (1024 * 1024)
+            on_progress(f"Shared data written: {ser_mb:.1f} MB in {time.time() - t_ser:.1f}s")
+
+            with ProcessPoolExecutor(
+                max_workers=n_cores,
+                initializer=_init_fold_worker,
+                initargs=(tmp_path,),
+            ) as executor:
                 future_to_fold = {
                     executor.submit(
                         _run_fold_worker,
                         split,
-                        shared_feats,
-                        shared_labels,
-                        shared_universe,
                         config_dict,
                     ): split.fold_id
                     for split in splits
@@ -249,6 +280,12 @@ class BacktestRunner:
                 universe_data,
                 on_progress,
             )
+        finally:
+            if tmp_path:
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
 
         # Return in fold order
         return [results[s.fold_id] for s in splits if s.fold_id in results]
@@ -287,85 +324,37 @@ class BacktestRunner:
 
 
 # ---------------------------------------------------------------------------
-# Top-level worker function (must be picklable — no lambdas, no closures)
+# Worker process initializer + fold executor
 # ---------------------------------------------------------------------------
+
+def _init_fold_worker(shared_data_path: str) -> None:
+    """Load shared data from disk once when worker process starts.
+
+    Uses pickle for internal IPC — all data originates from this
+    application's own DataFrames, not external/untrusted sources.
+    """
+    global _worker_shared_data
+    with open(shared_data_path, "rb") as f:  # noqa: S301 — trusted internal IPC
+        _worker_shared_data = pickle.load(f)  # noqa: S301
+
 
 def _run_fold_worker(
     split: WalkForwardSplit,
-    serialised_feats: Dict[str, Dict[str, Any]],
-    serialised_labels: Dict[str, Dict[str, Any]],
-    serialised_universe: Dict[str, Dict[str, Any]],
     config_dict: Dict[str, Any],
 ) -> FoldResult:
-    """Execute one fold in a worker process.
-
-    Accepts serialised (dict) versions of DataFrames to avoid pickling
-    issues across process boundaries.
-    """
+    """Execute one fold in a worker process using shared data from initializer."""
     warnings.filterwarnings("ignore", category=UserWarning, module=r"sklearn\..*")
     warnings.filterwarnings("ignore", category=FutureWarning, module=r"sklearn\..*")
 
     config = _dict_to_config(config_dict)
-    features = _deserialise_dataframes(serialised_feats)
-    labels = _deserialise_series(serialised_labels)
-    universe = _deserialise_dataframes(serialised_universe)
 
     engine = BacktestEngine(config)
-    return engine.run_fold(split, features, labels, universe)
-
-
-# ---------------------------------------------------------------------------
-# Serialisation helpers (DataFrame ↔ dict for cross-process transfer)
-# ---------------------------------------------------------------------------
-
-def _serialise_dataframes(data: Dict[str, pd.DataFrame]) -> Dict[str, Dict[str, Any]]:
-    """Convert DataFrames to dicts for safe cross-process transfer."""
-    return {
-        ticker: {
-            "values": df.values.tolist(),
-            "columns": list(df.columns),
-            "index": df.index.tolist(),
-        }
-        for ticker, df in data.items()
-    }
-
-
-def _deserialise_dataframes(data: Dict[str, Dict[str, Any]]) -> Dict[str, pd.DataFrame]:
-    """Reconstruct DataFrames from serialised dicts."""
-    result: Dict[str, pd.DataFrame] = {}
-    for ticker, parts in data.items():
-        df = pd.DataFrame(
-            parts["values"],
-            columns=parts["columns"],
-            index=pd.DatetimeIndex(parts["index"]),
-        )
-        result[ticker] = df
-    return result
-
-
-def _serialise_series(data: Dict[str, pd.Series]) -> Dict[str, Dict[str, Any]]:
-    """Convert Series to dicts for safe cross-process transfer."""
-    return {
-        ticker: {
-            "values": s.values.tolist(),
-            "index": s.index.tolist(),
-            "name": s.name,
-        }
-        for ticker, s in data.items()
-    }
-
-
-def _deserialise_series(data: Dict[str, Dict[str, Any]]) -> Dict[str, pd.Series]:
-    """Reconstruct Series from serialised dicts."""
-    result: Dict[str, pd.Series] = {}
-    for ticker, parts in data.items():
-        s = pd.Series(
-            parts["values"],
-            index=pd.DatetimeIndex(parts["index"]),
-            name=parts["name"],
-        )
-        result[ticker] = s
-    return result
+    return engine.run_fold(
+        split,
+        _worker_shared_data["features"],
+        _worker_shared_data["labels"],
+        _worker_shared_data["universe"],
+    )
 
 
 def _config_to_dict(config: BacktestConfig) -> Dict[str, Any]:
