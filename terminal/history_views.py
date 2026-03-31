@@ -4,13 +4,10 @@ from typing import Any, Dict, List
 
 from terminal.state import AppState
 
-try:
-    from textual.app import ComposeResult
-    from textual.containers import Vertical, Horizontal, VerticalScroll
-    from textual.widgets import DataTable, Label, Button, TabbedContent, TabPane
-    from textual.screen import ModalScreen
-except ImportError:  # pragma: no cover
-    pass
+from textual.app import ComposeResult
+from textual.containers import Vertical, Horizontal, VerticalScroll
+from textual.widgets import DataTable, Label, Button, TabbedContent, TabPane
+from textual.screen import ModalScreen
 
 
 # ═══════════════════════════════════════════════════════════════════════

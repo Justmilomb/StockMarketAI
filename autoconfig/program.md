@@ -16,7 +16,7 @@ id	score	accuracy	win_rate	sharpe	profit_factor	max_dd	duration	overrides	notes
 
 3. Run the **baseline experiment** (no overrides) to establish the starting point. First find your project root, then:
 ```bash
-cd $PROJECT_ROOT && python -u autoconfig/experiment.py --no-mirofish --universe full 2>&1 | tee autoconfig/.progress.log
+cd $PROJECT_ROOT && python3 -u autoconfig/experiment.py --no-mirofish --universe full 2>&1 | tee autoconfig/.progress.log
 ```
 (If `$PROJECT_ROOT` is not set, replace it with the full path to StockMarketAI, e.g., `/home/user/StockMarketAI` or `C:/Users/user/StockMarketAI`)
 
@@ -108,7 +108,7 @@ Pick ONE or TWO parameters to change per experiment. Don't change everything at 
 
 **Standard command (use this for every experiment):**
 ```bash
-cd $PROJECT_ROOT && python -u autoconfig/experiment.py --no-mirofish --universe full --overrides '{"strategy": {"threshold_buy": 0.60}}' 2>&1 | tee autoconfig/.progress.log
+cd $PROJECT_ROOT && python3 -u autoconfig/experiment.py --no-mirofish --universe full --overrides '{"strategy": {"threshold_buy": 0.60}}' 2>&1 | tee autoconfig/.progress.log
 ```
 (Replace `$PROJECT_ROOT` with your full path to StockMarketAI if not set in your shell)
 
@@ -180,28 +180,28 @@ Once single-strategy experiments are well-explored, optimise each profile indepe
 
 1. **Test each profile as a standalone strategy:**
 ```bash
-./venv/bin/python -u autoconfig/experiment.py --strategy-profile conservative --universe full 2>&1 | tee autoconfig/.progress.log
-./venv/bin/python -u autoconfig/experiment.py --strategy-profile day_trader --universe full 2>&1 | tee autoconfig/.progress.log
-./venv/bin/python -u autoconfig/experiment.py --strategy-profile swing --universe full 2>&1 | tee autoconfig/.progress.log
-./venv/bin/python -u autoconfig/experiment.py --strategy-profile crisis_alpha --universe full 2>&1 | tee autoconfig/.progress.log
-./venv/bin/python -u autoconfig/experiment.py --strategy-profile trend_follower --universe full 2>&1 | tee autoconfig/.progress.log
+python3 -u autoconfig/experiment.py --strategy-profile conservative --universe full 2>&1 | tee autoconfig/.progress.log
+python3 -u autoconfig/experiment.py --strategy-profile day_trader --universe full 2>&1 | tee autoconfig/.progress.log
+python3 -u autoconfig/experiment.py --strategy-profile swing --universe full 2>&1 | tee autoconfig/.progress.log
+python3 -u autoconfig/experiment.py --strategy-profile crisis_alpha --universe full 2>&1 | tee autoconfig/.progress.log
+python3 -u autoconfig/experiment.py --strategy-profile trend_follower --universe full 2>&1 | tee autoconfig/.progress.log
 ```
 
 2. **Optimise each profile's parameters** — use overrides ON TOP of the profile:
 ```bash
-./venv/bin/python -u autoconfig/experiment.py --strategy-profile conservative --overrides '{"strategy": {"threshold_buy": 0.70}}' --universe full 2>&1 | tee autoconfig/.progress.log
+python3 -u autoconfig/experiment.py --strategy-profile conservative --overrides '{"strategy": {"threshold_buy": 0.70}}' --universe full 2>&1 | tee autoconfig/.progress.log
 ```
 
 3. **Test crisis resilience per profile:**
 ```bash
-./venv/bin/python -u autoconfig/experiment.py --strategy-profile crisis_alpha --crisis 2020_covid_crash --universe full 2>&1 | tee autoconfig/.progress.log
-./venv/bin/python -u autoconfig/experiment.py --strategy-profile conservative --stress-test --universe full 2>&1 | tee autoconfig/.progress.log
+python3 -u autoconfig/experiment.py --strategy-profile crisis_alpha --crisis 2020_covid_crash --universe full 2>&1 | tee autoconfig/.progress.log
+python3 -u autoconfig/experiment.py --strategy-profile conservative --stress-test --universe full 2>&1 | tee autoconfig/.progress.log
 ```
 
 4. **Test the adaptive selector vs best static config:**
 ```bash
-./venv/bin/python -u autoconfig/experiment.py --use-strategy-selector --universe full 2>&1 | tee autoconfig/.progress.log
-./venv/bin/python -u autoconfig/experiment.py --use-strategy-selector --stress-test --universe full 2>&1 | tee autoconfig/.progress.log
+python3 -u autoconfig/experiment.py --use-strategy-selector --universe full 2>&1 | tee autoconfig/.progress.log
+python3 -u autoconfig/experiment.py --use-strategy-selector --stress-test --universe full 2>&1 | tee autoconfig/.progress.log
 ```
 
 Record profile-specific results with notes like "profile:conservative", "profile:crisis_alpha+covid".
@@ -223,7 +223,7 @@ Record profile-specific results with notes like "profile:conservative", "profile
 11. **NEVER override backtesting params.** step_days, n_processes, mode are infrastructure — not tuneable.
 12. **NEVER use `--universe small`.** 30 tickers overfits. Minimum is `--universe full` (100 tickers).
 13. **Sanity-check every result.** If total_trades=0 or win_rate=0, the experiment is broken — don't record it, investigate.
-14. **All commands must use `./venv/bin/python -u ... 2>&1 | tee autoconfig/.progress.log`** for real-time output visibility.
+14. **All commands must use `python3 -u ... 2>&1 | tee autoconfig/.progress.log`** for real-time output visibility.
 
 ---
 

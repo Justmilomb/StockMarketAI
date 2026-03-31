@@ -37,20 +37,29 @@ from terminal.history_views import HistoryModal, PiesModal, InstrumentsModal
 from terminal.pipeline_view import PipelineView
 from pipeline_tracker import PipelineTracker
 
-try:
-    from textual import work
-    from textual.app import App, ComposeResult
-    from textual.widgets import Footer, Header, Label
-    from textual.containers import Grid
-except ImportError:  # pragma: no cover
-    App = object  # type: ignore
+from textual import work
+from textual.app import App, ComposeResult
+from textual.widgets import Footer, Header, Label
+from textual.containers import Grid
 
 
 ConfigDict = Dict[str, Any]
 
 
+def _load_css() -> str:
+    """Load CSS from file — works both normally and inside PyInstaller bundle."""
+    candidates = [
+        Path(__file__).resolve().parent / "terminal.css",
+        Path(getattr(sys, '_MEIPASS', '.')) / "terminal" / "terminal.css",
+    ]
+    for p in candidates:
+        if p.exists():
+            return p.read_text(encoding="utf-8")
+    return ""
+
+
 class TradingTerminalApp(App):  # type: ignore[misc]
-    CSS_PATH = "terminal.css"
+    CSS = _load_css()
     BINDINGS = [
         ("question_mark", "show_help", "? Help"),
         ("q", "quit", "Quit"),

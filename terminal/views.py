@@ -4,13 +4,10 @@ from typing import Any, List
 
 from terminal.state import AppState
 
-try:
-    from textual.app import ComposeResult
-    from textual.containers import Vertical, Horizontal, VerticalScroll
-    from textual.widgets import DataTable, Static, Label, Input, Button, Select
-    from textual.screen import ModalScreen
-except ImportError:  # pragma: no cover
-    pass
+from textual.app import ComposeResult
+from textual.containers import Vertical, Horizontal, VerticalScroll
+from textual.widgets import DataTable, Static, Label, Input, Button, Select
+from textual.screen import ModalScreen
 
 
 def compute_verdict(prob: float, consensus_pct: float) -> str:

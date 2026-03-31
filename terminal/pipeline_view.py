@@ -2,13 +2,10 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
-try:
-    from textual.app import ComposeResult
-    from textual.containers import Vertical
-    from textual.widgets import Static, Label
-    from textual.timer import Timer
-except ImportError:
-    pass
+from textual.app import ComposeResult
+from textual.containers import Vertical
+from textual.widgets import Static, Label
+from textual.timer import Timer
 
 from pipeline_tracker import PipelineTracker
 from types_shared import PipelineState, PipelineStage

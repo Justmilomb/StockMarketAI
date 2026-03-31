@@ -57,9 +57,13 @@ def _build_prompt(batch_size: int, session_num: int) -> str:
         else "This is the first session - start with a baseline experiment."
     )
 
+    # Detect correct python command for this platform
+    python_cmd = "python3" if sys.platform != "win32" else "python"
+
     prompt = (
         f"You are an autonomous config optimisation agent for StockMarketAI.\n\n"
         f"Read autoconfig/program.md for full instructions. Follow every rule exactly.\n\n"
+        f"PYTHON COMMAND: Use `{python_cmd}` for all commands (not python3 on Windows, not python on Linux).\n\n"
         f"This is session #{session_num}. There are {n_done} experiments completed so far.\n\n"
         f"{prior}\n\n"
         f"Run {batch_size} experiments this session following the program.md workflow.\n"
@@ -71,7 +75,7 @@ def _build_prompt(batch_size: int, session_num: int) -> str:
         f"- NEVER override backtesting params (step_days, n_processes, mode)\n"
         f"- NEVER use --universe small or medium — only --universe full\n"
         f"- No --universe-seed needed — full universe is deterministic\n"
-        f"- ALWAYS pipe output: ./venv/bin/python -u autoconfig/experiment.py [args] 2>&1 | tee autoconfig/.progress.log\n"
+        f"- ALWAYS pipe output: {python_cmd} -u autoconfig/experiment.py [args] 2>&1 | tee autoconfig/.progress.log\n"
         f"- Sanity-check: if total_trades=0 or win_rate=0, experiment is broken — don't record it\n\n"
         f"IMPORTANT: Work from the {PROJECT_ROOT} directory.\n"
         f"IMPORTANT: NEVER modify config.json — only use --overrides for experiments.\n"

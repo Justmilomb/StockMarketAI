@@ -32,14 +32,18 @@ def get_cpu_cores() -> int:
     """Return the configured CPU core limit.
 
     Resolution order:
-      1. ``config.json`` → ``"cpu_cores"`` (explicit int)
-      2. ``os.cpu_count()`` (system default)
-      3. Fallback to 4
+      1. ``AUTOCONFIG_CPU_CORES`` env var (for experiments)
+      2. ``config.json`` → ``"cpu_cores"`` (explicit int)
+      3. ``os.cpu_count()`` (system default)
+      4. Fallback to 4
 
     The value is capped at ``os.cpu_count()`` so a stale config on a
     smaller machine can never request more cores than exist.
     """
     physical = os.cpu_count() or 4
+    env_val = os.environ.get("AUTOCONFIG_CPU_CORES")
+    if env_val is not None:
+        return max(1, min(int(env_val), physical))
     raw = _load_config().get("cpu_cores")
 
     if raw is None:
@@ -52,9 +56,14 @@ def get_cpu_cores() -> int:
 def get_max_parallel_folds() -> int:
     """Return the max number of parallel backtest folds.
 
-    Reads ``config.json`` → ``"max_parallel_folds"``.
-    Defaults to all CPU cores (each fold runs in its own process).
+    Resolution order:
+      1. ``AUTOCONFIG_MAX_FOLDS`` env var (for experiments)
+      2. ``config.json`` → ``"max_parallel_folds"``
+      3. All CPU cores (each fold runs in its own process)
     """
+    env_val = os.environ.get("AUTOCONFIG_MAX_FOLDS")
+    if env_val is not None:
+        return max(1, int(env_val))
     raw = _load_config().get("max_parallel_folds")
     if raw is not None:
         return max(1, int(raw))

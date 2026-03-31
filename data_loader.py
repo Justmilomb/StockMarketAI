@@ -21,9 +21,19 @@ def sanitise_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
     Handles both capitalised (yfinance) and lowercase (features) column names.
     Safe to call multiple times — already-numeric columns are unaffected.
     """
+    # Flatten MultiIndex columns if present (yfinance sometimes returns these)
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
+    # Deduplicate columns — keep first occurrence only
+    if df.columns.duplicated().any():
+        df = df.loc[:, ~df.columns.duplicated()]
     for col in _OHLCV_COLS + _OHLCV_LOWER:
         if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors="coerce")
+            series = df[col]
+            # If MultiIndex wasn't fully flattened, df[col] can be a DataFrame
+            if isinstance(series, pd.DataFrame):
+                series = series.iloc[:, 0]
+            df[col] = pd.to_numeric(series, errors="coerce")
     close_col = "Close" if "Close" in df.columns else "close" if "close" in df.columns else None
     if close_col:
         df = df.dropna(subset=[close_col])
@@ -147,9 +157,16 @@ def fetch_ticker_data(
 
         # Ensure expected columns exist
         needed_cols = ["Open", "High", "Low", "Close", "Volume"]
-        # Handle MultiIndex if present
+        # Handle MultiIndex if present (yfinance returns ('Close','AAPL') etc.)
         if isinstance(df.columns, pd.MultiIndex):
-            df.columns = df.columns.get_level_values(0)
+            # Pick the level that contains OHLCV names
+            for level in range(df.columns.nlevels):
+                names = set(df.columns.get_level_values(level))
+                if "Close" in names or "close" in names:
+                    df.columns = df.columns.get_level_values(level)
+                    break
+            else:
+                df.columns = df.columns.get_level_values(0)
             
         missing = [c for c in needed_cols if c not in df.columns]
         if missing:

@@ -3,12 +3,9 @@ from __future__ import annotations
 from typing import List
 from terminal.state import AppState
 
-try:
-    from textual.app import ComposeResult
-    from textual.containers import Vertical
-    from textual.widgets import Label, Sparkline
-except ImportError:
-    pass
+from textual.app import ComposeResult
+from textual.containers import Vertical
+from textual.widgets import Label, Sparkline
 
 
 class PriceChartView(Vertical):

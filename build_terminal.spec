@@ -6,7 +6,7 @@ from pathlib import Path
 
 a = Analysis(
     ['terminal/app.py'],
-    pathex=[],
+    pathex=['.'],
     binaries=[],
     datas=[
         ('config.json', '.'),
@@ -17,7 +17,9 @@ a = Analysis(
     hiddenimports=[
         'sklearn.ensemble',
         'sklearn.linear_model',
+        'sklearn.tree',
         'xgboost',
+        'xgboost.libpath',
         'lightgbm',
         'statsmodels.tsa.arima.model',
         'statsmodels.tsa.holtwinters',
@@ -33,6 +35,7 @@ a = Analysis(
     runtime_hooks=[],
     excludedimports=[],
     noarchive=False,
+    collect_data='xgboost',
 )
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=None)
