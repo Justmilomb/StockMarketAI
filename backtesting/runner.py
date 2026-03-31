@@ -8,6 +8,7 @@ a single BacktestResult.
 from __future__ import annotations
 
 import logging
+import multiprocessing as mp
 import os
 import pickle
 import tempfile
@@ -243,10 +244,15 @@ class BacktestRunner:
             ser_mb = os.path.getsize(tmp_path) / (1024 * 1024)
             on_progress(f"Shared data written: {ser_mb:.1f} MB in {time.time() - t_ser:.1f}s")
 
+            # Force "spawn" on Linux — "fork" deadlocks inside OpenBLAS/MKL
+            # when numpy/sklearn are already loaded in the parent process.
+            # Windows already defaults to "spawn" so this is a no-op there.
+            ctx = mp.get_context("spawn")
             with ProcessPoolExecutor(
                 max_workers=n_cores,
                 initializer=_init_fold_worker,
                 initargs=(tmp_path,),
+                mp_context=ctx,
             ) as executor:
                 future_to_fold = {
                     executor.submit(

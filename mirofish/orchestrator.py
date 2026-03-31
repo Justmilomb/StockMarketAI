@@ -11,6 +11,7 @@ Uses ProcessPoolExecutor so the GIL is not a bottleneck for numpy-heavy work.
 from __future__ import annotations
 
 import logging
+import multiprocessing as mp
 import os
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -159,7 +160,8 @@ class MiroFishOrchestrator:
         done_count = 0
 
         try:
-            with ProcessPoolExecutor(max_workers=self._n_processes) as pool:
+            ctx = mp.get_context("spawn")
+            with ProcessPoolExecutor(max_workers=self._n_processes, mp_context=ctx) as pool:
                 futures = {
                     pool.submit(_run_sim_worker, item): item[1]["ticker"]
                     for item in work_items

@@ -1,19 +1,15 @@
 [normal] Loading historical data...
-[normal] Loaded 234 tickers
+[normal] Loaded 100 tickers
 [normal] Computing features for entire history...
-[normal] Features ready: 234 tickers, 450027 rows
+[normal] Features ready: 100 tickers, 189921 rows
 [normal] Generating walk-forward splits...
 [normal] Generated 16 walk-forward folds
 [normal] [debug] cpu_cores=6, config_raw=6, max_folds=4, os.cpu_count=12, n_processes_cfg=None, detected_folds=4, n_workers=4
 [normal] Running 16 folds across 4 workers × 1 threads each = 4 total threads
 [normal] Serialising shared data for workers...
-[normal] Shared data written: 144.9 MB in 0.1s
-[normal] Fold 0/15 complete (acc=51.9%)
-[normal] Fold 1/15 complete (acc=49.2%)
-[normal] Fold 2/15 complete (acc=41.9%)
-[normal] Fold 3/15 complete (acc=50.0%)
-[normal] Fold 4/15 complete (acc=53.4%)
-[normal] Fold 5/15 complete (acc=55.1%)
-[normal] All 6 folds complete
-[normal] Computing aggregate metrics...
-[normal] Backtest finished in 15929.4s
+[normal] Shared data written: 61.2 MB in 0.1s
+[normal] Fold 0/15 complete (acc=50.7%)
+[normal] Fold 1/15 complete (acc=48.6%)
+[normal] Fold 2/15 complete (acc=39.2%)
+[normal] Fold 3/15 complete (acc=50.6%)
+[normal] Fold 4/15 complete (acc=54.3%)
