@@ -1,9 +1,15 @@
 """Entry point for the StockMarketAI desktop application."""
 from __future__ import annotations
 
+import multiprocessing
 import os
 import sys
 from pathlib import Path
+
+# CRITICAL: Must be called before anything else in a frozen exe.
+# Without this, every subprocess spawned by ProcessPoolExecutor
+# re-launches the full app, creating infinite window copies.
+multiprocessing.freeze_support()
 
 # PyInstaller sets sys._MEIPASS to the temp extraction dir for --onefile builds.
 if getattr(sys, "frozen", False):

@@ -3,8 +3,14 @@ from __future__ import annotations
 import json
 import logging
 import subprocess
+import sys
 from dataclasses import dataclass
 from typing import Any, Dict, List
+
+# Hide console windows when spawning claude CLI on Windows
+_SUBPROCESS_FLAGS: dict = {}
+if sys.platform == "win32":
+    _SUBPROCESS_FLAGS["creationflags"] = subprocess.CREATE_NO_WINDOW
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +70,7 @@ class ClaudeClient:
                 text=True,
                 timeout=10,
                 encoding="utf-8",
+                **_SUBPROCESS_FLAGS,
             )
         except FileNotFoundError:
             logger.warning(
@@ -104,6 +111,7 @@ class ClaudeClient:
                 text=True,
                 timeout=timeout,
                 encoding="utf-8",
+                **_SUBPROCESS_FLAGS,
             )
             output = result.stdout.strip()
 

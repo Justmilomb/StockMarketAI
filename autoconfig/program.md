@@ -16,7 +16,7 @@ id	score	accuracy	win_rate	sharpe	profit_factor	max_dd	duration	overrides	notes
 
 3. Run the **baseline experiment** (no overrides) to establish the starting point. First find your project root, then:
 ```bash
-cd $PROJECT_ROOT && python3 -u autoconfig/experiment.py --no-mirofish --universe full 2>&1 | tee autoconfig/.progress.log
+cd $PROJECT_ROOT && python3 -u autoconfig/experiment.py --no-mirofish --universe medium 2>&1 | tee autoconfig/.progress.log
 ```
 (If `$PROJECT_ROOT` is not set, replace it with the full path to StockMarketAI, e.g., `/home/user/StockMarketAI` or `C:/Users/user/StockMarketAI`)
 
@@ -40,9 +40,10 @@ These are infrastructure, not trading strategy. The code has guardrails that wil
 ### NEVER use `--fast`
 Fast mode skips trade simulation entirely. All trade metrics (Sharpe, win rate, profit factor, drawdown) will be **zero**. This makes 60% of the score components useless. Always run in full mode.
 
-### ALWAYS use `--universe full`
-- Every experiment runs against the full ~250 ticker universe.
-- No subsampling — this eliminates seed noise and makes every experiment directly comparable.
+### ALWAYS use `--universe medium`
+- Every experiment runs against the medium ~30 ticker universe (diverse, representative).
+- This keeps each experiment under 15 minutes while still covering all sectors.
+- Use `--universe medium` only for final validation of the best config found.
 - The machine uses 32 cores (configured via cpu_cores in config.json).
 
 ### ALWAYS use `--no-mirofish` unless specifically testing MiroFish params
@@ -108,7 +109,7 @@ Pick ONE or TWO parameters to change per experiment. Don't change everything at 
 
 **Standard command (use this for every experiment):**
 ```bash
-cd $PROJECT_ROOT && python3 -u autoconfig/experiment.py --no-mirofish --universe full --overrides '{"strategy": {"threshold_buy": 0.60}}' 2>&1 | tee autoconfig/.progress.log
+cd $PROJECT_ROOT && python3 -u autoconfig/experiment.py --no-mirofish --universe medium --overrides '{"strategy": {"threshold_buy": 0.60}}' 2>&1 | tee autoconfig/.progress.log
 ```
 (Replace `$PROJECT_ROOT` with your full path to StockMarketAI if not set in your shell)
 
@@ -122,12 +123,12 @@ cd $PROJECT_ROOT && python3 -u autoconfig/experiment.py --no-mirofish --universe
 
 **Flags you must NEVER use:**
 - `--fast` — produces zero trade metrics, completely useless
-- `--universe small` or `--universe medium` — always use `--universe full`
+- `--universe small` or `--universe medium` — always use `--universe medium`
 
 **Expected runtimes (32-core config, ~250 tickers):**
-- `--no-mirofish --universe full` — ~10-20 min per experiment (standard)
-- `--universe full` (with MiroFish) — ~30-60 min (MiroFish tuning)
-- `--stress-test --universe full` — ~60-90 min (crisis validation)
+- `--no-mirofish --universe medium` — ~10-20 min per experiment (standard)
+- `--universe medium` (with MiroFish) — ~30-60 min (MiroFish tuning)
+- `--stress-test --universe medium` — ~60-90 min (crisis validation)
 
 ### Step 3: Evaluate the result
 
@@ -169,8 +170,8 @@ Use your results history to guide exploration:
 
 Every 10 experiments, run the current best config through validation:
 1. `--sector volatile` — does it survive high-volatility stocks?
-2. `--stress-test --universe full` — does it survive crises?
-3. `--use-strategy-selector --universe full` — does the adaptive system beat the static config?
+2. `--stress-test --universe medium` — does it survive crises?
+3. `--use-strategy-selector --universe medium` — does the adaptive system beat the static config?
 
 Record each as a validation run with notes like "validation:large", "validation:stress", "validation:adaptive".
 
@@ -180,28 +181,28 @@ Once single-strategy experiments are well-explored, optimise each profile indepe
 
 1. **Test each profile as a standalone strategy:**
 ```bash
-python3 -u autoconfig/experiment.py --strategy-profile conservative --universe full 2>&1 | tee autoconfig/.progress.log
-python3 -u autoconfig/experiment.py --strategy-profile day_trader --universe full 2>&1 | tee autoconfig/.progress.log
-python3 -u autoconfig/experiment.py --strategy-profile swing --universe full 2>&1 | tee autoconfig/.progress.log
-python3 -u autoconfig/experiment.py --strategy-profile crisis_alpha --universe full 2>&1 | tee autoconfig/.progress.log
-python3 -u autoconfig/experiment.py --strategy-profile trend_follower --universe full 2>&1 | tee autoconfig/.progress.log
+python3 -u autoconfig/experiment.py --strategy-profile conservative --universe medium 2>&1 | tee autoconfig/.progress.log
+python3 -u autoconfig/experiment.py --strategy-profile day_trader --universe medium 2>&1 | tee autoconfig/.progress.log
+python3 -u autoconfig/experiment.py --strategy-profile swing --universe medium 2>&1 | tee autoconfig/.progress.log
+python3 -u autoconfig/experiment.py --strategy-profile crisis_alpha --universe medium 2>&1 | tee autoconfig/.progress.log
+python3 -u autoconfig/experiment.py --strategy-profile trend_follower --universe medium 2>&1 | tee autoconfig/.progress.log
 ```
 
 2. **Optimise each profile's parameters** — use overrides ON TOP of the profile:
 ```bash
-python3 -u autoconfig/experiment.py --strategy-profile conservative --overrides '{"strategy": {"threshold_buy": 0.70}}' --universe full 2>&1 | tee autoconfig/.progress.log
+python3 -u autoconfig/experiment.py --strategy-profile conservative --overrides '{"strategy": {"threshold_buy": 0.70}}' --universe medium 2>&1 | tee autoconfig/.progress.log
 ```
 
 3. **Test crisis resilience per profile:**
 ```bash
-python3 -u autoconfig/experiment.py --strategy-profile crisis_alpha --crisis 2020_covid_crash --universe full 2>&1 | tee autoconfig/.progress.log
-python3 -u autoconfig/experiment.py --strategy-profile conservative --stress-test --universe full 2>&1 | tee autoconfig/.progress.log
+python3 -u autoconfig/experiment.py --strategy-profile crisis_alpha --crisis 2020_covid_crash --universe medium 2>&1 | tee autoconfig/.progress.log
+python3 -u autoconfig/experiment.py --strategy-profile conservative --stress-test --universe medium 2>&1 | tee autoconfig/.progress.log
 ```
 
 4. **Test the adaptive selector vs best static config:**
 ```bash
-python3 -u autoconfig/experiment.py --use-strategy-selector --universe full 2>&1 | tee autoconfig/.progress.log
-python3 -u autoconfig/experiment.py --use-strategy-selector --stress-test --universe full 2>&1 | tee autoconfig/.progress.log
+python3 -u autoconfig/experiment.py --use-strategy-selector --universe medium 2>&1 | tee autoconfig/.progress.log
+python3 -u autoconfig/experiment.py --use-strategy-selector --stress-test --universe medium 2>&1 | tee autoconfig/.progress.log
 ```
 
 Record profile-specific results with notes like "profile:conservative", "profile:crisis_alpha+covid".
@@ -221,7 +222,7 @@ Record profile-specific results with notes like "profile:conservative", "profile
 9. **Think before each experiment.** Write a brief hypothesis in the notes field.
 10. **NEVER use `--fast`.** It produces zero trade metrics. Always use full mode.
 11. **NEVER override backtesting params.** step_days, n_processes, mode are infrastructure — not tuneable.
-12. **NEVER use `--universe small`.** 30 tickers overfits. Minimum is `--universe full` (100 tickers).
+12. **NEVER use `--universe small`.** 30 tickers overfits. Minimum is `--universe medium` (100 tickers).
 13. **Sanity-check every result.** If total_trades=0 or win_rate=0, the experiment is broken — don't record it, investigate.
 14. **All commands must use `python3 -u ... 2>&1 | tee autoconfig/.progress.log`** for real-time output visibility.
 
