@@ -1,15 +1,21 @@
 [normal] Loading historical data...
 [normal] Loaded 100 tickers
 [normal] Computing features for entire history...
-[normal] Features ready: 100 tickers, 189921 rows
+[normal] Features ready: 100 tickers, 192743 rows
 [normal] Generating walk-forward splits...
 [normal] Generated 16 walk-forward folds
-[normal] [debug] cpu_cores=6, config_raw=6, max_folds=4, os.cpu_count=12, n_processes_cfg=None, detected_folds=4, n_workers=4
-[normal] Running 16 folds across 4 workers × 1 threads each = 4 total threads
+[normal] [debug] cpu_cores=12, config_raw=24, max_folds=12, os.cpu_count=12, n_processes_cfg=None, detected_folds=12, n_workers=12
+[normal] Running 16 folds across 12 workers × 1 threads each = 12 total threads
 [normal] Serialising shared data for workers...
-[normal] Shared data written: 61.2 MB in 0.1s
-[normal] Fold 0/15 complete (acc=50.7%)
-[normal] Fold 1/15 complete (acc=48.6%)
-[normal] Fold 2/15 complete (acc=39.2%)
-[normal] Fold 3/15 complete (acc=50.6%)
-[normal] Fold 4/15 complete (acc=54.3%)
+[normal] Shared data written: 62.1 MB in 0.1s
+[normal] Fold 0/15 complete (acc=52.3%)
+[normal] Fold 1/15 complete (acc=49.1%)
+[normal] Fold 2/15 complete (acc=42.8%)
+[normal] Fold 3/15 complete (acc=50.9%)
+[normal] Fold 4/15 complete (acc=52.6%)
+[normal] Fold 5/15 complete (acc=55.2%)
+[normal] Fold 6/15 complete (acc=41.4%)
+[normal] Fold 7/15 complete (acc=50.0%)
+[normal] Fold 8/15 complete (acc=45.8%)
+[normal] Fold 9/15 complete (acc=50.0%)
+[normal] Fold 10/15 complete (acc=55.2%)
