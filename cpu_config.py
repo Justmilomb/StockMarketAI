@@ -59,15 +59,21 @@ def get_max_parallel_folds() -> int:
     Resolution order:
       1. ``AUTOCONFIG_MAX_FOLDS`` env var (for experiments)
       2. ``config.json`` → ``"max_parallel_folds"``
-      3. All CPU cores (each fold runs in its own process)
+      3. Half CPU cores (default)
+
+    Always capped at ``cpu_cores // 2`` so each fold has room for
+    sklearn threads without over-subscribing the CPU.
     """
+    cores = get_cpu_cores()
+    cap = max(2, cores // 2)
+
     env_val = os.environ.get("AUTOCONFIG_MAX_FOLDS")
     if env_val is not None:
-        return max(1, int(env_val))
+        return max(1, min(int(env_val), cap))
     raw = _load_config().get("max_parallel_folds")
     if raw is not None:
-        return max(1, int(raw))
-    return max(2, get_cpu_cores())
+        return max(1, min(int(raw), cap))
+    return cap
 
 
 def get_n_jobs_per_fold() -> int:
