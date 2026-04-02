@@ -136,16 +136,10 @@ PySide6 GUI with Bloomberg-dark theme, wrapping the same AI pipeline. Suitable f
 ### Build executable
 
 ```bash
-pyinstaller desktop/main.py --name trading --onefile --windowed
+pyinstaller trading.spec --clean
 ```
 
-Or use the provided spec:
-
-```bash
-pyinstaller trading.spec
-```
-
-The built `trading.exe` lives in `dist/`. Place a `.env` file next to `trading.exe` for broker credentials.
+Output: `dist/trading.exe`. Place a `.env` file next to it for broker credentials. Or just run `build.bat`.
 
 ---
 

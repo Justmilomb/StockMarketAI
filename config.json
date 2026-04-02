@@ -1,22 +1,6 @@
 {
-  "watchlists": {
-    "Trading 212": [
-      "CCCX_US_EQ",
-      "VLVLY_US_EQ",
-      "KRKNF_US_EQ",
-      "VUKGl_EQ",
-      "RRl_EQ",
-      "TSLA_US_EQ",
-      "BBYl_EQ"
-    ]
-  },
-  "protected_tickers": [
-    "BBYL_EQ",
-    "CCCX_US_EQ",
-    "RRL_EQ",
-    "VLVLY_US_EQ",
-    "VUKGL_EQ"
-  ],
+  "watchlists": {},
+  "protected_tickers": [],
   "active_watchlist": "Trading 212",
   "cpu_cores": 12,
   "max_parallel_folds": 6,
@@ -224,8 +208,15 @@
       "max_position_pct": 0.1,
       "max_open_positions": 15
     },
+    "max_markets": 20,
+    "categories": ["crypto", "politics", "sports", "science"],
     "model": {
-      "calibration_method": "platt_scaling"
+      "calibration_method": "platt_scaling",
+      "use_claude": true
+    },
+    "mirofish": {
+      "n_agents": 500,
+      "noise_scale": 0.12
     }
   }
 }

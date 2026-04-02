@@ -40,6 +40,12 @@ from types_shared import (
     RegimeState,
 )
 
+# Polymarket imports (lazy-safe — only used when asset_class == "polymarket")
+try:
+    from polymarket.types import PolymarketConfig
+except ImportError:
+    PolymarketConfig = None  # type: ignore[misc,assignment]
+
 logger = logging.getLogger(__name__)
 
 ConfigDict = Dict[str, Any]
@@ -284,17 +290,10 @@ class AiService:
         protected_tickers: set[str] | None = None,
         asset_class: AssetClass = "stocks",
     ) -> Tuple[pd.DataFrame, pd.DataFrame]:
-        """1000-analyst signal pipeline with three-family meta-ensemble.
+        """Main signal pipeline — routes to asset-class-specific sub-pipeline.
 
-        1.  Fetch universe data
-        2.  Compute V2 features
-        3.  Detect market regime
-        4.  Run multi-timeframe ML ensemble (regime-adjusted)
-        4a. Run ARIMA/ETS statistical forecasters
-        5.  Run Claude persona analysis
-        6.  Aggregate through consensus engine
-        7.  Generate strategy signals using consensus probability
-        8.  Attach consensus metadata
+        For stocks/crypto: ML ensemble + statistical + Claude personas + consensus.
+        For polymarket: event fetch + features + Claude edge detection + strategy.
 
         Returns:
             signals_df: DataFrame with signal columns + consensus metadata
@@ -302,6 +301,10 @@ class AiService:
         """
         cfg = self.load_config()
         self._track("begin")
+
+        # Route polymarket to its dedicated pipeline
+        if asset_class == "polymarket":
+            return self._run_polymarket_pipeline(cfg)
 
         # Auto-retrain if accuracy degradation was detected
         if self._force_retrain:
@@ -749,6 +752,136 @@ class AiService:
 
         self._track("end")
         return signals_df, latest_meta_df
+
+    # ── Polymarket pipeline ─────────────────────────────────────────────
+
+    def _run_polymarket_pipeline(
+        self, cfg: ConfigDict,
+    ) -> Tuple[pd.DataFrame, pd.DataFrame]:
+        """Edge-detection pipeline for Polymarket prediction markets.
+
+        Stages:
+        1. Fetch active markets from Gamma API
+        2. Build event features (probability dynamics, volume, orderbook)
+        3. Detect market regime (category/activity patterns)
+        4. Detect edges (Claude-powered or heuristic fallback)
+        5. Convert edges to trading signals with Kelly sizing
+        """
+        from polymarket import data_loader as poly_dl
+        from polymarket import features as poly_feat
+        from polymarket.model import EdgeDetector
+        from polymarket.regime import PolymarketRegimeDetector
+        from polymarket.strategy import generate_polymarket_signals
+
+        poly_cfg = PolymarketConfig.from_config(cfg) if PolymarketConfig else None
+        strat_cfg = cfg.get("polymarket", {}).get("strategy", {})
+        risk_cfg = cfg.get("polymarket", {}).get("risk", {})
+
+        min_volume = poly_cfg.min_volume if poly_cfg else 1_000
+        min_liquidity = poly_cfg.min_liquidity if poly_cfg else 500
+        max_markets = poly_cfg.max_markets if poly_cfg else 20
+        use_claude = poly_cfg.use_claude if poly_cfg else True
+
+        # 1. Fetch markets
+        self._track("start_stage", "data_fetch", max_markets)
+        events = poly_dl.fetch_markets(
+            active_only=True,
+            min_volume=min_volume,
+            limit=max_markets,
+        )
+        self._track("complete_stage", "data_fetch", f"{len(events)} markets")
+
+        if not events:
+            logger.warning("No Polymarket events fetched")
+            self._track("end")
+            return pd.DataFrame(), pd.DataFrame()
+
+        # 2. Build features per event
+        self._track("start_stage", "features", len(events))
+        features_list: List[Dict[str, float]] = []
+        for i, event in enumerate(events):
+            token_id = event.tokens.get("Yes", "")
+            history = poly_dl.fetch_market_history(event.condition_id) if event.condition_id else pd.DataFrame()
+            orderbook = poly_dl.fetch_orderbook(token_id) if token_id else {"bids": [], "asks": []}
+            feat = poly_feat.build_event_features(event, history, orderbook)
+            features_list.append(feat)
+            self._track("update_stage", "features", i + 1, event.question[:30])
+        self._track("complete_stage", "features", f"{len(features_list)} events")
+
+        # 3. Detect regime
+        self._track("start_stage", "regime", 1)
+        regime_detector = PolymarketRegimeDetector()
+        regime_state = regime_detector.detect(events)
+        self._last_regime = regime_state
+        self._track("complete_stage", "regime", regime_state.regime)
+
+        # 4. Edge detection — Research Swarm + MiroFish (or heuristic fallback)
+        model_cfg = cfg.get("polymarket", {}).get("model", {})
+        edge_detector = EdgeDetector(model_cfg)
+
+        if use_claude:
+            self._track("start_stage", "claude_personas", len(events) * 4)
+            claude_client = self._get_claude_client(cfg)
+
+            def _swarm_progress(done: int, total: int, detail: str) -> None:
+                self._track("update_stage", "claude_personas", done, f"Agent: {detail}")
+
+            edges = edge_detector.detect_edges_v2(
+                events, features_list, claude_client,
+                min_edge_pct=float(strat_cfg.get("min_edge_pct", 5.0)),
+                on_progress=_swarm_progress,
+            )
+            self._track("complete_stage", "claude_personas", f"{len(edges)} edges (Swarm+MiroFish)")
+        else:
+            self._track("start_stage", "ml_ensemble", len(events))
+            edges = edge_detector.detect_edges(
+                events, features_list,
+                min_edge_pct=float(strat_cfg.get("min_edge_pct", 5.0)),
+            )
+            self._track("complete_stage", "ml_ensemble", f"{len(edges)} edges")
+
+        # 5. Generate trading signals
+        self._track("start_stage", "risk", 1)
+        merged_cfg = {**strat_cfg, **risk_cfg}
+        signals_df = generate_polymarket_signals(edges, merged_cfg)
+
+        # Enrich signals with display data the terminal view expects
+        if not signals_df.empty:
+            event_lookup = {e.condition_id: e for e in events}
+            volumes: List[float] = []
+            liquidities: List[float] = []
+            resolves_list: List[str] = []
+            categories: List[str] = []
+
+            for _, row in signals_df.iterrows():
+                cid = str(row.get("condition_id", ""))
+                ev = event_lookup.get(cid)
+                if ev:
+                    volumes.append(ev.volume_24h)
+                    liquidities.append(ev.liquidity)
+                    resolves_list.append(ev.end_date.strftime("%Y-%m-%d") if ev.end_date else "-")
+                    categories.append(ev.category)
+                else:
+                    volumes.append(0.0)
+                    liquidities.append(0.0)
+                    resolves_list.append("-")
+                    categories.append("-")
+
+            signals_df["volume"] = volumes
+            signals_df["liquidity"] = liquidities
+            signals_df["resolves"] = resolves_list
+            signals_df["category"] = categories
+
+        self._track("complete_stage", "risk", "signals generated")
+        self._track("end")
+
+        # Build a minimal meta DataFrame for compatibility
+        meta_df = pd.DataFrame({
+            "ticker": signals_df["question"] if not signals_df.empty else [],
+            "date": [datetime.now().strftime("%Y-%m-%d")] * len(signals_df),
+        })
+
+        return signals_df, meta_df
 
     def get_consensus_data(self) -> Dict[str, ConsensusResult]:
         """Return the most recent consensus results (for state updates)."""

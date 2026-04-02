@@ -5,14 +5,14 @@ probability estimate wrong?"  This module detects mispricings by
 comparing AI-estimated probabilities against the market price (which
 IS the probability).
 
-For the MVP, edge detection uses heuristic signals:
-- Volume momentum suggests informed trading
-- Price trends suggest the market is still moving toward fair value
-- Time-to-resolution affects how much edge is exploitable
-- LLM probability estimation (future: Claude API integration)
+Three modes (escalating quality):
+1. Heuristic: momentum/volume/time signals (fast, no API calls)
+2. Claude single-call: one batched LLM probability estimation (1 Claude call)
+3. Research Swarm + MiroFish: 4 specialist agents + Monte Carlo sim (4 Claude calls)
 """
 from __future__ import annotations
 
+import json
 import logging
 import math
 from typing import Dict, List, Optional
@@ -94,6 +94,258 @@ class EdgeDetector:
             len(edges), len(events), threshold * 100,
         )
         return edges
+
+    def detect_edges_v2(
+        self,
+        events: List[PolymarketEvent],
+        features_list: List[Dict[str, float]],
+        claude_client: object,
+        min_edge_pct: Optional[float] = None,
+        on_progress: Optional[callable] = None,
+    ) -> List[PolymarketEdge]:
+        """Research Swarm + MiroFish Monte Carlo edge detection.
+
+        The highest-quality mode: 4 specialist Claude agents research each
+        event, then MiroFish runs a 500-agent Monte Carlo simulation to
+        produce robust probability estimates.  Falls back through Claude
+        single-call → heuristic on failure.
+
+        Args:
+            events: List of market events with current prices.
+            features_list: Pre-computed features for each event.
+            claude_client: ClaudeClient instance.
+            min_edge_pct: Override minimum edge threshold.
+            on_progress: Optional callback(done, total, detail).
+        """
+        from polymarket.mirofish import MiroFishConfig, MiroFishSimulator
+        from polymarket.research import ResearchSwarm
+
+        threshold = (min_edge_pct if min_edge_pct is not None else self._min_edge_pct) / 100.0
+
+        binary_pairs = [
+            (event, features)
+            for event, features in zip(events, features_list)
+            if event.is_binary
+        ]
+        if not binary_pairs:
+            return []
+
+        binary_events = [e for e, _ in binary_pairs]
+        binary_features = [f for _, f in binary_pairs]
+
+        # Phase 1: Research Swarm — 4 specialist Claude calls
+        try:
+            swarm = ResearchSwarm()
+            briefs = swarm.research(binary_events, claude_client, on_progress)
+        except Exception as e:
+            logger.warning("Research Swarm failed: %s — falling back to single Claude call", e)
+            return self.detect_edges_with_claude(
+                events, features_list, claude_client, min_edge_pct,
+            )
+
+        # Phase 2: MiroFish Monte Carlo
+        try:
+            sim = MiroFishSimulator(MiroFishConfig())
+            mf_results = sim.simulate(binary_events, briefs)
+        except Exception as e:
+            logger.warning("MiroFish failed: %s — using research means", e)
+            # Fall back to mean of research estimates
+            mf_results = None
+
+        # Phase 3: Build edges from MiroFish probabilities
+        edges: List[PolymarketEdge] = []
+        for i, (event, features) in enumerate(binary_pairs):
+            if mf_results and i < len(mf_results):
+                ai_prob = mf_results[i].probability
+                confidence = mf_results[i].confidence
+            elif i < len(briefs) and briefs[i].estimates:
+                ai_prob = briefs[i].mean_probability
+                confidence = briefs[i].mean_confidence
+            else:
+                ai_prob = self._estimate_probability(event, features)
+                confidence = self._estimate_confidence(features, ai_prob - event.market_probability)
+
+            market_prob = event.market_probability
+            edge = ai_prob - market_prob
+
+            if abs(edge) < threshold:
+                continue
+
+            recommended_side = "YES" if edge > 0 else "NO"
+            kelly = self._compute_kelly(ai_prob, market_prob, recommended_side)
+
+            edges.append(
+                PolymarketEdge(
+                    condition_id=event.condition_id,
+                    question=event.question,
+                    ai_probability=round(ai_prob, 4),
+                    market_probability=round(market_prob, 4),
+                    edge=round(edge, 4),
+                    confidence=round(confidence, 4),
+                    recommended_side=recommended_side,
+                    kelly_size=round(kelly, 4),
+                )
+            )
+
+        edges.sort(key=lambda e: abs(e.edge), reverse=True)
+        logger.info(
+            "V2 edge detection (Swarm+MiroFish): %d edges from %d events",
+            len(edges), len(binary_pairs),
+        )
+        return edges
+
+    def detect_edges_with_claude(
+        self,
+        events: List[PolymarketEvent],
+        features_list: List[Dict[str, float]],
+        claude_client: object,
+        min_edge_pct: Optional[float] = None,
+    ) -> List[PolymarketEdge]:
+        """Claude-powered edge detection — asks Claude to estimate true probabilities.
+
+        Falls back to heuristic detect_edges() if Claude fails.
+
+        Args:
+            events: List of market events with current prices.
+            features_list: Pre-computed features for each event.
+            claude_client: ClaudeClient instance for LLM calls.
+            min_edge_pct: Override minimum edge threshold (percentage points).
+        """
+        threshold = (min_edge_pct if min_edge_pct is not None else self._min_edge_pct) / 100.0
+
+        # Filter to binary markets only
+        binary_pairs = [
+            (event, features)
+            for event, features in zip(events, features_list)
+            if event.is_binary
+        ]
+        if not binary_pairs:
+            return []
+
+        # Build batched prompt for Claude
+        claude_probs = self._get_claude_probabilities(binary_pairs, claude_client)
+
+        if not claude_probs:
+            logger.warning("Claude probability estimation failed — falling back to heuristics")
+            return self.detect_edges(events, features_list, min_edge_pct)
+
+        # Build edges from Claude's probability estimates
+        edges: List[PolymarketEdge] = []
+        for (event, features), ai_prob in zip(binary_pairs, claude_probs):
+            if ai_prob is None:
+                # Claude didn't return a probability for this event — use heuristic
+                ai_prob = self._estimate_probability(event, features)
+
+            market_prob = event.market_probability
+            edge = ai_prob - market_prob
+
+            if abs(edge) < threshold:
+                continue
+
+            confidence = self._estimate_confidence(features, edge)
+            # Boost confidence when Claude agrees with heuristic direction
+            heuristic_prob = self._estimate_probability(event, features)
+            heuristic_edge = heuristic_prob - market_prob
+            if (edge > 0 and heuristic_edge > 0) or (edge < 0 and heuristic_edge < 0):
+                confidence = min(0.95, confidence + 0.15)
+
+            recommended_side = "YES" if edge > 0 else "NO"
+            kelly = self._compute_kelly(ai_prob, market_prob, recommended_side)
+
+            edges.append(
+                PolymarketEdge(
+                    condition_id=event.condition_id,
+                    question=event.question,
+                    ai_probability=round(ai_prob, 4),
+                    market_probability=round(market_prob, 4),
+                    edge=round(edge, 4),
+                    confidence=round(confidence, 4),
+                    recommended_side=recommended_side,
+                    kelly_size=round(kelly, 4),
+                )
+            )
+
+        edges.sort(key=lambda e: abs(e.edge), reverse=True)
+        logger.info(
+            "Claude edge detection: %d edges from %d events (threshold=%.1f%%)",
+            len(edges), len(binary_pairs), threshold * 100,
+        )
+        return edges
+
+    def _get_claude_probabilities(
+        self,
+        binary_pairs: List[tuple],
+        claude_client: object,
+    ) -> List[Optional[float]]:
+        """Ask Claude to estimate true probabilities for a batch of events."""
+        lines: List[str] = []
+        for i, (event, _features) in enumerate(binary_pairs, 1):
+            end_str = event.end_date.strftime("%Y-%m-%d") if event.end_date else "unknown"
+            lines.append(
+                f'{i}. "{event.question}" — Market: {event.market_probability:.2f}, '
+                f'Resolves: {end_str}, Category: {event.category}'
+            )
+
+        prompt = (
+            "You are an expert prediction-market analyst. For each market below, "
+            "estimate the TRUE probability (0.00-1.00) that the event resolves YES.\n\n"
+            "Consider: base rates, current evidence, time to resolution, common market biases "
+            "(favourite-longshot bias, recency bias, narrative bias).\n\n"
+            + "\n".join(lines)
+            + "\n\nRespond ONLY as a JSON array of objects, one per market:\n"
+            '[{"id": 1, "probability": 0.72, "reasoning": "brief reason"}, ...]\n'
+            "No other text. Every market must have an entry."
+        )
+
+        try:
+            response = claude_client._call(prompt, use_system=False, task_type="medium")
+            if not response:
+                return []
+            return self._parse_claude_probabilities(response, len(binary_pairs))
+        except Exception as e:
+            logger.warning("Claude probability call failed: %s", e)
+            return []
+
+    def _parse_claude_probabilities(
+        self, response: str, expected_count: int,
+    ) -> List[Optional[float]]:
+        """Parse Claude's JSON response into a list of probabilities."""
+        text = response.strip()
+        if text.startswith("```json"):
+            text = text[7:]
+        elif text.startswith("```"):
+            text = text[3:]
+        if text.endswith("```"):
+            text = text[:-3]
+
+        # Find the JSON array
+        start = text.find("[")
+        end = text.rfind("]")
+        if start == -1 or end == -1:
+            logger.warning("No JSON array found in Claude response")
+            return []
+
+        try:
+            items = json.loads(text[start:end + 1])
+        except json.JSONDecodeError as e:
+            logger.warning("Failed to parse Claude probability JSON: %s", e)
+            return []
+
+        # Build id-indexed map for robustness (Claude may reorder)
+        prob_map: Dict[int, float] = {}
+        for item in items:
+            if isinstance(item, dict):
+                item_id = int(item.get("id", 0))
+                prob = float(item.get("probability", -1))
+                if 0.0 <= prob <= 1.0:
+                    prob_map[item_id] = prob
+
+        # Map back to ordered list
+        result: List[Optional[float]] = []
+        for i in range(1, expected_count + 1):
+            result.append(prob_map.get(i))
+
+        return result
 
     # ── Probability estimation ────────────────────────────────────────
 

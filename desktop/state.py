@@ -116,22 +116,30 @@ def init_state(config: Dict[str, Any]) -> AppState:
 
 
 def resolve_config_path(config_path: Path | str = "config.json") -> Path:
-    """Resolve config path, preferring exe-adjacent file for frozen builds."""
+    """Resolve config path, preferring exe-adjacent file for frozen builds.
+
+    For frozen (PyInstaller) builds, always returns an exe-adjacent path so
+    writes persist across restarts.  On first run the bundled seed config is
+    copied next to the exe; subsequent runs use that copy directly.
+    """
+    import shutil
     import sys
 
     path = Path(config_path)
     if path.is_absolute() and path.exists():
         return path
 
-    # Frozen exe: look next to the exe first, then _MEIPASS bundle
+    # Frozen exe: always write next to the exe so state persists
     if getattr(sys, "frozen", False):
         exe_dir = Path(sys.executable).parent
         exe_adjacent = exe_dir / path.name
         if exe_adjacent.exists():
             return exe_adjacent
+        # First run: copy bundled seed config to exe-adjacent
         bundle_path = Path(sys._MEIPASS) / path.name
         if bundle_path.exists():
-            return bundle_path
+            shutil.copy2(str(bundle_path), str(exe_adjacent))
+            return exe_adjacent
         # Neither exists — will create next to exe
         return exe_adjacent
 

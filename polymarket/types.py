@@ -8,7 +8,42 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Dict, Literal
+from typing import Dict, List, Literal
+
+
+@dataclass
+class PolymarketConfig:
+    """Polymarket-specific configuration loaded from config.json."""
+
+    enabled: bool = False
+    min_volume: float = 1_000
+    min_liquidity: float = 500
+    max_markets: int = 20
+    edge_threshold: float = 5.0       # minimum edge in percentage points
+    use_claude: bool = True           # Claude probability estimation
+    max_resolution_days: float = 90
+    categories: List[str] = field(default_factory=lambda: [
+        "crypto", "politics", "sports", "science",
+    ])
+
+    @classmethod
+    def from_config(cls, cfg: Dict) -> "PolymarketConfig":
+        """Build from the config.json 'polymarket' section."""
+        poly = cfg.get("polymarket", {})
+        strat = poly.get("strategy", {})
+        model = poly.get("model", {})
+        return cls(
+            enabled=bool(poly.get("enabled", False)),
+            min_volume=float(strat.get("min_volume_24h", 1_000)),
+            min_liquidity=float(strat.get("min_liquidity", 500)),
+            max_markets=int(poly.get("max_markets", 20)),
+            edge_threshold=float(strat.get("min_edge_pct", 5.0)),
+            use_claude=bool(model.get("use_claude", True)),
+            max_resolution_days=float(strat.get("max_resolution_days", 90)),
+            categories=poly.get("categories", [
+                "crypto", "politics", "sports", "science",
+            ]),
+        )
 
 
 @dataclass

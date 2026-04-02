@@ -85,6 +85,14 @@ class AppState:
     active_asset_class: AssetClass = "stocks"
     enabled_asset_classes: List[AssetClass] = field(default_factory=lambda: ["stocks"])
 
+    # ── Research / AutoResearch state ──────────────────────────────────
+    research_experiments: List[Dict[str, Any]] = field(default_factory=list)
+    research_best_score: float = 0.0
+    research_total_experiments: int = 0
+    research_current_config: Dict[str, Any] = field(default_factory=dict)
+    research_is_running: bool = False
+    research_live_progress: Dict[str, Any] = field(default_factory=dict)
+
     # Per-asset caches — the active asset's data lives in the fields above
     # (signals, consensus_data, etc.). These dicts store background data
     # for inactive asset classes so switching is instant.

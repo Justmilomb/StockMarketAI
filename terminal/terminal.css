@@ -82,9 +82,9 @@ DataTable > .datatable--hover {
 
 #main-grid {
     layout: grid;
-    grid-size: 3 4;
+    grid-size: 3 5;
     grid-columns: 1fr 2fr 1fr;
-    grid-rows: 1fr 1fr 1fr auto;
+    grid-rows: 1fr 1fr 1fr auto auto;
 }
 
 /* ── Left Column ────────────────────────────────────────────────────── */
@@ -166,7 +166,23 @@ DataTable > .datatable--hover {
     width: 100%;
 }
 
-/* ── Pipeline Monitor Panel (row 4, full width) ─────────────────────── */
+/* ── Research Lab Panel (row 4, full width) ────────────────────────── */
+
+#research-panel {
+    column-span: 3;
+    height: auto;
+    min-height: 5;
+    max-height: 16;
+    border: solid #444444;
+    background: #050510;
+    padding: 0 1;
+}
+
+#research-scroll {
+    height: 1fr;
+}
+
+/* ── Pipeline Monitor Panel (row 5, full width) ─────────────────────── */
 
 #pipeline-panel {
     column-span: 3;

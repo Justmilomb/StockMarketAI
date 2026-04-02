@@ -29,7 +29,7 @@ from news_agent import NewsAgent
 from terminal.state import AppState
 from terminal.views import (
     OrdersView, PositionsView, SettingsView, WatchlistView,
-    NewsView, ChatView, HelpModal,
+    NewsView, ChatView, HelpModal, ResearchView,
     AddTickerModal, TradeModal, SearchTickerModal, AiRecommendModal,
 )
 from terminal.charts import PriceChartView
@@ -84,6 +84,7 @@ class TradingTerminalApp(App):  # type: ignore[misc]
         ("1", "switch_asset('stocks')", "Stocks"),
         ("2", "switch_asset('polymarket')", "Polymarket"),
         ("3", "switch_asset('crypto')", "Crypto"),
+        ("f5", "apply_research", "Apply Research"),
     ]
 
     def __init__(self, config_path: Path | str = "config.json") -> None:
@@ -131,6 +132,7 @@ class TradingTerminalApp(App):  # type: ignore[misc]
         self.chat_view: Optional[ChatView] = None
         self.chart_view: Optional[PriceChartView] = None
         self.pipeline_view: Optional[PipelineView] = None
+        self.research_view: Optional[ResearchView] = None
 
         self.refresh_timer = None
         self.state.broker_is_live = self.broker_service.is_live
@@ -202,7 +204,11 @@ class TradingTerminalApp(App):  # type: ignore[misc]
             yield self.chart_view
             yield self.news_view
 
-            # Row 4: Pipeline Monitor (spans all 3 columns)
+            # Row 4: Research Lab (spans all 3 columns)
+            self.research_view = ResearchView(self.state)
+            yield self.research_view
+
+            # Row 5: Pipeline Monitor (spans all 3 columns)
             self.pipeline_view = PipelineView(self.pipeline_tracker)
             yield self.pipeline_view
 
@@ -605,6 +611,9 @@ class TradingTerminalApp(App):  # type: ignore[misc]
             except Exception as e:
                 print(f"[app] Snapshot save error: {e}")
 
+        # Update research lab data
+        self._refresh_research_state()
+
         if self.settings_view:
             self.settings_view.refresh_view()
         if self.watchlist_view:
@@ -617,6 +626,63 @@ class TradingTerminalApp(App):  # type: ignore[misc]
             self.news_view.refresh_view()
         if self.chart_view:
             self.chart_view.refresh_view()
+        if self.research_view:
+            self.research_view.refresh_view()
+
+    # ── Research Data ──────────────────────────────────────────────────
+
+    def _refresh_research_state(self) -> None:
+        """Load experiment data from the research/ git repo."""
+        try:
+            from terminal.research_data import (
+                is_research_available, get_experiment_log,
+                get_best_score, get_current_config, is_research_running,
+                get_live_progress,
+            )
+            if not is_research_available():
+                return
+
+            experiments = get_experiment_log(limit=30)
+            self.state.research_experiments = experiments
+            self.state.research_best_score = get_best_score(experiments)
+            self.state.research_total_experiments = sum(
+                1 for e in experiments if e.get("is_experiment")
+            )
+            self.state.research_current_config = get_current_config()
+            self.state.research_is_running = is_research_running()
+            self.state.research_live_progress = get_live_progress() or {}
+        except Exception as e:
+            print(f"[app] Research data error: {e}")
+
+    def action_apply_research(self) -> None:
+        """Apply the best research config (train.py) to the live config.json."""
+        try:
+            from terminal.research_data import get_current_config
+            research_cfg = get_current_config()
+            if not research_cfg:
+                self.notify("No research config found", severity="warning")
+                return
+
+            strat = research_cfg.get("strategy", {})
+            risk = research_cfg.get("risk", {})
+
+            # Update config.json strategy + risk sections
+            if strat:
+                self.config.setdefault("strategy", {}).update(strat)
+            if risk:
+                self.config.setdefault("risk", {}).update(risk)
+
+            self._save_config()
+            self.ai_service._config_cache = None  # force reload
+
+            self.notify(
+                f"Applied research config: buy={strat.get('threshold_buy')}, "
+                f"sell={strat.get('threshold_sell')}, "
+                f"stop={risk.get('atr_stop_multiplier')}x",
+                severity="information",
+            )
+        except Exception as e:
+            self.notify(f"Apply failed: {e}", severity="error")
 
     # ── Mode Toggle ────────────────────────────────────────────────────
 

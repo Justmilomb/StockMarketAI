@@ -548,6 +548,122 @@ class NewsView(Panel):
 
 
 # ═══════════════════════════════════════════════════════════════════════
+#  RESEARCH VIEW
+# ═══════════════════════════════════════════════════════════════════════
+
+class ResearchView(Panel):
+    """Shows autoresearch experiment history, scores, and current config."""
+
+    def __init__(self, state: AppState) -> None:
+        super().__init__("RESEARCH LAB", id="research-panel")
+        self.state = state
+        self.content_label = Label("Loading research data...")
+
+    def compose(self) -> ComposeResult:
+        yield Label(self.panel_title, classes="panel-title")
+        yield VerticalScroll(self.content_label, id="research-scroll")
+
+    def on_mount(self) -> None:
+        self.refresh_view()
+
+    def refresh_view(self) -> None:
+        experiments = self.state.research_experiments
+        best = self.state.research_best_score
+        total = self.state.research_total_experiments
+        cfg = self.state.research_current_config
+        running = self.state.research_is_running
+        live = self.state.research_live_progress
+
+        lines: list[str] = []
+
+        # Status header
+        if running:
+            status_color = "#00ff00"
+            status_text = "RUNNING"
+        elif live.get("status") == "complete":
+            status_color = "#00bfff"
+            status_text = "LAST RUN COMPLETE"
+        else:
+            status_color = "#666666"
+            status_text = "IDLE"
+        lines.append(f"Status: [{status_color}]{status_text}[/]  |  "
+                      f"Experiments: [#ffffff]{total}[/]  |  "
+                      f"Best: [#00ff00]{best:.1f}[/]")
+
+        # Live progress detail
+        if running and live:
+            elapsed = live.get("elapsed_seconds", 0)
+            detail = live.get("detail", "")
+            live_cfg = live.get("config", {})
+            lines.append(
+                f"  [#00bfff]>>> Evaluating:[/] {detail}"
+                f"  [#666666]({elapsed:.0f}s elapsed"
+                f"  buy={live_cfg.get('threshold_buy', '?')}"
+                f"  sell={live_cfg.get('threshold_sell', '?')})[/]"
+            )
+        lines.append("")
+
+        # Current config summary (from train.py)
+        if cfg:
+            strat = cfg.get("strategy", {})
+            risk = cfg.get("risk", {})
+            lines.append("[#ffb000]Best Config (train.py):[/]")
+            lines.append(
+                f"  Buy={strat.get('threshold_buy', '?')}"
+                f"  Sell={strat.get('threshold_sell', '?')}"
+                f"  Pos={strat.get('max_positions', '?')}"
+                f"  Size={strat.get('position_size_fraction', '?')}"
+            )
+            lines.append(
+                f"  Stop={risk.get('atr_stop_multiplier', '?')}×ATR"
+                f"  TP={risk.get('atr_profit_multiplier', '?')}×ATR"
+                f"  Universe={cfg.get('universe', '?')}"
+            )
+            lines.append("")
+
+        # Experiment log
+        if experiments:
+            lines.append("[#ffb000]Recent Experiments:[/]")
+            for exp in experiments[:15]:
+                score = exp.get("score")
+                msg = exp.get("message", "")
+                time_str = exp.get("time", "")
+                commit_hash = exp.get("hash", "")
+
+                if score is not None:
+                    if score >= 60:
+                        s_color = "#00ff00"
+                    elif score >= 45:
+                        s_color = "#ffb000"
+                    else:
+                        s_color = "#ff0000"
+                    score_str = f"[{s_color}]{score:5.1f}[/]"
+                else:
+                    score_str = "[#666666]  ---[/]"
+
+                # Truncate message, strip "exp: " prefix
+                display_msg = msg
+                if display_msg.lower().startswith("exp:"):
+                    display_msg = display_msg[4:].strip()
+                # Strip score from display (already shown separately)
+                display_msg = _SCORE_STRIP_RE.sub("", display_msg).strip()
+                if len(display_msg) > 50:
+                    display_msg = display_msg[:47] + "..."
+
+                lines.append(
+                    f"  [#666666]{commit_hash}[/] {score_str}  {display_msg}"
+                )
+        else:
+            lines.append("[#666666]No experiments yet. Start autoresearch to begin.[/]")
+
+        self.content_label.update("\n".join(lines))
+
+
+import re as _re
+_SCORE_STRIP_RE = _re.compile(r"score\s*=\s*[\d.]+", _re.IGNORECASE)
+
+
+# ═══════════════════════════════════════════════════════════════════════
 #  CHAT VIEW
 # ═══════════════════════════════════════════════════════════════════════
 
