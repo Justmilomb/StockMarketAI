@@ -1,4 +1,4 @@
-"""Multi-model ensemble — the 'quant desk' of 12 diverse models.
+"""Multi-model ensemble — the 'quant desk' of 6 diverse models.
 
 Trains, persists, and orchestrates a heterogeneous ensemble of classifiers
 (RandomForest, XGBoost, LightGBM, LogisticRegression, SVM, KNN) across
@@ -59,7 +59,7 @@ _OPTIONAL_TYPES: Dict[str, bool] = {
 }
 
 # ---------------------------------------------------------------------------
-# Default 12-model diversity matrix
+# Default 6-model diversity matrix (one per algorithm type)
 # ---------------------------------------------------------------------------
 
 def _spec(name: str, model_type: str, group: str, **hp: float | int | str | bool) -> ModelSpec:
@@ -69,17 +69,11 @@ def _spec(name: str, model_type: str, group: str, **hp: float | int | str | bool
 
 _DEFAULT_SPECS: List[ModelSpec] = [
     _spec("rf_all",          "RandomForest",       "all",               n_estimators=300, max_depth=10),
-    _spec("rf_trend",        "RandomForest",       "trend",             n_estimators=200),
-    _spec("rf_momentum",     "RandomForest",       "momentum",          n_estimators=150, max_depth=8),
     _spec("xgb_all",         "XGBoost",            "all",               n_estimators=200, max_depth=6, learning_rate=0.1),
-    _spec("xgb_volatility",  "XGBoost",            "volatility",        n_estimators=150, max_depth=4),
     _spec("lgbm_all",        "LightGBM",           "all",               n_estimators=200, num_leaves=31),
-    _spec("lgbm_trend_mom",  "LightGBM",           "trend+momentum",    n_estimators=150, num_leaves=15),
     _spec("lr_all",          "LogisticRegression",  "all",               C=1.0),
-    _spec("lr_momentum",     "LogisticRegression",  "momentum",          C=0.1),
     _spec("svm_vol_vol",     "SVM",                "volatility+volume", C=1.0, probability=True),
     _spec("knn_momentum",    "KNN",                "momentum",          n_neighbors=20),
-    _spec("rf_volume",       "RandomForest",       "volume",            n_estimators=100, max_depth=6),
 ]
 
 
@@ -89,7 +83,7 @@ _DEFAULT_SPECS: List[ModelSpec] = [
 
 
 def generate_diverse_specs(
-    n_models: int = 12,
+    n_models: int = 6,
     feature_groups: Dict[str, FeatureGroup] | None = None,
 ) -> List[ModelSpec]:
     """Return the default diversity matrix, filtered to available libraries.

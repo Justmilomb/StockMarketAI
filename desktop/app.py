@@ -564,7 +564,6 @@ class MainWindow(QMainWindow):
             regime=self.state.current_regime,
             regime_confidence=self.state.regime_confidence,
             consensus_data=self.state.consensus_data,
-            meta_ensemble_data=self.state.meta_ensemble_data,
             memory_summary=memory_summary,
             live_data=self.state.live_data,
         )

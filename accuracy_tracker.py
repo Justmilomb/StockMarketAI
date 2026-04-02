@@ -14,7 +14,7 @@ class AccuracyTracker:
     """Tracks prediction accuracy and computes optimal weights for self-improvement."""
 
     # Sources we log separately from signals_df columns
-    SOURCES = ["final", "sklearn", "ensemble", "statistical", "deep"]
+    SOURCES = ["final", "sklearn", "ensemble", "statistical"]
 
     def __init__(self, history_manager: HistoryManager) -> None:
         self._db = history_manager
@@ -31,7 +31,6 @@ class AccuracyTracker:
                 "sklearn": "p_up_sklearn",
                 "ensemble": "p_up_ensemble",
                 "statistical": "p_up_statistical",
-                "deep": "p_up_deep",
             }
             for source_name, col_name in source_cols.items():
                 prob = float(row.get(col_name, 0.5))
@@ -78,7 +77,6 @@ class AccuracyTracker:
         source_to_family = {
             "ensemble": "ml",
             "statistical": "statistical",
-            "deep": "deep_learning",
         }
 
         accuracies: Dict[str, float] = {}

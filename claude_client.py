@@ -301,7 +301,6 @@ class ClaudeClient:
         regime: str = "unknown",
         regime_confidence: float = 0.0,
         consensus_data: Dict[str, Any] | None = None,
-        meta_ensemble_data: Dict[str, Any] | None = None,
         memory_summary: str = "",
         live_data: Dict[str, Dict[str, float]] | None = None,
     ) -> str:
@@ -433,18 +432,6 @@ class ClaudeClient:
                 cons_lines.append(f"  {ticker}: consensus={cpct:.0f}%, confidence={conf:.2f}")
         cons_text = "\n".join(cons_lines) if cons_lines else "  No consensus data"
 
-        # ── Meta-ensemble probabilities (top 10) ──
-        meta_lines: list[str] = []
-        if meta_ensemble_data:
-            for ticker, data in list(meta_ensemble_data.items())[:10]:
-                if isinstance(data, dict):
-                    meta_lines.append(
-                        f"  {ticker}: prob={data.get('prob', 0.5):.2f} "
-                        f"(ML={data.get('ml', 0.5):.2f}, Stat={data.get('stat', 0.5):.2f}, "
-                        f"Deep={data.get('deep', 0.5):.2f})"
-                    )
-        meta_text = "\n".join(meta_lines) if meta_lines else "  No meta-ensemble data"
-
         # ── AI memory ──
         memory_text = f"\nAI MEMORY (facts from previous sessions):\n{memory_summary}" if memory_summary else ""
 
@@ -462,7 +449,6 @@ class ClaudeClient:
             "- Live prices and day change percentages\n"
             "- Full watchlist signals with probabilities from multiple models (up to 30 tickers)\n"
             "- Consensus committee percentage and confidence\n"
-            "- Meta-ensemble probabilities broken down by ML, Statistical, and Deep Learning families\n"
             "- News sentiment scores for each ticker\n"
             "- Protected (locked) tickers that CANNOT be traded\n"
             "- Recent chat history within this session\n"
@@ -473,7 +459,6 @@ class ClaudeClient:
             f"OPEN POSITIONS:\n{pos_text}\n\n"
             f"ACTIVE SIGNALS (top 15):\n{sig_text}\n\n"
             f"CONSENSUS COMMITTEE:\n{cons_text}\n\n"
-            f"META-ENSEMBLE PROBABILITIES:\n{meta_text}\n\n"
             f"NEWS SENTIMENT:\n{news_text}\n\n"
             f"{memory_text}\n\n"
             f"RECENT CONVERSATION:\n{conversation_text}\n\n"

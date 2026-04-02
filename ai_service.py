@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import concurrent.futures
 import json
 import logging
 from dataclasses import dataclass, field
@@ -20,13 +19,9 @@ from features_advanced import (
     build_universe_dataset_v2,
 )
 from forecaster_statistical import StatisticalForecaster
-from forecaster_deep import DeepForecaster
 from accuracy_tracker import AccuracyTracker
 from claude_client import ClaudeClient, ClaudeConfig
 from claude_personas import ClaudePersonaAnalyzer
-from meta_ensemble import MetaEnsemble
-from mirofish import MiroFishOrchestrator, MiroFishSignal
-from mirofish.signals import mirofish_signals_to_model_signals
 from model import ModelConfig, load_model, train_model
 from pipeline_tracker import PipelineTracker
 from regime import RegimeDetector
@@ -41,7 +36,6 @@ from types_shared import (
     EnsembleConfig,
     ForecasterSignal,
     PersonaSignal,
-    MetaEnsembleResult,
     ModelSignal,
     RegimeState,
 )
@@ -72,9 +66,6 @@ class AiService:
     _risk_manager: RiskManager | None = None
     _consensus_engine: ConsensusEngine | None = None
     _statistical_forecaster: StatisticalForecaster | None = None
-    _deep_forecaster: DeepForecaster | None = None
-    _meta_ensemble: MetaEnsemble | None = None
-    _mirofish: MiroFishOrchestrator | None = None
     _accuracy_tracker: AccuracyTracker | None = None
     _force_retrain: bool = False
 
@@ -252,29 +243,6 @@ class AiService:
         self._statistical_forecaster = StatisticalForecaster(forecaster_cfg)
         return self._statistical_forecaster
 
-    def _ensure_deep_forecaster(self, cfg: ConfigDict) -> DeepForecaster:
-        if self._deep_forecaster is not None:
-            return self._deep_forecaster
-        forecaster_cfg = cfg.get("forecasters", {}).get("deep_learning", {})
-        self._deep_forecaster = DeepForecaster(forecaster_cfg)
-        return self._deep_forecaster
-
-    def _ensure_meta_ensemble(self, cfg: ConfigDict) -> MetaEnsemble:
-        if self._meta_ensemble is not None:
-            return self._meta_ensemble
-        meta_cfg = cfg.get("forecasters", {}).get("meta_ensemble", {})
-        self._meta_ensemble = MetaEnsemble(meta_cfg)
-        return self._meta_ensemble
-
-    def _ensure_mirofish(self, cfg: ConfigDict) -> MiroFishOrchestrator | None:
-        mf_cfg = cfg.get("mirofish", {})
-        if not mf_cfg.get("enabled", False):
-            return None
-        if self._mirofish is not None:
-            return self._mirofish
-        self._mirofish = MiroFishOrchestrator.from_config_dict(mf_cfg)
-        return self._mirofish
-
     def _track(self, method: str, *args: Any) -> None:
         """Call a tracker method if tracker is available."""
         if self.tracker is not None:
@@ -323,8 +291,6 @@ class AiService:
         3.  Detect market regime
         4.  Run multi-timeframe ML ensemble (regime-adjusted)
         4a. Run ARIMA/ETS statistical forecasters
-        4b. Run N-BEATS deep learning forecaster
-        4c. Combine via meta-ensemble
         5.  Run Claude persona analysis
         6.  Aggregate through consensus engine
         7.  Generate strategy signals using consensus probability
@@ -343,8 +309,7 @@ class AiService:
             self._timeframe_ensemble = None  # Force re-creation
             self._force_retrain = False
 
-        # 1. Fetch universe data (180 calendar days ≈ 126 trading days —
-        #    enough for N-BEATS which needs lookback(60)+horizon(20)+buffer)
+        # 1. Fetch universe data
         watchlists = self.get_asset_config(cfg, asset_class, "watchlists", {})
         active_wl = self.get_asset_config(cfg, asset_class, "active_watchlist", "")
         tickers_cfg = watchlists.get(active_wl, cfg.get("tickers", []))
@@ -438,20 +403,10 @@ class AiService:
             logger.warning("Legacy sklearn prediction error: %s", e)
             p_sklearn = np.full(len(latest_features_df), 0.5)
 
-        # Build ensemble prob dict (used by MiroFish)
-        _ens_prob_dict: Dict[str, float] = {}
-        for i, (_, meta_row) in enumerate(latest_meta_df.iterrows()):
-            _ens_prob_dict[str(meta_row["ticker"])] = float(ensemble_probs[i])
-
-        # ── Stages 4a/4b/4d run concurrently (all have ML probs now) ──
-
-        # --- Worker: statistical forecasters (stage 4a) ---
-        def _run_statistical() -> Dict[str, List[ForecasterSignal]]:
-            stat_enabled = forecaster_cfg.get("statistical", {}).get("enabled", True)
-            if not stat_enabled:
-                self._track("skip_stage", "statistical", "disabled")
-                return {}
-
+        # 4a. Statistical forecasters (ARIMA/ETS baseline)
+        stat_signals: Dict[str, List[ForecasterSignal]] = {}
+        stat_enabled = forecaster_cfg.get("statistical", {}).get("enabled", True)
+        if stat_enabled:
             self._track("start_stage", "statistical", len(tickers))
             try:
                 stat_forecaster = self._ensure_statistical(cfg)
@@ -459,136 +414,34 @@ class AiService:
                     def _stat_progress(current: int, total: int, detail: str) -> None:
                         self._track("update_stage", "statistical", current, detail)
 
-                    result = stat_forecaster.fit_and_predict(
+                    stat_signals = stat_forecaster.fit_and_predict(
                         universe_data, tf_horizons, on_progress=_stat_progress,
                     )
-                    stat_count = sum(len(v) for v in result.values())
+                    stat_count = sum(len(v) for v in stat_signals.values())
                     self._track("complete_stage", "statistical", f"{stat_count} forecasts")
-                    return result
                 else:
                     self._track("skip_stage", "statistical", "statsmodels not installed")
-                    return {}
             except Exception as e:
                 logger.warning("Statistical forecaster failed: %s", e)
                 self._track("error_stage", "statistical", str(e))
-                return {}
+        else:
+            self._track("skip_stage", "statistical", "disabled")
 
-        # --- Worker: deep learning forecaster (stage 4b) ---
-        def _run_deep_learning() -> Dict[str, List[ForecasterSignal]]:
-            deep_enabled = forecaster_cfg.get("deep_learning", {}).get("enabled", True)
-            if not deep_enabled:
-                self._track("skip_stage", "deep_learning", "disabled")
-                return {}
-
-            self._track("start_stage", "deep_learning", len(tickers))
-            try:
-                deep_forecaster = self._ensure_deep_forecaster(cfg)
-                if deep_forecaster.is_available:
-                    def _deep_progress(current: int, total: int, detail: str) -> None:
-                        self._track("update_stage", "deep_learning", current, detail)
-
-                    result = deep_forecaster.fit_and_predict(
-                        universe_data, tf_horizons, on_progress=_deep_progress,
+        # Merge statistical signals into all_model_signals for consensus
+        for ticker_key, sigs in stat_signals.items():
+            if ticker_key not in all_model_signals:
+                all_model_signals[ticker_key] = []
+            for sig in sigs:
+                all_model_signals[ticker_key].append(
+                    ModelSignal(
+                        model_name=f"{sig.family}_{sig.model_name}",
+                        ticker=ticker_key,
+                        probability=sig.probability,
+                        confidence=sig.confidence,
+                        feature_group=sig.family,
+                        horizon_days=sig.horizon_days,
                     )
-                    deep_count = sum(len(v) for v in result.values())
-                    if deep_count > 0:
-                        self._track("complete_stage", "deep_learning", f"{deep_count} forecasts")
-                    else:
-                        self._track("skip_stage", "deep_learning", "not enough history")
-                    return result
-                else:
-                    self._track("skip_stage", "deep_learning", "torch not installed")
-                    return {}
-            except Exception as e:
-                logger.warning("Deep forecaster failed: %s", e)
-                self._track("error_stage", "deep_learning", str(e))
-                return {}
-
-        # --- Worker: MiroFish simulation (stage 4d) ---
-        def _run_mirofish() -> Dict[str, MiroFishSignal]:
-            mf_orchestrator = self._ensure_mirofish(cfg)
-            if mf_orchestrator is None:
-                self._track("skip_stage", "mirofish", "disabled")
-                return {}
-
-            n_sims = mf_orchestrator.config.n_simulations
-            n_agents = mf_orchestrator.config.n_agents
-            total_mf = len(tickers) * n_sims
-            self._track("start_stage", "mirofish", total_mf)
-            try:
-                news_data = getattr(self, "_last_news_data", {})
-                regime_str = regime_state.regime if regime_state else "unknown"
-
-                def _mf_progress(done: int, total: int, detail: str) -> None:
-                    self._track("update_stage", "mirofish", done, detail)
-
-                result = mf_orchestrator.run_universe(
-                    universe_data=universe_data,
-                    features_df=latest_features_df,
-                    regime=regime_str,
-                    ensemble_probs=_ens_prob_dict,
-                    news_data=news_data,
-                    on_progress=_mf_progress,
                 )
-                mf_count = len(result)
-                self._track(
-                    "complete_stage", "mirofish",
-                    f"{mf_count} tickers × {n_sims} sims × {n_agents} agents",
-                )
-                return result
-            except Exception as e:
-                logger.warning("MiroFish simulation failed: %s", e)
-                self._track("error_stage", "mirofish", str(e))
-                return {}
-
-        # --- Launch statistical, deep, and MiroFish concurrently ---
-        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
-            fut_stat = pool.submit(_run_statistical)
-            fut_deep = pool.submit(_run_deep_learning)
-            fut_mf = pool.submit(_run_mirofish)
-
-            stat_signals: Dict[str, List[ForecasterSignal]] = fut_stat.result()
-            deep_signals: Dict[str, List[ForecasterSignal]] = fut_deep.result()
-            mirofish_signals: Dict[str, MiroFishSignal] = fut_mf.result()
-
-        # Merge MiroFish signals into all_model_signals for consensus
-        if mirofish_signals:
-            mf_model_signals = mirofish_signals_to_model_signals(mirofish_signals)
-            for tk, sigs in mf_model_signals.items():
-                if tk not in all_model_signals:
-                    all_model_signals[tk] = []
-                all_model_signals[tk].extend(sigs)
-
-        # 4c. Meta-ensemble: combine ML + Statistical + Deep Learning
-        self._track("start_stage", "meta_blend", 1)
-        try:
-            meta_ens = self._ensure_meta_ensemble(cfg)
-
-            # Build per-ticker ML probability dict from ensemble_probs array
-            ml_prob_dict: Dict[str, float] = {}
-            for i, (_, meta_row) in enumerate(latest_meta_df.iterrows()):
-                ml_prob_dict[str(meta_row["ticker"])] = float(ensemble_probs[i])
-
-            meta_results = meta_ens.combine(ml_prob_dict, stat_signals, deep_signals, tf_horizons)
-
-            # Merge statistical + deep signals into all_model_signals for consensus
-            extra_signals = meta_ens.to_model_signals(stat_signals, deep_signals)
-            for ticker_key, sigs in extra_signals.items():
-                if ticker_key not in all_model_signals:
-                    all_model_signals[ticker_key] = []
-                all_model_signals[ticker_key].extend(sigs)
-
-            # Replace ensemble_probs with meta-ensemble probabilities
-            for i, (_, meta_row) in enumerate(latest_meta_df.iterrows()):
-                ticker_key = str(meta_row["ticker"])
-                if ticker_key in meta_results:
-                    ensemble_probs[i] = meta_results[ticker_key].probability
-
-            self._track("complete_stage", "meta_blend", f"{len(meta_results)} tickers")
-        except Exception as e:
-            logger.warning("Meta-ensemble failed: %s — using ML-only probs", e)
-            meta_results = {}
-            self._track("error_stage", "meta_blend", str(e))
 
         # 5. Claude persona analysis
         all_persona_signals: Dict[str, List[PersonaSignal]] = {}
@@ -813,19 +666,16 @@ class AiService:
         signals_df["reason"] = reasons
         signals_df["ai_rec"] = ai_recs
 
-        # Attach per-ticker statistical and deep probabilities
+        # Attach per-ticker statistical probabilities
         p_stat_list: List[float] = []
-        p_deep_list: List[float] = []
         for _, row in signals_df.iterrows():
             t = str(row["ticker"])
-            if t in meta_results:
-                p_stat_list.append(meta_results[t].stat_probability)
-                p_deep_list.append(meta_results[t].deep_probability)
+            sigs = stat_signals.get(t, [])
+            if sigs:
+                p_stat_list.append(sum(s.probability for s in sigs) / len(sigs))
             else:
                 p_stat_list.append(0.5)
-                p_deep_list.append(0.5)
         signals_df["p_up_statistical"] = p_stat_list
-        signals_df["p_up_deep"] = p_deep_list
 
         # Attach consensus metadata per ticker
         consensus_pcts: List[float] = []
@@ -847,15 +697,12 @@ class AiService:
         self._last_consensus = consensus_results
         self._last_regime = regime_state
         self._ensemble_model_count = ensemble_model_count
-        self._last_meta_results = meta_results
         self._last_stat_signals = stat_signals
-        self._last_deep_signals = deep_signals
-        self._last_mirofish_signals = mirofish_signals
 
         # Update pipeline dashboard stats
         self._update_dashboard_stats(
-            cfg, ensemble_model_count, stat_signals, deep_signals,
-            meta_results, regime_state, consensus_results, mirofish_signals,
+            cfg, ensemble_model_count, stat_signals,
+            regime_state, consensus_results,
         )
 
         # 9. Log predictions for accuracy tracking
@@ -885,7 +732,6 @@ class AiService:
                     "p_up_ensemble": 0.5,
                     "p_up_final": 0.5,
                     "p_up_statistical": 0.5,
-                    "p_up_deep": 0.5,
                     "reason": "No market data available",
                     "ai_rec": "N/A",
                     "consensus_pct": 50.0,
@@ -916,42 +762,19 @@ class AiService:
         """Return the total number of models across all horizon ensembles."""
         return getattr(self, "_ensemble_model_count", 0)
 
-    def get_meta_ensemble_data(self) -> Dict[str, MetaEnsembleResult]:
-        """Return the most recent meta-ensemble results."""
-        return getattr(self, "_last_meta_results", {})
-
-    def get_mirofish_signals(self) -> Dict[str, MiroFishSignal]:
-        """Return the most recent MiroFish simulation signals."""
-        return getattr(self, "_last_mirofish_signals", {})
-
     def _update_dashboard_stats(
         self,
         cfg: ConfigDict,
         ensemble_model_count: int,
         stat_signals: Dict[str, List[ForecasterSignal]],
-        deep_signals: Dict[str, List[ForecasterSignal]],
-        meta_results: Dict[str, MetaEnsembleResult],
         regime_state: RegimeState,
         consensus_results: Dict[str, ConsensusResult],
-        mirofish_signals: Dict[str, MiroFishSignal] | None = None,
     ) -> None:
         """Push model family stats to the pipeline tracker for dashboard display."""
         if self.tracker is None:
             return
 
-        weights = meta_results[next(iter(meta_results))].family_weights if meta_results else {}
         stat_count = sum(len(v) for v in stat_signals.values())
-        deep_count = sum(len(v) for v in deep_signals.values())
-
-        # Compute average probabilities per family
-        avg_ml = 0.0
-        avg_stat = 0.0
-        avg_deep = 0.0
-        if meta_results:
-            n = len(meta_results)
-            avg_ml = sum(r.ml_probability for r in meta_results.values()) / n
-            avg_stat = sum(r.stat_probability for r in meta_results.values()) / n
-            avg_deep = sum(r.deep_probability for r in meta_results.values()) / n
 
         # Consensus bull percentage
         bull_pct = 50.0
@@ -963,45 +786,21 @@ class AiService:
 
         family_stats: Dict[str, Dict[str, Any]] = {
             "ml": {
-                "display_name": f"ML Ensemble (3hz)",
+                "display_name": "ML Ensemble (3hz)",
                 "count": ensemble_model_count,
-                "weight": weights.get("ml", 0.5),
-                "avg_prob": avg_ml,
+                "weight": 0.75,
                 "status": "ready",
             },
             "statistical": {
                 "display_name": "ARIMA/ETS",
                 "count": stat_count,
-                "weight": weights.get("statistical", 0.25),
-                "avg_prob": avg_stat,
+                "weight": 0.25,
                 "status": "fitted" if stat_count > 0 else "unavailable",
-            },
-            "deep_learning": {
-                "display_name": "N-BEATS (deep)",
-                "count": deep_count,
-                "weight": weights.get("deep_learning", 0.0),
-                "avg_prob": avg_deep,
-                "status": "trained" if deep_count > 0 else (
-                    "no data" if self._deep_forecaster and self._deep_forecaster.is_available else "no torch"
-                ),
-            },
-            "mirofish": {
-                "display_name": "MiroFish Sim",
-                "count": sum(1 for _ in (mirofish_signals or {}).values()),
-                "weight": cfg.get("mirofish", {}).get("consensus_weight", 0.15),
-                "avg_prob": (
-                    sum(s.probability for s in (mirofish_signals or {}).values())
-                    / max(len(mirofish_signals or {}), 1)
-                ),
-                "status": "active" if mirofish_signals else "disabled",
-                "n_agents": cfg.get("mirofish", {}).get("n_agents", 0),
-                "n_sims": cfg.get("mirofish", {}).get("n_simulations", 0),
             },
             "claude_personas": {
                 "display_name": "Claude Personas",
-                "count": 5,
+                "count": 3,
                 "weight": 0,
-                "avg_prob": 0,
                 "status": "live",
             },
             "_regime": regime_state.regime,
@@ -1057,47 +856,15 @@ class AiService:
         except Exception as e:
             logger.error("Statistical retrain failed: %s", e)
 
-        # Deep learning forecaster (force retrain by clearing cache)
-        try:
-            self._deep_forecaster = None
-            deep = self._ensure_deep_forecaster(cfg)
-            if deep.is_available:
-                deep.fit_and_predict(universe_data, horizons)
-                logger.info("Deep forecaster retrained.")
-        except Exception as e:
-            logger.error("Deep forecaster retrain failed: %s", e)
-
     def _auto_tune_weights(self, cfg: ConfigDict) -> None:
-        """Adjust meta-ensemble family weights based on recent prediction accuracy."""
+        """Check if overall accuracy degraded and trigger retrain if needed."""
         if self._accuracy_tracker is None:
             return
 
         try:
-            breakdown = self._accuracy_tracker.get_accuracy_breakdown()
-            if not breakdown:
-                return
-
-            # 1. Tune meta-ensemble family weights (ML vs Stat vs Deep)
-            optimal = self._accuracy_tracker.get_optimal_weights()
-            if optimal:
-                meta_cfg = cfg.get("forecasters", {}).get("meta_ensemble", {})
-                current_weights = meta_cfg.get("family_weights", {})
-                changed = False
-                for family in ("ml", "statistical", "deep_learning"):
-                    if family in optimal:
-                        old = float(current_weights.get(family, 0.33))
-                        new = 0.7 * old + 0.3 * optimal[family]
-                        if abs(new - old) > 0.01:
-                            current_weights[family] = round(new, 3)
-                            changed = True
-                if changed:
-                    logger.info("Auto-tuned family weights: %s", current_weights)
-
-            # 2. Check if overall accuracy dropped below 45% → trigger retrain
             overall = self._accuracy_tracker.get_rolling_accuracy(window_days=14)
             if 0.0 < overall < 0.45:
                 logger.info("Accuracy %.1f%% below threshold — will retrain next cycle", overall * 100)
                 self._force_retrain = True
-
         except Exception as e:
-            logger.warning("Auto-tune weights failed: %s", e)
+            logger.warning("Auto-tune check failed: %s", e)

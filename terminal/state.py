@@ -70,19 +70,12 @@ class AppState:
     regime_confidence: float = 0.0
     ensemble_model_count: int = 0
 
-    # Meta-ensemble / forecaster data
-    meta_ensemble_data: Dict[str, Any] = field(default_factory=dict)
+    # Forecaster data
     statistical_model_count: int = 0
-    deep_model_available: bool = False
     pipeline_last_duration: float = 0.0
 
     # AI-assigned colour grades override the computed verdict ("GREEN"/"RED"/"ORANGE")
     ai_color_grades: Dict[str, str] = field(default_factory=dict)
-
-    # MiroFish multi-agent simulation data
-    mirofish_signals: Dict[str, Any] = field(default_factory=dict)
-    mirofish_agent_count: int = 0
-    mirofish_sim_count: int = 0
 
     # Strategy selector — per-ticker profile assignments
     strategy_assignments: Dict[str, Any] = field(default_factory=dict)

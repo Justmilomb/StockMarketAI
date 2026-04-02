@@ -43,12 +43,15 @@ class BacktestConfig:
     # -- Signal sources -------------------------------------------------------
     use_ensemble: bool = True
     use_statistical: bool = True
-    use_mirofish: bool = True         # Run MiroFish in backtest (slower)
+    use_mirofish: bool = False        # Kept for backward compat with existing database records
     mirofish_n_sims: int = 8          # Fewer sims in backtest for speed
 
     # -- Execution ------------------------------------------------------------
     n_processes: int | None = None    # None = all cores
     mode: Literal["fast", "full"] = "full"
+
+    # -- Multi-capital tiers ---------------------------------------------------
+    capital_tiers: List[float] = field(default_factory=list)  # e.g. [10, 100, 1000]
 
     # -- Strategy selection ----------------------------------------------------
     use_strategy_selector: bool = False
@@ -106,6 +109,7 @@ class TradeRecord:
     exit_reason: str                 # "signal" | "stop_loss" | "take_profit" | "end_of_fold"
     signal_prob: float               # P(up) at entry
     strategy_profile: str = ""
+    capital_tier: float = 0.0        # Starting capital for this simulation run
 
 
 @dataclass

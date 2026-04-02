@@ -1,16 +1,47 @@
 {
-  "strategy": {
-    "threshold_buy": 0.65,
-    "threshold_sell": 0.48,
-    "max_positions": 8,
-    "position_size_fraction": 0.05
-  },
-  "risk": {
-    "atr_stop_multiplier": 1.8,
-    "atr_profit_multiplier": 3.5,
-    "kelly_fraction_cap": 0.35,
-    "drawdown_threshold": 0.15,
-    "drawdown_size_reduction": 0.5
+  "tiers": {
+    "10": {
+      "strategy": {
+        "threshold_buy": 0.65,
+        "threshold_sell": 0.48,
+        "max_positions": 3,
+        "position_size_fraction": 0.20
+      },
+      "risk": {
+        "atr_stop_multiplier": 1.8,
+        "atr_profit_multiplier": 3.5
+      },
+      "score": 0.0,
+      "notes": "Needs re-evaluation with fixed simulator"
+    },
+    "100": {
+      "strategy": {
+        "threshold_buy": 0.65,
+        "threshold_sell": 0.48,
+        "max_positions": 5,
+        "position_size_fraction": 0.12
+      },
+      "risk": {
+        "atr_stop_multiplier": 1.8,
+        "atr_profit_multiplier": 3.5
+      },
+      "score": 0.0,
+      "notes": "Needs re-evaluation with fixed simulator"
+    },
+    "1000": {
+      "strategy": {
+        "threshold_buy": 0.65,
+        "threshold_sell": 0.48,
+        "max_positions": 8,
+        "position_size_fraction": 0.05
+      },
+      "risk": {
+        "atr_stop_multiplier": 1.8,
+        "atr_profit_multiplier": 3.5
+      },
+      "score": 0.0,
+      "notes": "Needs re-evaluation with fixed simulator"
+    }
   },
   "strategy_profiles": {
     "conservative": {
@@ -65,19 +96,7 @@
     }
   },
   "_meta": {
-    "score": 65.1221,
-    "baseline_score": 41.5612,
-    "improvement": 23.5609,
-    "best_experiment_id": 22,
-    "validated_on": "medium universe (29 tickers), seed=42",
-    "key_metrics": {
-      "signal_accuracy": 0.4967,
-      "win_rate": 0.8125,
-      "sharpe_ratio": 1.4023,
-      "profit_factor": 19.8795,
-      "max_drawdown_pct": 3.17,
-      "total_trades": 16
-    },
-    "notes": "Higher buy threshold (0.65 vs 0.58) = far fewer but higher quality trades. Sell threshold 0.48 (vs 0.42) = quicker exits. Smaller positions (5% vs 12%) = lower drawdown. Wider profit target (3.5x vs 2.5x ATR) = let winners run. Strategy profiles at default values — not yet optimised by autoconfig."
+    "previous_best_score": 65.1221,
+    "notes": "Previous results used a fixed £1 min position which blocked micro-capital trades. Min now scales to 1% of capital (£0.10 for £10). All tiers reset to score=0 for re-evaluation."
   }
 }

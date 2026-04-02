@@ -201,8 +201,10 @@ class TradeSimulator:
             if position_value > self._cash:
                 position_value = self._cash * 0.95  # Leave 5% cash buffer
 
-            if position_value < 1.0:
-                continue  # Not enough cash
+            # Scale minimum with capital — £10 capital needs ~£0.50 positions
+            min_position = max(0.01, self._config.initial_capital * 0.01)
+            if position_value < min_position:
+                continue  # Position too small
 
             # Fill at close with slippage
             fill_price = close_price * (1.0 + self._config.slippage_pct)

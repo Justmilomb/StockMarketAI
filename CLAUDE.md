@@ -42,26 +42,18 @@ AI-driven stock trading terminal combining scikit-learn ML predictions with Clau
 ```
 ai.py / terminal/app.py / backtest.py / desktop/main.py / autoconfig/run.py  (entry points)
   │
-  ├─ AiService              (1000-analyst orchestration pipeline)
+  ├─ AiService              (ML ensemble + statistical + Claude orchestration)
   │   ├─ data_loader         (yfinance OHLCV + CSV cache)
   │   ├─ features            (10 basic features — legacy)
   │   ├─ features_advanced   (31 V2 features, 6 analyst groups)
   │   ├─ model               (legacy RandomForest train/predict)
-  │   ├─ ensemble            (12 diverse ML models — quant desk)
+  │   ├─ ensemble            (6 diverse ML models — quant desk)
   │   ├─ timeframe           (1d/5d/20d multi-horizon ensembles)
   │   ├─ regime              (market regime detector — macro strategist)
   │   ├─ forecaster_statistical (ARIMA/ETS baselines — statsmodels)
-  │   ├─ forecaster_deep     (N-BEATS neural forecaster — optional torch)
-  │   ├─ meta_ensemble       (3-family combiner: ML+Stat+Deep)
-  │   ├─ mirofish/           (1000-agent Monte Carlo simulation)
-  │   │   ├─ types           (AgentConfig, SimulationConfig, MiroFishSignal)
-  │   │   ├─ agents          (9 agent types, vectorized numpy updates)
-  │   │   ├─ simulation      (per-tick engine: observe→interact→decide→aggregate)
-  │   │   ├─ orchestrator    (multi-process Monte Carlo across all cores)
-  │   │   └─ signals         (emergent → ModelSignal extraction)
   │   ├─ consensus           (investment committee — signal aggregation)
-  │   ├─ claude_client       (Claude API: signals, news, chat)
-  │   ├─ claude_personas     (5 Claude analyst personas)
+  │   ├─ claude_client       (Claude CLI: signals, news, chat)
+  │   ├─ claude_personas     (3 Claude analyst personas)
   │   ├─ risk_manager        (portfolio risk desk — Kelly + ATR sizing)
   │   └─ strategy            (probability → buy/sell/hold)
   │
@@ -120,7 +112,7 @@ ai.py / terminal/app.py / backtest.py / desktop/main.py / autoconfig/run.py  (en
 
 - `terminal/app.py` — main TUI wiring, lifecycle, action handlers
 - `desktop/app.py` — main desktop window wiring, lifecycle, action handlers
-- `ai_service.py` — orchestrates 1000-analyst ensemble pipeline
+- `ai_service.py` — orchestrates ML ensemble + statistical + Claude pipeline
 - `config.json` — all runtime configuration
 - `requirements.txt` — dependency manifest
 
@@ -198,9 +190,8 @@ CONSTRAINTS:
 - **Phase 1:** Core ML pipeline (data → features → model → signals → broker) — **done**
 - **Phase 2:** TUI terminal + Claude integration + news agent + Trading 212 — **done**
 - **Phase 2.5:** Self-learning AI loops, SQLite persistence, chat history, T212 price fallback — **done**
-- **Phase 2.75:** 1000-Analyst ensemble (12 models × 3 horizons, regime detection, Claude personas, consensus engine, risk management) — **done**
-- **Phase 2.85:** Three-family meta-ensemble (ARIMA/ETS + N-BEATS + ML), pipeline visualization with real-time progress bars — **done**
-- **Phase 2.9:** MiroFish multi-agent simulation (1000 agents × 9 types × 16 Monte Carlo sims, all-core parallelism) — **done**
+- **Phase 2.75:** ML ensemble (6 models × 3 horizons, regime detection, Claude personas, consensus engine, risk management) — **done**
+- **Phase 2.85:** ARIMA/ETS statistical baseline + pipeline visualization — **done**
 - **Phase 3.0:** Backtesting engine (walk-forward validation, trade simulation, Sharpe/Sortino/Calmar metrics, parallel folds, CLI) — **done**
 - **Phase 3.1:** Multi-asset expansion (stocks, crypto, polymarket) — **done**
 - **Phase 3.15:** Autoconfig — autonomous parameter optimisation via Claude CLI, GCP VM deployment, 23+ experiments — **done**

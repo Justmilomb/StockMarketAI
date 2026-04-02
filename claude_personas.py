@@ -39,33 +39,6 @@ PERSONA_CONFIGS: Dict[str, Dict[str, str]] = {
             "limited data, you draw on your knowledge of the company and sector."
         ),
     },
-    "momentum": {
-        "name": "Momentum Trader",
-        "focus": (
-            "Trend persistence, relative strength vs. sector and market, breakout "
-            "confirmation, volume surges, price acceleration, and the continuation "
-            "vs. exhaustion question."
-        ),
-        "style": (
-            "You follow the trend until it bends. You look for confirmation in "
-            "volume and breadth. You are aggressive when momentum aligns and quick "
-            "to cut when it fades. Speed and conviction matter to you."
-        ),
-    },
-    "contrarian": {
-        "name": "Contrarian Strategist",
-        "focus": (
-            "Overreaction detection, extreme sentiment readings, mean-reversion "
-            "setups, crowd positioning errors, capitulation signals, and neglected "
-            "or hated names with improving fundamentals."
-        ),
-        "style": (
-            "You question the consensus. When everyone is bullish you look for "
-            "cracks; when panic sets in you look for opportunity. You thrive on "
-            "sentiment extremes and reversion-to-mean dynamics. You are sceptical "
-            "by nature but not blindly oppositional."
-        ),
-    },
     "risk": {
         "name": "Risk Analyst",
         "focus": (
@@ -100,20 +73,6 @@ _ANALYSIS_GUIDANCE: Dict[str, str] = {
         "recent earnings trajectory, valuation relative to peers, and any known catalysts. "
         "Combine that context with the price trend to form a fundamental view."
     ),
-    "momentum": (
-        "Focus on the trend direction in the closes and the momentum-related features "
-        "(RSI, rate of change, moving average slopes, volume patterns). Determine "
-        "whether the current move has follow-through potential or is showing exhaustion. "
-        "A strong trend with confirming volume should make you bullish; divergence or "
-        "flattening should make you cautious."
-    ),
-    "contrarian": (
-        "Look for extremes and potential reversals. Is sentiment overly stretched in "
-        "one direction? Has the price moved too far too fast? Are features like RSI "
-        "at overbought/oversold extremes? Question the consensus — if the data "
-        "screams BUY, ask what everyone is missing. If it screams SELL, ask whether "
-        "capitulation has already occurred."
-    ),
     "risk": (
         "Identify what could go wrong. Assess downside risk using the recent closes "
         "and volatility features. Consider tail-risk scenarios: earnings misses, "
@@ -129,7 +88,7 @@ _ANALYSIS_GUIDANCE: Dict[str, str] = {
 class ClaudePersonaAnalyzer:
     """Run multiple Claude analyst personas to produce diverse AI opinions per ticker.
 
-    The primary path uses a single batched Sonnet call per ticker (all 5 personas
+    The primary path uses a single batched Sonnet call per ticker (all 3 personas
     in one prompt).  The legacy sequential Opus path is preserved as a fallback.
     """
 
@@ -186,7 +145,7 @@ class ClaudePersonaAnalyzer:
         callback invoked after every ticker completes.
 
         The progress total reflects one call per ticker rather than one per persona,
-        since the batched path collapses all 5 personas into a single model call.
+        since the batched path collapses all 3 personas into a single model call.
         """
         results: Dict[str, List[PersonaSignal]] = {}
         total_tickers = len(ticker_data)

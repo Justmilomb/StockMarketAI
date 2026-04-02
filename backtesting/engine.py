@@ -5,13 +5,10 @@ Two modes:
     full — same + day-by-day trade simulation with P&L and stops
 
 Each fold is self-contained and can run in a separate process.
-Optionally runs MiroFish multi-agent simulation per fold for realistic
-signal blending that matches the live terminal pipeline.
 """
 
 from __future__ import annotations
 
-import json
 import logging
 from datetime import date
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -90,15 +87,6 @@ class BacktestEngine:
             ensemble, feature_cols, test_feats, test_labels,
         )
 
-        # -- MiroFish blending (if enabled) ---------------------------------
-        if self._config.use_mirofish and predictions:
-            if on_progress:
-                on_progress(f"Fold {split.fold_id}: running per-day MiroFish")
-
-            predictions = self._run_mirofish_per_day(
-                split, test_feats, universe_data, predictions, on_progress,
-            )
-
         # -- Compute fast-mode metrics (accuracy) ----------------------------
         all_preds: List[float] = []
         all_actual: List[int] = []
@@ -136,12 +124,28 @@ class BacktestEngine:
         snapshots: List[DailySnapshot] = []
 
         if self._config.mode == "full":
-            if on_progress:
-                on_progress(f"Fold {split.fold_id}: simulating trades")
+            tiers = self._config.capital_tiers or [self._config.initial_capital]
+            original_capital = self._config.initial_capital
 
-            trades, snapshots = self._simulate_trades(
-                split, predictions, test_feats, universe_data,
-            )
+            for i, tier_capital in enumerate(tiers):
+                if on_progress:
+                    on_progress(f"Fold {split.fold_id}: simulating trades (£{tier_capital:,.0f})")
+
+                self._config.initial_capital = tier_capital
+
+                tier_trades, tier_snapshots = self._simulate_trades(
+                    split, predictions, test_feats, universe_data,
+                )
+
+                for t in tier_trades:
+                    t.capital_tier = tier_capital
+
+                trades.extend(tier_trades)
+                # Only use first tier's snapshots for equity curve metrics
+                if i == 0:
+                    snapshots = tier_snapshots
+
+            self._config.initial_capital = original_capital
 
         return FoldResult(
             fold_id=split.fold_id,
@@ -498,151 +502,6 @@ class BacktestEngine:
 
         return sim.trades, sim.snapshots
 
-
-    # ------------------------------------------------------------------
-    # Internal: MiroFish integration
-    # ------------------------------------------------------------------
-
-    def _run_mirofish_per_day(
-        self,
-        split: WalkForwardSplit,
-        test_feats: Dict[str, pd.DataFrame],
-        universe_data: Dict[str, pd.DataFrame],
-        predictions: List[Dict[str, float]],
-        on_progress: Optional[Callable[[str], None]] = None,
-    ) -> List[Dict[str, float]]:
-        """Run MiroFish per test day, blending each day's signal individually.
-
-        Instead of running once per fold with static blending, this runs
-        MiroFish for each test day using that day's ensemble predictions
-        as seed and universe data sliced up to that day (no lookahead).
-        """
-        try:
-            from mirofish.orchestrator import MiroFishOrchestrator
-            from mirofish.types import SimulationConfig
-        except ImportError:
-            logger.warning("MiroFish not available — skipping")
-            return predictions
-
-        # Load mirofish config from config.json
-        mf_raw: dict = {}
-        try:
-            with open("config.json") as f:
-                mf_raw = json.load(f).get("mirofish", {})
-        except Exception:
-            pass
-
-        n_sims = self._config.mirofish_n_sims
-        sim_config = SimulationConfig(
-            n_agents=int(mf_raw.get("n_agents", 1000)),
-            n_ticks=int(mf_raw.get("n_ticks", 80)),
-            n_simulations=n_sims,
-            n_processes=1,  # Serial within fold — folds already run in parallel
-            price_impact_factor=float(mf_raw.get("price_impact_factor", 0.001)),
-            base_volatility=float(mf_raw.get("base_volatility", 0.02)),
-            liquidity=float(mf_raw.get("liquidity", 1.0)),
-            influence_radius=int(mf_raw.get("influence_radius", 15)),
-            information_decay=float(mf_raw.get("information_decay", 0.92)),
-            consensus_weight=float(mf_raw.get("consensus_weight", 0.25)),
-        )
-        dist_raw = mf_raw.get("agent_distribution")
-        if dist_raw:
-            sim_config.agent_distribution = {k: int(v) for k, v in dist_raw.items()}
-
-        mf_weight = sim_config.consensus_weight
-        ens_weight = 1.0 - mf_weight
-
-        # Collect sorted test dates for universe slicing
-        all_dates: set = set()
-        for feat_df in test_feats.values():
-            all_dates.update(feat_df.index)
-        sorted_dates = sorted(all_dates)
-
-        regime = self._detect_simple_regime(universe_data, split.train_end)
-
-        blended: List[Dict[str, float]] = []
-        orchestrator = MiroFishOrchestrator(sim_config)
-
-        for day_idx, day_preds in enumerate(predictions):
-            # Determine the date for this prediction day
-            if day_idx < len(sorted_dates):
-                current_date = sorted_dates[day_idx]
-                if hasattr(current_date, 'date'):
-                    current_date = current_date.date()
-            else:
-                # Past available dates — use last known
-                current_date = split.test_end
-
-            # Slice universe data up to this day (no lookahead)
-            sliced_universe: Dict[str, pd.DataFrame] = {}
-            for ticker, df in universe_data.items():
-                idx = df.index
-                if hasattr(idx, 'date'):
-                    mask = idx.date <= current_date
-                else:
-                    mask = idx <= pd.Timestamp(current_date)
-                sliced = df.loc[mask]
-                if len(sliced) >= 20:
-                    sliced_universe[ticker] = sliced
-
-            if not sliced_universe:
-                blended.append(day_preds)
-                continue
-
-            # Build per-day features from test_feats at this day
-            features_df = self._build_features_for_day(test_feats, day_idx)
-
-            try:
-                mf_signals = orchestrator.run_universe(
-                    universe_data=sliced_universe,
-                    features_df=features_df,
-                    regime=regime,
-                    ensemble_probs=day_preds,
-                    news_data={},
-                )
-
-                # Blend this day's predictions with MiroFish
-                day_blended: Dict[str, float] = {}
-                for ticker, ens_prob in day_preds.items():
-                    if ticker in mf_signals:
-                        mf_prob = mf_signals[ticker].probability
-                        day_blended[ticker] = (
-                            ens_weight * ens_prob + mf_weight * mf_prob
-                        )
-                    else:
-                        day_blended[ticker] = ens_prob
-                blended.append(day_blended)
-
-            except Exception as e:
-                logger.debug("MiroFish day %d failed: %s", day_idx, e)
-                blended.append(day_preds)
-
-        return blended
-
-    def _build_features_for_day(
-        self,
-        test_feats: Dict[str, pd.DataFrame],
-        day_idx: int,
-    ) -> pd.DataFrame:
-        """Build a features DataFrame indexed by ticker for a specific test day.
-
-        Uses the row at day_idx for each ticker (no lookahead beyond that day).
-        """
-        rows: List[pd.Series] = []
-        tickers: List[str] = []
-
-        for ticker, feat_df in test_feats.items():
-            if feat_df.empty or day_idx >= len(feat_df):
-                continue
-            row = feat_df.iloc[day_idx].copy()
-            row.name = ticker
-            rows.append(row)
-            tickers.append(ticker)
-
-        if not rows:
-            return pd.DataFrame()
-
-        return pd.DataFrame(rows, index=tickers)
 
     @staticmethod
     def _detect_simple_regime(

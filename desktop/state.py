@@ -85,26 +85,8 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "consensus": {"min_consensus_pct": 60, "disagreement_penalty": 0.5},
     "forecasters": {
         "statistical": {"enabled": True, "arima_order": [1, 1, 1], "cache_dir": "models/statistical"},
-        "deep_learning": {
-            "enabled": True, "model": "nbeats", "lookback_window": 60,
-            "hidden_dim": 128, "n_blocks": 3, "epochs": 50, "batch_size": 32,
-            "learning_rate": 0.001, "cache_dir": "models/deep",
-        },
-        "meta_ensemble": {"family_weights": {"ml": 0.5, "statistical": 0.25, "deep_learning": 0.25}},
     },
     "pipeline": {"show_progress": True},
-    "mirofish": {
-        "enabled": True, "n_agents": 1000, "n_ticks": 80,
-        "n_simulations": 16, "n_processes": None,
-        "price_impact_factor": 0.001, "base_volatility": 0.02,
-        "liquidity": 1.0, "influence_radius": 15,
-        "information_decay": 0.92, "consensus_weight": 0.25,
-        "agent_distribution": {
-            "momentum": 150, "mean_reversion": 120, "sentiment": 100,
-            "fundamental": 150, "noise": 30, "contrarian": 80,
-            "institutional": 120, "algorithmic": 150, "llm_seeded": 100,
-        },
-    },
     "terminal": {
         "mode": "recommendation", "refresh_interval_seconds": 30,
         "theme": "default", "max_daily_loss": 0.05,

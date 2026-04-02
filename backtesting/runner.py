@@ -228,6 +228,7 @@ class BacktestRunner:
         config_dict = _config_to_dict(self._config)
         results: Dict[int, FoldResult] = {}
         tmp_path: Optional[str] = None
+        n_jobs = _detect_n_jobs_per_fold()
 
         try:
             # Write shared data to temp file — workers load once via initializer
@@ -339,9 +340,10 @@ def _init_fold_worker(shared_data_path: str, n_jobs_per_fold: int) -> None:
     Uses pickle for internal IPC — all data originates from this
     application's own DataFrames, not external/untrusted sources.
     """
-    # Limit per-worker CPU usage so sklearn models don't over-subscribe.
-    # Must be set BEFORE any call to get_cpu_cores() (which is lru_cached).
-    os.environ["AUTOCONFIG_CPU_CORES"] = str(n_jobs_per_fold)
+    # Limit per-worker sklearn thread count to avoid over-subscription.
+    # This env var is checked by cpu_config.get_n_jobs() before defaulting
+    # to all cores — prevents 6 workers × 12 threads = 72 threads on 12 cores.
+    os.environ["BACKTEST_N_JOBS"] = str(n_jobs_per_fold)
 
     global _worker_shared_data
     with open(shared_data_path, "rb") as f:  # noqa: S301 — trusted internal IPC

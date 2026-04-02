@@ -18,8 +18,8 @@
     "VUKGL_EQ"
   ],
   "active_watchlist": "Trading 212",
-  "cpu_cores": 24,
-  "max_parallel_folds": 12,
+  "cpu_cores": 12,
+  "max_parallel_folds": 6,
   "start_date": "2015-01-01",
   "end_date": "2026-03-14",
   "data_dir": "data",
@@ -55,7 +55,7 @@
     "practice": false
   },
   "ensemble": {
-    "n_models": 12,
+    "n_models": 6,
     "stacking_enabled": true,
     "performance_lookback_days": 90,
     "min_model_weight": 0.02
@@ -120,52 +120,10 @@
         1
       ],
       "cache_dir": "models/statistical"
-    },
-    "deep_learning": {
-      "enabled": true,
-      "model": "nbeats",
-      "lookback_window": 60,
-      "hidden_dim": 128,
-      "n_blocks": 3,
-      "epochs": 50,
-      "batch_size": 32,
-      "learning_rate": 0.001,
-      "cache_dir": "models/deep"
-    },
-    "meta_ensemble": {
-      "family_weights": {
-        "ml": 0.5,
-        "statistical": 0.25,
-        "deep_learning": 0.25
-      }
     }
   },
   "pipeline": {
     "show_progress": true
-  },
-  "mirofish": {
-    "enabled": true,
-    "n_agents": 1000,
-    "n_ticks": 80,
-    "n_simulations": 16,
-    "n_processes": null,
-    "price_impact_factor": 0.001,
-    "base_volatility": 0.02,
-    "liquidity": 1.0,
-    "influence_radius": 15,
-    "information_decay": 0.92,
-    "consensus_weight": 0.25,
-    "agent_distribution": {
-      "momentum": 150,
-      "mean_reversion": 120,
-      "sentiment": 100,
-      "fundamental": 150,
-      "noise": 30,
-      "contrarian": 80,
-      "institutional": 120,
-      "algorithmic": 150,
-      "llm_seeded": 100
-    }
   },
   "backtesting": {
     "start_date": "2018-01-01",
@@ -179,8 +137,6 @@
     "slippage_pct": 0.001,
     "use_ensemble": true,
     "use_statistical": true,
-    "use_mirofish": true,
-    "mirofish_n_sims": 12,
     "n_processes": null
   },
   "terminal": {

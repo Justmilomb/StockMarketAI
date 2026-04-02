@@ -88,6 +88,11 @@ def get_n_jobs_per_fold() -> int:
 def get_n_jobs() -> int:
     """Return a value suitable for scikit-learn's ``n_jobs`` parameter.
 
-    When called outside of backtesting (e.g. live pipeline), uses all cores.
+    Inside backtest worker processes, respects the ``BACKTEST_N_JOBS`` env var
+    set by the fold initializer to prevent thread over-subscription.
+    Outside backtesting (e.g. live pipeline), uses all cores.
     """
+    env_val = os.environ.get("BACKTEST_N_JOBS")
+    if env_val is not None:
+        return max(1, int(env_val))
     return get_cpu_cores()

@@ -593,19 +593,10 @@ class TradingTerminalApp(App):  # type: ignore[misc]
             mapping.update(sp_cfg["regime_mapping"])
         self.state.regime_strategy_map = mapping
 
-        # Update meta-ensemble / forecaster metadata
-        meta_data = self.ai_service.get_meta_ensemble_data()
-        if meta_data:
-            self.state.meta_ensemble_data = {
-                t: {"prob": r.probability, "ml": r.ml_probability,
-                    "stat": r.stat_probability, "deep": r.deep_probability}
-                for t, r in meta_data.items()
-            }
-            self.state.statistical_model_count = sum(
-                len(v) for v in getattr(self.ai_service, "_last_stat_signals", {}).values()
-            )
-            deep_sigs = getattr(self.ai_service, "_last_deep_signals", {})
-            self.state.deep_model_available = len(deep_sigs) > 0
+        # Update forecaster metadata
+        self.state.statistical_model_count = sum(
+            len(v) for v in getattr(self.ai_service, "_last_stat_signals", {}).values()
+        )
 
         # Save snapshot
         if hasattr(self, 'history_manager'):
@@ -821,7 +812,6 @@ class TradingTerminalApp(App):  # type: ignore[misc]
                 regime=self.state.current_regime,
                 regime_confidence=self.state.regime_confidence,
                 consensus_data=self.state.consensus_data,
-                meta_ensemble_data=self.state.meta_ensemble_data,
                 memory_summary=memory_summary,
                 live_data=self.state.live_data,
             )

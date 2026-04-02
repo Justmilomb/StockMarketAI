@@ -40,7 +40,6 @@ def _build_config(args: argparse.Namespace) -> BacktestConfig:
     strategy = cfg.get("strategy", {})
     risk = cfg.get("risk", {})
     bt_cfg = cfg.get("backtesting", {})
-    mf_cfg = cfg.get("mirofish", {})
 
     # Resolve tickers
     tickers: List[str] = []
@@ -50,12 +49,6 @@ def _build_config(args: argparse.Namespace) -> BacktestConfig:
         watchlists = cfg.get("watchlists", {})
         active = cfg.get("active_watchlist", "")
         tickers = watchlists.get(active, cfg.get("tickers", []))
-
-    # MiroFish: enabled by default if config says so, CLI can override
-    use_mirofish = bt_cfg.get("use_mirofish", mf_cfg.get("enabled", False))
-    if args.no_mirofish:
-        use_mirofish = False
-    mirofish_n_sims = bt_cfg.get("mirofish_n_sims", 8)
 
     return BacktestConfig(
         start_date=args.start or bt_cfg.get("start_date", cfg.get("start_date", "2018-01-01")),
@@ -75,8 +68,7 @@ def _build_config(args: argparse.Namespace) -> BacktestConfig:
         use_stops=not args.no_stops,
         atr_stop_multiplier=risk.get("atr_stop_multiplier", 1.5),
         atr_profit_multiplier=risk.get("atr_profit_multiplier", 2.0),
-        use_mirofish=use_mirofish,
-        mirofish_n_sims=mirofish_n_sims,
+        use_mirofish=False,
         n_processes=args.cores,
         mode="fast" if args.fast else "full",
     )
@@ -146,10 +138,6 @@ def main() -> None:
         help="Disable stop-loss / take-profit",
     )
     parser.add_argument(
-        "--no-mirofish", action="store_true",
-        help="Disable MiroFish multi-agent simulation (faster backtest)",
-    )
-    parser.add_argument(
         "--slippage", type=float, default=0.001,
         help="Slippage fraction per trade (default: 0.001)",
     )
@@ -182,10 +170,6 @@ def main() -> None:
 
     config = _build_config(args)
 
-    mf_status = (
-        f"on ({config.mirofish_n_sims} sims)" if config.use_mirofish else "off"
-    )
-
     print(f"\n  Backtesting {len(config.tickers)} tickers "
           f"({config.start_date} -> {config.end_date})")
     print(f"  Mode: {config.mode} | "
@@ -193,8 +177,7 @@ def main() -> None:
           f"Test: {config.test_window_days}d | "
           f"Step: {config.step_days}d")
     print(f"  Window: {'expanding' if config.expanding_window else 'rolling'} | "
-          f"Stops: {'on' if config.use_stops else 'off'} | "
-          f"MiroFish: {mf_status}")
+          f"Stops: {'on' if config.use_stops else 'off'}")
     print(f"  Capital: GBP{config.initial_capital:,.0f}")
     print()
 

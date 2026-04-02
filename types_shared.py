@@ -138,7 +138,7 @@ FEATURE_GROUP_NAMES: List[str] = [
 class EnsembleConfig:
     """Configuration for the multi-model ensemble."""
 
-    n_models: int = 12
+    n_models: int = 6
     stacking_enabled: bool = True
     performance_lookback_days: int = 60
     min_model_weight: float = 0.02
@@ -169,20 +169,6 @@ class ForecasterSignal:
     forecast_return: float  # Expected return over horizon
     horizon_days: int = 1
     model_name: str = ""  # e.g. "arima", "ets", "nbeats"
-    asset_class: AssetClass = "stocks"
-
-
-@dataclass
-class MetaEnsembleResult:
-    """Combined output from the three-family meta-ensemble."""
-
-    ticker: str
-    probability: float  # Weighted-average P(up)
-    confidence: float
-    ml_probability: float
-    stat_probability: float
-    deep_probability: float  # 0.5 if unavailable
-    family_weights: Dict[str, float] = field(default_factory=dict)
     asset_class: AssetClass = "stocks"
 
 

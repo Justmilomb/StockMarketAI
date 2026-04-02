@@ -127,7 +127,7 @@ class PipelineView(Vertical):
         lines.append(f"  [#ffb000]{'FAMILY':<22s} {'COUNT':>5s}   {'WEIGHT':>6s}   {'AVG PROB':>8s}   STATUS[/]")
         lines.append(f"  [#444444]{'\u2500' * 70}[/]")
 
-        for family_key in ["ml", "statistical", "deep_learning", "claude_personas"]:
+        for family_key in ["ml", "statistical", "claude_personas"]:
             info = stats.get(family_key, {})
             if not info:
                 continue

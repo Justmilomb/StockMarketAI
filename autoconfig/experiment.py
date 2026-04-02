@@ -9,7 +9,7 @@ Usage:
     python autoconfig/experiment.py --sector tech             # Tech sector only
     python autoconfig/experiment.py --sector volatile         # High-volatility stocks
     python autoconfig/experiment.py --overrides '{"strategy": {"threshold_buy": 0.60}}'
-    python autoconfig/experiment.py --fast --no-mirofish      # Fastest mode
+    python autoconfig/experiment.py --fast                    # Fast mode (deprecated, ignored)
     python autoconfig/experiment.py --crisis 2020_covid_crash # Backtest against a specific crisis period
     python autoconfig/experiment.py --stress-test             # Run all crisis periods, compute resilience
     python autoconfig/experiment.py --strategy-profile momentum  # Apply a named strategy profile
@@ -73,13 +73,11 @@ def _load_config(overrides: Dict[str, Any] | None = None,
 
 
 def _build_backtest_config(cfg: dict, fast: bool = False,
-                           no_mirofish: bool = False,
                            tickers_override: List[str] | None = None) -> BacktestConfig:
     """Build BacktestConfig from merged config dict."""
     strategy = cfg.get("strategy", {})
     risk = cfg.get("risk", {})
     bt_cfg = cfg.get("backtesting", {})
-    mf_cfg = cfg.get("mirofish", {})
 
     # Resolve tickers — override takes priority
     if tickers_override:
@@ -88,10 +86,6 @@ def _build_backtest_config(cfg: dict, fast: bool = False,
         watchlists = cfg.get("watchlists", {})
         active = cfg.get("active_watchlist", "")
         tickers = watchlists.get(active, cfg.get("tickers", []))
-
-    use_mirofish = bt_cfg.get("use_mirofish", mf_cfg.get("enabled", False))
-    if no_mirofish:
-        use_mirofish = False
 
     # Autoconfig uses step_days=120 (~15 folds) for speed.
     # Config.json's step_days=20 is for the live terminal, not experiments.
@@ -105,7 +99,8 @@ def _build_backtest_config(cfg: dict, fast: bool = False,
         test_window_days=bt_cfg.get("test_window_days", 20),
         step_days=step_days,
         expanding_window=bt_cfg.get("expanding_window", True),
-        initial_capital=bt_cfg.get("initial_capital", 100_000.0),
+        initial_capital=cfg.get("capital", 100_000),
+        capital_tiers=cfg.get("capital_tiers", [10, 100, 1000]),
         max_positions=strategy.get("max_positions", 8),
         position_size_fraction=strategy.get("position_size_fraction", 0.12),
         threshold_buy=strategy.get("threshold_buy", 0.58),
@@ -115,8 +110,7 @@ def _build_backtest_config(cfg: dict, fast: bool = False,
         use_stops=bt_cfg.get("use_stops", True),
         atr_stop_multiplier=risk.get("atr_stop_multiplier", 1.8),
         atr_profit_multiplier=risk.get("atr_profit_multiplier", 2.5),
-        use_mirofish=use_mirofish,
-        mirofish_n_sims=bt_cfg.get("mirofish_n_sims", 12),
+        use_mirofish=False,  # MiroFish removed
         n_processes=bt_cfg.get("n_processes"),  # null = uses cpu_cores from config.json
         mode="fast" if fast else "full",
     )
@@ -200,6 +194,23 @@ def _run_single_backtest(
         metrics = _extract_metrics_dict(m)
         output["metrics"] = metrics
         output["score"] = _compute_score(metrics)
+
+        # Per-tier breakdown when capital_tiers is used
+        if bt_config.capital_tiers and result.folds:
+            all_trades = [t for fold in result.folds for t in fold.trades]
+            tier_summary: Dict[str, Dict[str, float | int]] = {}
+            for tier in bt_config.capital_tiers:
+                tier_trades = [t for t in all_trades if t.capital_tier == tier]
+                n = len(tier_trades)
+                wins = sum(1 for t in tier_trades if t.pnl > 0)
+                tier_summary[f"£{tier:g}"] = {
+                    "trades": n,
+                    "win_rate": round(wins / n, 4) if n > 0 else 0.0,
+                    "avg_pnl_pct": round(
+                        sum(t.pnl_pct for t in tier_trades) / n, 2
+                    ) if n > 0 else 0.0,
+                }
+            output["per_tier"] = tier_summary
     else:
         output["metrics"] = {}
         output["score"] = 0.0
@@ -292,7 +303,7 @@ def _sanitise_overrides(overrides: Dict[str, Any] | None) -> Dict[str, Any] | No
     """Strip backtesting internals that the agent should never override.
 
     The autoconfig agent is only allowed to tune strategy, risk, consensus,
-    mirofish, ai, ensemble, timeframes, forecasters, and regime params.
+    ai, ensemble, timeframes, forecasters, and regime params.
     Backtesting infrastructure (step_days, n_processes, mode, etc.) is
     locked down to prevent degenerate experiments.
     """
@@ -317,7 +328,6 @@ def run_experiment(
     overrides: Dict[str, Any] | None = None,
     config_file: str | None = None,
     fast: bool = False,
-    no_mirofish: bool = False,
     universe: str | None = None,
     sector: str | None = None,
     universe_seed: int | None = None,
@@ -392,7 +402,7 @@ def run_experiment(
 
     cfg = _load_config(overrides, config_file)
     bt_config = _build_backtest_config(
-        cfg, fast=fast, no_mirofish=no_mirofish,
+        cfg, fast=fast,
         tickers_override=tickers_override,
     )
 
@@ -417,7 +427,6 @@ def run_experiment(
     normal_result["duration_seconds"] = round(duration, 1)
     normal_result["universe"] = universe_label
     normal_result["mode"] = bt_config.mode
-    normal_result["use_mirofish"] = bt_config.use_mirofish
 
     if overrides:
         normal_result["overrides"] = overrides
@@ -491,7 +500,6 @@ def main() -> None:
     )
     parser.add_argument("--fast", action="store_true",
                         help="DEPRECATED — ignored. Full mode always used for trade metrics.")
-    parser.add_argument("--no-mirofish", action="store_true", help="Disable MiroFish")
     parser.add_argument(
         "--universe", type=str, default=None,
         choices=["small", "medium", "large", "full"],
@@ -534,7 +542,6 @@ def main() -> None:
         overrides=overrides,
         config_file=args.config_file,
         fast=False,  # Always full mode — fast produces zero trade metrics
-        no_mirofish=args.no_mirofish,
         universe=args.universe,
         sector=args.sector,
         universe_seed=args.universe_seed,
