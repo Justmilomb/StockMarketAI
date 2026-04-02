@@ -251,7 +251,7 @@ class BacktestRunner:
             with ProcessPoolExecutor(
                 max_workers=n_cores,
                 initializer=_init_fold_worker,
-                initargs=(tmp_path,),
+                initargs=(tmp_path, n_jobs),
                 mp_context=ctx,
             ) as executor:
                 future_to_fold = {
@@ -333,12 +333,16 @@ class BacktestRunner:
 # Worker process initializer + fold executor
 # ---------------------------------------------------------------------------
 
-def _init_fold_worker(shared_data_path: str) -> None:
+def _init_fold_worker(shared_data_path: str, n_jobs_per_fold: int) -> None:
     """Load shared data from disk once when worker process starts.
 
     Uses pickle for internal IPC — all data originates from this
     application's own DataFrames, not external/untrusted sources.
     """
+    # Limit per-worker CPU usage so sklearn models don't over-subscribe.
+    # Must be set BEFORE any call to get_cpu_cores() (which is lru_cached).
+    os.environ["AUTOCONFIG_CPU_CORES"] = str(n_jobs_per_fold)
+
     global _worker_shared_data
     with open(shared_data_path, "rb") as f:  # noqa: S301 — trusted internal IPC
         _worker_shared_data = pickle.load(f)  # noqa: S301

@@ -1,8 +1,8 @@
 # StockMarketAI — AI Agent Entry Point
 
-AI-driven stock trading terminal combining scikit-learn ML predictions with Google Gemini LLM analysis, rendered in a Bloomberg-style Textual TUI. Supports paper and live trading via Trading 212.
+AI-driven stock trading terminal combining scikit-learn ML predictions with Claude LLM analysis, rendered in a Bloomberg-style Textual TUI. Supports paper and live trading via Trading 212.
 
-**Tech stack:** Python 3.12+, scikit-learn, Textual, Google Gemini API, yfinance, pandas, numpy
+**Tech stack:** Python 3.12+, scikit-learn, Textual, Claude CLI, yfinance, pandas, numpy, PySide6
 **Platform:** Windows 10
 **Language(s):** English British
 
@@ -40,7 +40,7 @@ AI-driven stock trading terminal combining scikit-learn ML predictions with Goog
 ## 4 — Architecture Quick Reference
 
 ```
-ai.py / terminal/app.py / backtest.py  (entry points)
+ai.py / terminal/app.py / backtest.py / desktop/main.py / autoconfig/run.py  (entry points)
   │
   ├─ AiService              (1000-analyst orchestration pipeline)
   │   ├─ data_loader         (yfinance OHLCV + CSV cache)
@@ -60,8 +60,8 @@ ai.py / terminal/app.py / backtest.py  (entry points)
   │   │   ├─ orchestrator    (multi-process Monte Carlo across all cores)
   │   │   └─ signals         (emergent → ModelSignal extraction)
   │   ├─ consensus           (investment committee — signal aggregation)
-  │   ├─ gemini_client       (Gemini API: signals, news, chat)
-  │   ├─ gemini_personas     (5 Gemini analyst personas)
+  │   ├─ claude_client       (Claude API: signals, news, chat)
+  │   ├─ claude_personas     (5 Claude analyst personas)
   │   ├─ risk_manager        (portfolio risk desk — Kelly + ATR sizing)
   │   └─ strategy            (probability → buy/sell/hold)
   │
@@ -71,7 +71,7 @@ ai.py / terminal/app.py / backtest.py  (entry points)
   │
   ├─ AutoEngine              (signal → risk-managed order execution)
   │
-  ├─ NewsAgent               (background RSS + batch Gemini sentiment)
+  ├─ NewsAgent               (background RSS + batch Claude sentiment)
   │
   ├─ HistoryManager          (SQLite persistence — database.py)
   │   ├─ snapshots           (signals, positions, PnL per refresh)
@@ -89,14 +89,29 @@ ai.py / terminal/app.py / backtest.py  (entry points)
   │   ├─ metrics              (Sharpe, Sortino, Calmar, drawdown, attribution)
   │   └─ runner               (parallel fold executor, all CPU cores)
   │
-  └─ terminal/
-      ├─ app.py              (TradingTerminalApp — TUI + AI autonomous loops)
-      ├─ state.py            (AppState + regime/consensus/ensemble metadata)
-      ├─ views.py            (panels + Consensus/Confidence columns)
-      ├─ pipeline_view.py    (dual-mode: progress bars + model dashboard)
-      ├─ history_views.py    (history/pies/instruments modals)
-      ├─ charts.py           (sparkline price charts)
-      └─ terminal.css        (Bloomberg-dark theme, 3×4 grid)
+  ├─ terminal/
+  │   ├─ app.py              (TradingTerminalApp — TUI + AI autonomous loops)
+  │   ├─ state.py            (AppState + regime/consensus/ensemble metadata)
+  │   ├─ views.py            (panels + Consensus/Confidence columns)
+  │   ├─ pipeline_view.py    (dual-mode: progress bars + model dashboard)
+  │   ├─ history_views.py    (history/pies/instruments modals)
+  │   ├─ charts.py           (sparkline price charts)
+  │   └─ terminal.css        (Bloomberg-dark theme, 3×4 grid)
+  │
+  ├─ desktop/                (PySide6 Bloomberg-dark desktop app)
+  │   ├─ main.py             (entry point — QApplication bootstrap)
+  │   ├─ app.py              (main window, panel wiring)
+  │   ├─ state.py            (shared AppState for desktop)
+  │   ├─ theme.py            (Bloomberg-dark Qt stylesheet)
+  │   ├─ workers.py          (background QThread workers)
+  │   ├─ panels/             (individual UI panels)
+  │   └─ dialogs/            (modal dialogs)
+  │
+  └─ autoconfig/             (autonomous parameter optimisation)
+      ├─ run.py              (entry point — experiment loop)
+      ├─ experiment.py       (single experiment: backtest + score)
+      ├─ universe.py         (ticker universe definitions)
+      └─ strategy_profiles.py (candidate config profiles)
 ```
 
 ---
@@ -104,6 +119,7 @@ ai.py / terminal/app.py / backtest.py  (entry points)
 ## 5 — Hub Files (BOSS ONLY — agents must not touch)
 
 - `terminal/app.py` — main TUI wiring, lifecycle, action handlers
+- `desktop/app.py` — main desktop window wiring, lifecycle, action handlers
 - `ai_service.py` — orchestrates 1000-analyst ensemble pipeline
 - `config.json` — all runtime configuration
 - `requirements.txt` — dependency manifest
@@ -180,13 +196,16 @@ CONSTRAINTS:
 ## 8 — Current Phase
 
 - **Phase 1:** Core ML pipeline (data → features → model → signals → broker) — **done**
-- **Phase 2:** TUI terminal + Gemini integration + news agent + Trading 212 — **done**
+- **Phase 2:** TUI terminal + Claude integration + news agent + Trading 212 — **done**
 - **Phase 2.5:** Self-learning AI loops, SQLite persistence, chat history, T212 price fallback — **done**
-- **Phase 2.75:** 1000-Analyst ensemble (12 models × 3 horizons, regime detection, Gemini personas, consensus engine, risk management) — **done**
+- **Phase 2.75:** 1000-Analyst ensemble (12 models × 3 horizons, regime detection, Claude personas, consensus engine, risk management) — **done**
 - **Phase 2.85:** Three-family meta-ensemble (ARIMA/ETS + N-BEATS + ML), pipeline visualization with real-time progress bars — **done**
 - **Phase 2.9:** MiroFish multi-agent simulation (1000 agents × 9 types × 16 Monte Carlo sims, all-core parallelism) — **done**
 - **Phase 3.0:** Backtesting engine (walk-forward validation, trade simulation, Sharpe/Sortino/Calmar metrics, parallel folds, CLI) — **done**
-- **Phase 3.1:** Testing, pytest coverage, integration tests — **planned**
+- **Phase 3.1:** Multi-asset expansion (stocks, crypto, polymarket) — **done**
+- **Phase 3.15:** Autoconfig — autonomous parameter optimisation via Claude CLI, GCP VM deployment, 23+ experiments — **done**
+- **Phase 3.2:** PySide6 desktop app (Bloomberg-dark GUI, build to exe) — **done**
+- **Phase 3.3:** Testing, pytest coverage, integration tests — **in progress**
 - **Phase 4:** Production hardening, monitoring, deployment automation — **planned**
 
 ---

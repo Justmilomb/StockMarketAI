@@ -20,7 +20,7 @@
 | Unit | `tests/test_model.py` | Train/load/predict cycle, time-based split |
 | Unit | `tests/test_strategy.py` | Signal generation logic, edge cases |
 | Unit | `tests/test_broker.py` | LogBroker logging, Trading212 request building |
-| Integration | `tests/test_ai_service.py` | Full pipeline with mock Gemini |
+| Integration | `tests/test_ai_service.py` | Full pipeline with mock Claude client |
 | Integration | `tests/test_auto_engine.py` | Signal → order flow with mock broker |
 
 ## Smoke Test Checklist

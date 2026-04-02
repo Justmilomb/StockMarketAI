@@ -41,10 +41,10 @@ These are infrastructure, not trading strategy. The code has guardrails that wil
 Fast mode skips trade simulation entirely. All trade metrics (Sharpe, win rate, profit factor, drawdown) will be **zero**. This makes 60% of the score components useless. Always run in full mode.
 
 ### ALWAYS use `--universe medium`
-- Every experiment runs against the medium ~30 ticker universe (diverse, representative).
+- Every experiment runs against the medium ~100 ticker universe (diverse, representative).
 - This keeps each experiment under 15 minutes while still covering all sectors.
-- Use `--universe medium` only for final validation of the best config found.
-- The machine uses 32 cores (configured via cpu_cores in config.json).
+- Use `--universe large` only for final validation of the best config found.
+- The machine has 12 physical cores / 24 vCPUs. `max_parallel_folds` is capped at `cpu_cores // 2` = 12 (configured via cpu_cores in config.json).
 
 ### ALWAYS use `--no-mirofish` unless specifically testing MiroFish params
 MiroFish adds significant runtime. Only enable it when testing MiroFish-specific parameters.
@@ -123,9 +123,9 @@ cd $PROJECT_ROOT && python3 -u autoconfig/experiment.py --no-mirofish --universe
 
 **Flags you must NEVER use:**
 - `--fast` — produces zero trade metrics, completely useless
-- `--universe small` or `--universe medium` — always use `--universe medium`
+- `--universe small` — too few tickers (30), overfits; always use `--universe medium` as the minimum
 
-**Expected runtimes (32-core config, ~250 tickers):**
+**Expected runtimes (24-vCPU / 12-core config, medium universe ~100 tickers):**
 - `--no-mirofish --universe medium` — ~10-20 min per experiment (standard)
 - `--universe medium` (with MiroFish) — ~30-60 min (MiroFish tuning)
 - `--stress-test --universe medium` — ~60-90 min (crisis validation)
@@ -222,7 +222,7 @@ Record profile-specific results with notes like "profile:conservative", "profile
 9. **Think before each experiment.** Write a brief hypothesis in the notes field.
 10. **NEVER use `--fast`.** It produces zero trade metrics. Always use full mode.
 11. **NEVER override backtesting params.** step_days, n_processes, mode are infrastructure — not tuneable.
-12. **NEVER use `--universe small`.** 30 tickers overfits. Minimum is `--universe medium` (100 tickers).
+12. **NEVER use `--universe small`.** ~30 tickers overfits. Minimum is `--universe medium` (~100 tickers).
 13. **Sanity-check every result.** If total_trades=0 or win_rate=0, the experiment is broken — don't record it, investigate.
 14. **All commands must use `python3 -u ... 2>&1 | tee autoconfig/.progress.log`** for real-time output visibility.
 

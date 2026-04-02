@@ -20,11 +20,12 @@
 | 12 | rf_volume | RandomForest | volume (4) |
 
 ## Public API
-- `generate_diverse_specs(n_models) -> List[ModelSpec]` — Default diversity matrix
+- `generate_diverse_specs(n_models) -> List[ModelSpec]` — Default diversity matrix (filters unavailable libraries)
 - `EnsembleModel.train(X, y, meta, columns)` — Train all models, init equal weights
-- `EnsembleModel.predict_ensemble(features_df, meta_df) -> (probs, per_ticker_signals)` — Weighted soft vote
-- `EnsembleModel.update_weights(actual_outcomes)` — Online reweighting (70% recent + 30% historical)
-- `EnsembleModel.save/load(path)` — Joblib persistence
+- `EnsembleModel.predict_all(features_df, meta_df) -> List[ModelSignal]` — One signal per (model, ticker), caches predictions for weight updates
+- `EnsembleModel.predict_ensemble(features_df, meta_df) -> (np.ndarray, Dict[str, List[ModelSignal]])` — Weighted soft vote; returns probabilities array + per-ticker signal lists
+- `EnsembleModel.update_weights(actual_outcomes)` — Online reweighting (70% recent + 30% historical); normalised with floor at `min_model_weight`
+- `EnsembleModel.save/load(path)` — Joblib persistence (config + models + weights)
 
 ## Configuration
 - ensemble.n_models (12), ensemble.min_model_weight (0.02), ensemble.model_dir

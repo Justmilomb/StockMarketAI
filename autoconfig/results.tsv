@@ -22,3 +22,6 @@ id	score	accuracy	win_rate	sharpe	profit_factor	max_dd	duration	overrides	notes
 20	64.7089	0.5018	0.8333	1.0401	5.0	0.96	140.8	{"strategy": {"threshold_buy": 0.70, "threshold_sell": 0.48, "position_size_fraction": 0.05}, "risk": {"atr_profit_multiplier": 3.5}}	buy=0.70 combo - 6 trades, 83% WR
 21	72.7814	0.4967	1.0	2.1249	5.0	0.55	502.4	{"strategy": {"threshold_buy": 0.68, "threshold_sell": 0.48, "position_size_fraction": 0.05}, "risk": {"atr_profit_multiplier": 3.5}}	validation:medium - 3 trades only, overfit risk
 22	65.1221	0.4967	0.8125	1.4023	5.0	3.17	499.3	{"strategy": {"threshold_buy": 0.65, "threshold_sell": 0.48, "position_size_fraction": 0.05}, "risk": {"atr_profit_multiplier": 3.5}}	validation:medium buy=0.65 - 16 trades, 81% WR, robust
+23	38.6704	0.4989	0.4352	-0.2929	0.9074	28.82	18076.2	{}	baseline 100-ticker medium - 193 trades, 43.5% WR, losing strategy
+24	29.912	0.4978	0.0	0.0	0.0	0.0	17294.0	{"strategy": {"threshold_buy": 0.60, "threshold_sell": 0.48, "position_size_fraction": 0.05}, "risk": {"atr_profit_multiplier": 3.5}}	buy=0.60 on 100-ticker (no seed): ZERO trades
+25	30.096	0.5024	0.0	0.0	0.0	0.0	25931.1	{"strategy": {"position_size_fraction": 0.05}, "risk": {"atr_profit_multiplier": 3.5}}	seed=42 100-ticker: ZERO trades at default 0.58 buy threshold

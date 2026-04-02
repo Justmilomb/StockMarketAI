@@ -26,7 +26,26 @@ else:
     CONFIG_PATH = PROJECT_ROOT / "config.json"
 
 
+def _load_dotenv(directory: Path) -> None:
+    """Load .env file from directory into os.environ (no external deps)."""
+    env_file = directory / ".env"
+    if not env_file.exists():
+        return
+    for line in env_file.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        value = value.strip().strip("\"'")
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
 def main() -> None:
+    # Load .env before anything reads env vars (broker keys, API keys)
+    _load_dotenv(Path(os.getcwd()))
+
     from PySide6.QtWidgets import QApplication
     from desktop.app import MainWindow
     from desktop.theme import BLOOMBERG_DARK_QSS

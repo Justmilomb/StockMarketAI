@@ -15,6 +15,7 @@ venv/
 # IDE
 .vscode/
 .idea/
+.vs/
 
 # OS
 Thumbs.db
@@ -28,6 +29,9 @@ credentials.json
 
 # Data (large files)
 *.joblib
+data/
+models/
+cachedir/
 
 # Autoconfig temp files
 autoconfig/.progress.log

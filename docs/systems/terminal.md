@@ -15,7 +15,7 @@ class PriceChartView:  # terminal/charts.py — sparkline
 ```
 
 ## Notes
-- Keybindings: q=quit, r=refresh, a=mode, w=watchlist, s=suggest, c=chat, g=chart, t=trade
+- Keybindings: q=quit, r=refresh, a=mode, w=watchlist, s=suggest, i=insights, n=news, c=chat, g=chart, t=trade, +=add, -=remove, /=search, d=AI recs, o=optimise, h=history
 - Background work via `@work(thread=True)` decorator
 - UTF-8 forced on Windows via `PYTHONUTF8=1` and `chcp 65001`
-- Chat creates new GeminiClient per message (could be optimised)
+- Chat uses ClaudeClient (Claude CLI subprocess) for all AI interactions

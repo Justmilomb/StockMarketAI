@@ -88,7 +88,7 @@ python backtest.py -v                      # Debug logging
 
 ## Parallelism
 
-Folds run across all CPU cores via `ProcessPoolExecutor`. Data is serialised to dicts (not raw DataFrames) for safe cross-process transfer. Falls back to serial execution if multiprocessing fails.
+Folds run via `ProcessPoolExecutor` using the `spawn` multiprocessing context for cross-platform safety (avoids OpenBLAS/MKL fork deadlocks on Linux). Shared data (features, labels, universe) is written to a single temp file and read by each worker at init — avoids re-serialising the full dataset per fold. Max parallel folds is capped at `cpu_cores // 2` by `cpu_config.get_max_parallel_folds()` so each fold has headroom for sklearn threads. Falls back to serial execution if multiprocessing fails.
 
 ## Ensemble Training
 

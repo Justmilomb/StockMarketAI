@@ -3,44 +3,42 @@
 ## System Graph
 
 ```
-                    ┌──────────────────────────────┐
-                    │       ENTRY POINTS           │
-                    │  ai.py │ terminal/app.py │ backtest.py │
-                    └────┬────┴────────┬───────────┘
-                         │             │
-           ┌─────────────┘     ┌───────┘
-           ▼                   ▼
-      ┌──────────┐  ┌──────────────────────────┐
-      │ AiService│  │  TradingTerminalApp       │
-      │ (hub)    │  │  (Textual TUI — hub)      │
-      │1000-     │  │  ┌──────────────────────┐ │
-      │analyst   │  │  │ AppState (with       │ │
-      │ensemble) │  │  │  regime, consensus,  │ │
-      └──┬───────┘  │  │  ensemble metadata)  │ │
-         │ ├─────┬──┼──┤ └──────────────────────┘ │
-         │ │     │  │  │ ┌────┐  ┌──────────┐    │
-         │ │     │  │  │ │views ─ │NewsAgent │   │
-         │ │     │  │  │ ├────┤  │(bg thrd) │    │
-         │ │     │  │  │ │charts  └──────────┘    │
-         │ │     │  │  │ └──────┐                 │
-         │ │     │  └──┼────────┘                 │
-         │ │     │     ▼                          │
-         │ │     │  ┌──────────────┐              │
-         │ │     │  │BrokerService │              │
-         │ │     │  │  (facade)    │              │
-         │ │     │  └──┬───────┬───┘              │
-         │ │     │     │       │                  │
-         │ │     │     ▼       ▼                  │
-         │ │     │  ┌────────┬────────┐           │
-         │ │     │  │LogBrk. │T212Brk.│           │
-         │ │     │  └────────┴────────┘           │
-         │ │     │                                │
-         │ │     └──────────────────────────────┘ │
-         │ │                                      │
-         └─┴──────────────────────────────────────┘
+                    ┌─────────────────────────────────────────┐
+                    │               ENTRY POINTS              │
+                    │  ai.py │ backtest.py │ desktop/main.py  │
+                    │        │             │ terminal/app.py  │
+                    └────┬───┴──────┬──────┴─────────┬────────┘
+                         │          │                 │
+           ┌─────────────┘          │       ┌─────────┘
+           ▼                        ▼       ▼
+      ┌──────────┐  ┌───────────────────────────────────────┐
+      │ AiService│  │  TradingTerminalApp  /  MainWindow     │
+      │ (hub)    │  │  (Textual TUI)       (PySide6 desktop) │
+      │1000-     │  │  ┌────────────────────────────────────┐│
+      │analyst   │  │  │ AppState (regime, consensus,       ││
+      │ensemble) │  │  │          ensemble metadata)        ││
+      └──┬───────┘  │  └────────────────────────────────────┘│
+         │ ├─────┬──┤  ┌────┐  ┌──────────┐                 │
+         │ │     │  │  │views   │NewsAgent │                 │
+         │ │     │  │  │charts  │(bg thrd) │                 │
+         │ │     │  │  └──────┐ └──────────┘                 │
+         │ │     │  └─────────┘                              │
+         │ │     │     ▼                                     │
+         │ │     │  ┌──────────────┐                         │
+         │ │     │  │BrokerService │                         │
+         │ │     │  │  (facade)    │                         │
+         │ │     │  └──┬───────┬───┘                         │
+         │ │     │     │       │                             │
+         │ │     │     ▼       ▼                             │
+         │ │     │  ┌────────┬────────┐                      │
+         │ │     │  │LogBrk. │T212Brk.│                      │
+         │ │     │  └────────┴────────┘                      │
+         │ │     └──────────────────────────────────────────┘│
+         │ │                                                  │
+         └─┴──────────────────────────────────────────────────┘
 
         ┌─────────────────────────────────────────────────────┐
-        │              ML + Gemini Pipeline                    │
+        │              ML + Claude Pipeline                    │
         │                                                      │
         │  data_loader ──► features_advanced (V2, 31 feat)    │
         │  (yfinance)       ├─ 6 analyst groups               │
@@ -53,8 +51,8 @@
         │                │                │                   │
         │                ├──► regime ────┐│                   │
         │                │   (macro det) ││                   │
-        │                │                ││                   │
-        │                ├──► gemini_personas ──┐ │           │
+        │                │               ││                   │
+        │                ├──► claude_personas ──┐ │           │
         │                │    (5 analysts)       │ │           │
         │                │                       │ │           │
         │                └──► consensus ◄───────┘ │           │
@@ -75,6 +73,29 @@
         │                                                      │
         └──────────────────────► AutoEngine ──────────────────┘
                                   (execution)
+
+        ┌─────────────────────────────────────────────────────┐
+        │              Autoconfig Subsystem                    │
+        │                                                      │
+        │  autoconfig/run.py ──► Claude Code CLI sessions      │
+        │       │                (Opus 4.6, iterative)         │
+        │       │                                              │
+        │       ├──► autoconfig/experiment.py                  │
+        │       │     (single backtest with config overrides)  │
+        │       │                                              │
+        │       ├──► autoconfig/universe.py                    │
+        │       │     (~250 diverse stocks for generalisation) │
+        │       │                                              │
+        │       ├──► autoconfig/strategy_profiles.py           │
+        │       │     (profile → config override bridge)       │
+        │       │                                              │
+        │       └──► autoconfig/results.tsv + .progress        │
+        │             (experiment log, persisted across runs)  │
+        │                                                      │
+        │  autoresearch/ — autonomous strategy improvement     │
+        │       runner.py ──► evaluator.py ──► SQLite DB       │
+        │                                                      │
+        └─────────────────────────────────────────────────────┘
 ```
 
 ## Signal Pipeline (8-Step Flow)
@@ -97,9 +118,9 @@ The system generates signals through a structured, multi-layered process:
 
 4d. **MiroFish Multi-Agent Simulation** — `mirofish.MiroFishOrchestrator.run_universe()` spawns ~1000 heterogeneous AI agents (9 types: momentum, mean-reversion, sentiment, fundamental, noise, contrarian, institutional, algorithmic, LLM-seeded) per ticker. Runs N Monte Carlo simulations in parallel across all CPU cores. Agents interact via herding/contrarian dynamics, producing emergent market behaviour. Extracts net sentiment, order flow, agreement index, and volatility predictions as `ModelSignal` entries for consensus.
 
-5. **Gemini Persona Analysis** — `gemini_personas.GeminiPersonaAnalyzer.analyze_batch()` routes per-ticker features to 5 specialized analyst personas (technical, fundamental, sentiment, macro, risk), each producing a signal + confidence.
+5. **Claude Persona Analysis** — `claude_personas.ClaudePersonaAnalyzer.analyze_batch()` routes per-ticker features to 5 specialized analyst personas (technical, fundamental, sentiment, macro, risk), each producing a signal + confidence.
 
-6. **Consensus Aggregation** — `consensus.ConsensusEngine.compute_all()` combines all model signals (ML + Statistical + Deep + Gemini), regime weighting, and horizon breakdown into a unified consensus score.
+6. **Consensus Aggregation** — `consensus.ConsensusEngine.compute_all()` combines all model signals (ML + Statistical + Deep + Claude), regime weighting, and horizon breakdown into a unified consensus score.
 
 7. **Strategy Signal Generation** — `strategy_selector.StrategySelector.select_strategies()` assigns one of 5 trading profiles (conservative, day_trader, swing, crisis_alpha, trend_follower) per ticker based on regime, consensus quality, volatility, and performance history. `strategy.generate_signals()` then applies per-ticker thresholds to convert consensus scores into actionable buy/sell/hold decisions.
 
@@ -120,7 +141,7 @@ yfinance  →  CSV cache  →  features_advanced (31 V2 indicators)
                  ┌────────────────┼────────────────┐
                  │                │                │
                  ▼                ▼                ▼
-           regime detect    gemini_personas  consensus
+           regime detect    claude_personas  consensus
            (macro state)    (5 analysts)      (investment
                                               committee)
                                   │
@@ -154,24 +175,30 @@ yfinance  →  CSV cache  →  features_advanced (31 V2 indicators)
 | ensemble | Multi-model training/prediction, model serialisation | Know about tickers or strategy |
 | timeframe | Horizon-specific ensembles (1d/5d/20d) | Aggregate signals beyond its horizon |
 | regime | Market regime detection and classification | Make trading decisions |
-| gemini_client | All Gemini API communication | Access broker or data_loader |
-| gemini_personas | 5 analyst personas, per-ticker analysis routing | Make final trading decisions |
+| claude_client | All Claude API communication | Access broker or data_loader |
+| claude_personas | 5 Claude analyst personas, per-ticker analysis routing | Make final trading decisions |
 | consensus | Signal aggregation, investment committee logic | Call APIs or train models |
 | risk_manager | Position sizing, portfolio risk calculations | Submit orders or modify state |
 | forecaster_statistical | ARIMA/ETS baseline fitting and probability conversion | Know about ML ensemble or broker |
 | forecaster_deep | N-BEATS architecture, training, and prediction | Know about other forecasters or broker |
 | meta_ensemble | Three-family weighted combination | Train models or call APIs |
 | mirofish | Multi-agent simulation, Monte Carlo orchestration, signal extraction | Call APIs, train ML models, or submit orders |
+| autoconfig/ | Autonomous config optimisation via Claude CLI sessions | Not import any project modules except backtesting |
 | backtesting/ | Walk-forward validation, trade simulation, performance metrics | Modify live config, submit real orders |
 | pipeline_tracker | Thread-safe progress tracking for TUI | Know about TUI or AI logic |
 | strategy | Probability → signal conversion, position limits | Train models or call APIs |
 | broker / broker_service | Order submission, position/account queries | Know about ML or features |
 | auto_engine | Automated signal → order loop, execution | Modify broker or AI logic directly |
-| news_agent | RSS fetching, sentiment via Gemini | Submit orders or modify state directly |
+| news_agent | RSS fetching, sentiment via Claude | Submit orders or modify state directly |
 | terminal/app | TUI lifecycle, action routing, view wiring | Implement business logic |
 | terminal/state | Shared AppState dataclass | Contain methods or logic |
 | terminal/views | UI rendering, user input | Call broker or AI directly |
 | terminal/charts | Sparkline rendering | Fetch data directly |
+| desktop/app | PySide6 Bloomberg-dark window, grid layout, timer wiring | Implement business logic |
+| desktop/state | Qt-aware AppState wrapper (reuses terminal/state) | Contain business logic |
+| desktop/workers | QThread background workers (RefreshWorker, BackgroundTask) | Access broker or AI directly |
+| desktop/panels/* | Individual UI panels (watchlist, chat, news, orders, etc.) | Call broker or AI directly |
+| desktop/dialogs/* | Modal dialogs (add ticker, AI recommend, trade, etc.) | Contain persistent state |
 
 ## Key Types / Schemas
 
@@ -179,12 +206,12 @@ yfinance  →  CSV cache  →  features_advanced (31 V2 indicators)
 |------|----------|---------|
 | ConfigDict | `Dict[str, Any]` | Runtime config loaded from `config.json` |
 | AppState | `terminal/state.py` | Shared TUI state (signals, positions, chat, regime, consensus, ensemble metadata) |
-| AiService | `ai_service.py` | ML + Gemini orchestrator (1000-analyst ensemble) |
+| AiService | `ai_service.py` | ML + Claude orchestrator (1000-analyst ensemble) |
 | BrokerService | `broker_service.py` | Broker-agnostic facade |
 | Broker (ABC) | `broker.py` | Abstract broker interface |
 | StrategyConfig | `strategy.py` | Buy/sell thresholds, position limits |
 | ModelConfig | `model.py` | Legacy RF hyperparams, model path, train split |
-| GeminiConfig | `gemini_client.py` | Model name, API key env var |
+| ClaudeConfig | `claude_client.py` | Claude model name, API key env var |
 | TickerNews | `news_agent.py` | Per-ticker sentiment + headlines |
 | FEATURE_COLUMNS | `features.py` | Legacy list (10 features) of model input |
 | FEATURE_COLUMNS_V2 | `features_advanced.py` | V2 canonical list (31 features) + analyst grouping |
@@ -193,15 +220,27 @@ yfinance  →  CSV cache  →  features_advanced (31 V2 indicators)
 | TimeframeEnsemble | `timeframe.py` | Horizon-specific (1d/5d/20d) ensemble wrappers |
 | RegimeState | `regime.py` | Market regime classification + confidence |
 | ConsensusResult | `consensus.py` | Aggregated signal, confidence, component breakdown |
-| GeminiPersonaSignal | `gemini_personas.py` | Per-persona ticker analysis + probability + reason |
+| ClaudePersonaSignal | `claude_personas.py` | Per-persona ticker analysis + probability + reason |
 | RiskManager | `risk_manager.py` | Position sizing, portfolio concentration logic |
+| StrategyProfile | `strategy_profiles.py` | Immutable trading-style configs (conservative, swing, etc.) |
+| StrategySelector | `strategy_selector.py` | Regime-aware per-ticker profile assignment |
+| AssetClass | `types_shared.py` | Literal["stocks","crypto","polymarket"] + all shared dataclasses |
+| AssetRegistry | `asset_registry.py` | Factory registry mapping AssetClass → data/features/ensemble modules |
+| AccuracyTracker | `accuracy_tracker.py` | Sliding-window hit-rate tracking for per-source signal accuracy |
+| CpuConfig | `cpu_config.py` | Centralised CPU core caps to prevent memory thrashing |
 
 ## Phase Map
 
 | Phase | Scope | Status |
 |-------|-------|--------|
 | 1 | Core ML pipeline: data → features → model → signals → broker | Done |
-| 2 | TUI terminal, Gemini integration, news agent, Trading 212 | Done |
+| 2 | TUI terminal, Claude integration, news agent, Trading 212 | Done |
 | 2.5 | Self-learning AI loops, SQLite persistence, chat history, 1000-analyst ensemble | Done |
-| 3 | Testing, backtesting, walk-forward validation, advanced position sizing | In Progress |
+| 2.75 | 12-model ensemble, regime detection, Claude personas, consensus engine, risk management | Done |
+| 2.85 | Three-family meta-ensemble (ARIMA/ETS + N-BEATS + ML), pipeline visualisation | Done |
+| 2.9 | MiroFish multi-agent simulation (1000 agents × 9 types × Monte Carlo) | Done |
+| 3.0 | Backtesting engine (walk-forward validation, trade simulation, Sharpe/Sortino/Calmar) | Done |
+| 3.1 | Multi-asset expansion (stocks, crypto, polymarket) | Done |
+| 3.15 | Autoconfig — autonomous parameter optimisation via Claude CLI, GCP VM deployment | Active |
+| 3.2 | Testing, pytest coverage, integration tests | Planned |
 | 4 | Production hardening, monitoring, deployment automation | Planned |

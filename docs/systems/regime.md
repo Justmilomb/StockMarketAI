@@ -6,10 +6,11 @@ Classifies the current market environment using SPY macro indicators. Provides p
 ## Regime Types
 | Regime | Condition | Weight Adjustments |
 |--------|-----------|-------------------|
-| trending_up | ADX>25, breadth>60% | trend 1.3x, momentum 1.2x, vol 0.8x |
-| trending_down | ADX>25, breadth<40% | trend 1.3x, momentum 1.2x, vol 0.8x |
-| mean_reverting | Low ADX (default) | trend 0.7x, vol 1.3x, volume 1.1x |
-| high_volatility | VIX proxy>30% | trend 0.6x, momentum 0.7x, vol 1.4x |
+| trending_up | ADX>25, breadth>60% | trend 1.3x, momentum 1.2x, volatility 0.8x, volume 1.0x |
+| trending_down | ADX>25, breadth<40% | trend 1.3x, momentum 1.2x, volatility 0.8x, volume 1.0x |
+| mean_reverting | Low ADX (default) | trend 0.7x, momentum 0.8x, volatility 1.3x, volume 1.1x |
+| high_volatility | VIX proxy>30% | trend 0.6x, momentum 0.7x, volatility 1.4x, volume 1.2x |
+| unknown | SPY data unavailable | all 1.0x (neutral) |
 
 ## Three Macro Signals
 1. **VIX Proxy** — 20-day rolling std of SPY returns, annualised (%)

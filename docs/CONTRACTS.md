@@ -104,34 +104,6 @@ Breaking any of these is a regression.
 
 ---
 
-## AiService ↔ gemini_personas
-
-**Access pattern:** AiService routes per-ticker features to 5 specialised Gemini personas.
-
-**AiService calls on gemini_personas:**
-| Function | When | Returns |
-|----------|------|---------|
-| `analyze_batch(ticker_features, regime_state) → Dict[str, List[GeminiPersonaSignal]]` | Per refresh | `{ticker: [signal1, signal2, ...]}` for 5 personas |
-
-**GeminiPersonaSignal structure:**
-```
-{
-  "persona": str,           # One of: technical, fundamental, sentiment, macro, risk
-  "ticker": str,
-  "p_up": float,            # Probability up [0.0, 1.0]
-  "confidence": float,      # [0.0, 1.0]
-  "reason": str             # Natural language explanation
-}
-```
-
-**Invariants:**
-- 5 personas always present: technical, fundamental, sentiment, macro, risk
-- All `p_up` and `confidence` values clamped to [0.0, 1.0]
-- On API failure, returns defaults (p_up=0.5, confidence=0.3, reason="Could not parse")
-- Responses are parsed as JSON; markdown code blocks stripped
-
----
-
 ## AiService ↔ forecaster_statistical
 
 **Access pattern:** AiService calls StatisticalForecaster for ARIMA/ETS baseline predictions.
@@ -309,7 +281,7 @@ Breaking any of these is a regression.
   "consensus_prob": float,      # Weighted average [0.0, 1.0]
   "confidence": float,          # [0.0, 1.0]
   "ensemble_weight": float,     # Contribution of ensemble
-  "personas_weight": float,     # Contribution of Gemini personas
+  "personas_weight": float,     # Contribution of Claude personas
   "regime_adjusted": bool,      # Whether regime weighting applied
   "component_breakdown": Dict   # Per-source probabilities for debugging
 }
@@ -317,7 +289,7 @@ Breaking any of these is a regression.
 
 **Invariants:**
 - Meta-ensemble (ML + Statistical + Deep models) ≈ 50% weight
-- Gemini personas (5 analysts) ≈ 30% weight
+- Claude personas (5 analysts) ≈ 30% weight
 - Regime context applied as multiplier (0.8–1.2)
 - Final `consensus_prob` always in [0.0, 1.0]
 - Output sorted by consensus_prob descending
@@ -399,9 +371,9 @@ Breaking any of these is a regression.
 
 ---
 
-## NewsAgent ↔ GeminiClient
+## NewsAgent ↔ ClaudeClient
 
-**Access pattern:** NewsAgent calls `gemini_client.analyze_news()` for sentiment scoring.
+**Access pattern:** NewsAgent calls `claude_client.analyze_news()` for sentiment scoring.
 
 **Invariants:**
 - NewsAgent runs on a daemon thread — no guarantee of clean shutdown
@@ -458,3 +430,25 @@ Breaking any of these is a regression.
 - `equity_curve` and `equity_dates` are parallel arrays
 
 **CLI entry point:** `python backtest.py [--fast|--full] [--ticker SYM...] [--folds] [--json]`
+
+---
+
+## BacktestRunner ↔ cpu_config
+
+**Access pattern:** BacktestRunner calls `cpu_config` helpers to determine parallelism limits for walk-forward fold execution.
+
+**BacktestRunner calls on cpu_config:**
+| Function | When | Returns |
+|----------|------|---------|
+| `get_cpu_cores() → int` | Runner init | Number of CPU cores available for parallel work |
+| `get_max_parallel_folds() → int` | Before fold dispatch | Maximum number of folds to run simultaneously |
+| `get_n_jobs_per_fold() → int` | Per-fold ensemble training | Number of sklearn `n_jobs` threads per fold |
+
+**Environment variable overrides:**
+- `AUTOCONFIG_CPU_CORES` — override detected core count
+- `AUTOCONFIG_MAX_FOLDS` — override max parallel folds
+
+**Invariants:**
+- `max_parallel_folds` is capped at `cpu_cores // 2` to avoid memory exhaustion
+- When env vars are set, they take precedence over auto-detected values
+- All return values are positive integers (minimum 1)

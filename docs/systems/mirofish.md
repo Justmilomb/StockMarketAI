@@ -39,17 +39,19 @@ MarketContext (real data)
 
 ## Agent Types (9 classes, 1000 total)
 
-| Type | Count | Behaviour | Key Parameters |
+Default counts from `agents.py` (overridable via config.json `agent_distribution`):
+
+| Type | Default Count | Behaviour | Key Parameters |
 |------|-------|-----------|----------------|
-| Momentum | 200 | Follow trends | High trend sensitivity, moderate herd |
-| Mean Reversion | 150 | Bet on reversals | Negative trend sens, high reversion |
-| Sentiment | 150 | News-driven | Very high news sensitivity, high herd |
-| Fundamental | 100 | Value-based | High feature sensitivity, low herd |
-| Noise | 100 | Irrational/random | Very high noise, low conviction bar |
-| Contrarian | 100 | Against the crowd | Negative herd, high contrarian factor |
-| Institutional | 50 | Large/slow/deliberate | Very low noise, high conviction bar |
-| Algorithmic | 100 | Pattern-based | High feature + trend, low noise |
-| LLM-seeded | 50 | ML-prior initial beliefs | Strong ensemble probability weighting |
+| Momentum | 150 | Follow trends | High trend sensitivity (0.8), moderate herd (0.35) |
+| Mean Reversion | 120 | Bet on reversals | Negative trend sens (-0.6), high reversion (0.4) |
+| Sentiment | 100 | News-driven | Very high news sensitivity (0.85), high herd (0.5) |
+| Fundamental | 150 | Value-based | High feature sensitivity (0.8), very low herd (0.05) |
+| Noise | 30 | Irrational/random | High noise scale (0.15), short memory |
+| Contrarian | 80 | Against the crowd | Negative herd susceptibility (-0.3), strong contrarian factor (0.6) |
+| Institutional | 120 | Large/slow/deliberate | Very low noise (0.01), very long memory (0.98 decay) |
+| Algorithmic | 150 | Pattern-based | High feature + trend sensitivity, low noise (0.02) |
+| LLM-seeded | 100 | ML-prior initial beliefs | Balanced news + feature sensitivity, ML ensemble probability weighting |
 
 Each agent has per-instance parameter jitter (±20%) to avoid homogeneous herds.
 

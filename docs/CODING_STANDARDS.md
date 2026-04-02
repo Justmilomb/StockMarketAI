@@ -10,11 +10,11 @@
 | Constants | UPPER_SNAKE | `FEATURE_COLUMNS`, `DEFAULT_DATA_DIR` |
 | Booleans | `is_`/`has_`/`_loaded` | `_model_loaded`, `is_active` |
 | Private members | `_leading_underscore` | `_config_cache`, `_broker` |
-| Dataclass configs | `{System}Config` | `ModelConfig`, `StrategyConfig`, `GeminiConfig` |
+| Dataclass configs | `{System}Config` | `ModelConfig`, `StrategyConfig`, `ClaudeConfig` |
 
 ## File Organisation
 
-- No file over 400 lines. Split by logical concern.
+- Leaf modules should stay under ~400 lines. Hub files (`app.py`, `ai_service.py`) and files that are the single logical owner of a complex concern may exceed this when splitting would hurt readability or create artificial seams.
 - One class/module per file (except small value types like configs).
 - Imports: stdlib → third-party → local (isort compatible).
 - `from __future__ import annotations` at top of every file that uses `X | None` syntax.
@@ -23,7 +23,7 @@
 ## Error Handling
 
 - Validate at system boundaries (user input, external APIs). Trust internal code.
-- External API calls (yfinance, Gemini, Trading 212) wrapped in try/except with fallback defaults.
+- External API calls (yfinance, Claude CLI, Trading 212) wrapped in try/except with fallback defaults.
 - `ValueError` for bad input data. `FileNotFoundError` for missing models.
 - `RuntimeError` for missing required configuration (e.g. API keys).
 - Log unexpected states at Warning level. Log failures at Error level.

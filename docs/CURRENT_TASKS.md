@@ -11,10 +11,10 @@
 
 **Phase 2 — TUI & Integrations**
 - [x] Bloomberg-style Textual TUI with 3-column grid layout — 2026-02-28
-- [x] Gemini API integration for signal generation + chat + recommendations — 2026-03-01
-- [x] Weighted ensemble scoring (sklearn 50% + gemini 30% + news 20%) — 2026-03-05
+- [x] Claude API integration for signal generation + chat + recommendations — 2026-03-01
+- [x] Weighted ensemble scoring (sklearn 50% + claude 30% + news 20%) — 2026-03-05
 - [x] Trading 212 live broker implementation — 2026-03-08
-- [x] Background news agent with RSS + Gemini sentiment — 2026-03-10
+- [x] Background news agent with RSS + Claude sentiment — 2026-03-10
 - [x] Watchlist management (add/remove/cycle/search/AI suggest) — 2026-03-12
 - [x] Trade modal with market/limit/stop order types — 2026-03-12
 - [x] Price sparkline charts — 2026-03-12
@@ -27,7 +27,7 @@
 - [x] Multi-model ensemble (12 diverse ML classifiers) — 2026-03-18
 - [x] Multi-timeframe signal generation (1d/5d/20d horizons, 36 signals) — 2026-03-18
 - [x] Market regime detection (bull/bear/range/high_vol classifier) — 2026-03-19
-- [x] Gemini persona analyzer (5 specialised analysts) — 2026-03-19
+- [x] Claude persona analyzer (5 specialised analysts) — 2026-03-19
 - [x] Investment committee consensus engine (weighted aggregation) — 2026-03-20
 - [x] Portfolio risk manager (Kelly criterion + volatility sizing) — 2026-03-20
 - [x] Terminal UI updates (regime panel, consensus confidence, ensemble breakdown) — 2026-03-20
@@ -86,17 +86,25 @@
 - [x] TUI asset switching (1/2/3 keybindings, header, per-asset watchlist columns, help modal) — 2026-03-29
 - [x] Desktop asset switching (1/2/3 shortcuts, header, status bar) — 2026-03-29
 
+**Phase 3.15 — Autoconfig (Autonomous Parameter Optimisation)**
+- [x] Autoconfig experiment runner (autoconfig/experiment.py) — run single backtest with config overrides — 2026-03-28
+- [x] Autoconfig session launcher (autoconfig/run.py) — loops Claude CLI sessions, monitors progress — 2026-03-28
+- [x] Autoconfig program spec (autoconfig/program.md) — instructions for the Claude agent — 2026-03-28
+- [x] Stock universe module (autoconfig/universe.py) — small/medium/large/full ticker sets, sector groups, crisis periods — 2026-03-28
+- [x] Autoconfig results persistence (results.tsv, best_config.json) — 2026-03-28
+- [x] CPU config module (cpu_config.py) — centralised core allocation, env var overrides — 2026-03-30
+- [x] Force spawn multiprocessing context for Linux VM compatibility — 2026-03-31
+- [x] Cap max_parallel_folds at cpu_cores//2 to prevent over-subscription — 2026-04-01
+- [x] GCP VM deployment support (12-core/24-vCPU/186GB) — 2026-04-01
+
 ### In Progress
-- [ ] (none currently)
+- [ ] Autoconfig running on GCP VM — iterating parameter space (threshold_buy, threshold_sell, position_size, ATR multipliers, etc.)
 
 ### Up Next
-- [ ] Add pytest test suite — unit tests for features_advanced, ensemble, timeframe, regime, consensus, risk_manager, forecaster_statistical, forecaster_deep, meta_ensemble
-- [ ] Integration tests for all new ensemble modules
-- [ ] Backtesting + autoconfig integration for crypto/polymarket
-- [ ] Persistent trade log with performance tracking per signal source (ensemble vs personas vs regime)
+- [ ] Add pytest test suite (features_advanced, ensemble, timeframe, regime, consensus, risk_manager, forecaster_statistical, forecaster_deep, meta_ensemble)
 - [ ] Integration tests for Trading 212 broker (mocked API)
-- [ ] Dashboard views for model performance and consensus breakdowns
 - [ ] Backtesting TUI integration (run from terminal, display results inline)
+- [ ] Production hardening, monitoring, deployment automation (Phase 4)
 
 ### Blocked
 - [ ] (none currently)
@@ -121,4 +129,7 @@
 - **Key new modules:** `strategy_profiles.py`, `strategy_selector.py`. Modified: `types_shared.py`, `strategy.py`, `risk_manager.py`, `ai_service.py`, `config.json`, `terminal/state.py`, `terminal/views.py`, `terminal/app.py`, `backtesting/types.py`, `backtesting/simulator.py`, `backtesting/engine.py`, `autoconfig/universe.py`, `autoconfig/experiment.py`.
 - **Phase 3.1 complete:** Multi-asset expansion. Three asset classes (stocks, crypto, polymarket) with full pipeline support. Registry pattern routes data loading, features, ensemble, regime, broker, and strategy to asset-specific implementations. Crypto reuses OHLCV pipeline with higher thresholds. Polymarket uses edge detection (AI_prob - market_prob) instead of classification. TUI/desktop switch via 1/2/3 keys. Zero breakage to existing stock functionality.
 - **Key new packages:** `crypto/` (8 files), `polymarket/` (8 files). New files: `asset_registry.py`. Modified: `types_shared.py`, `config.json`, `ai_service.py`, `broker_service.py`, `database.py`, `terminal/state.py`, `terminal/app.py`, `terminal/views.py`, `desktop/state.py`, `desktop/app.py`.
+- **Phase 3.15 complete:** Autoconfig runs Claude Opus 4.6 sessions autonomously to explore config parameter space via walk-forward backtesting. 23+ experiments completed. Best config found so far: threshold_buy=0.68, threshold_sell=0.48, position_size=0.05, atr_profit_multiplier=3.5 (81% win rate on medium universe validation).
+- **Key new modules:** `autoconfig/experiment.py`, `autoconfig/run.py`, `autoconfig/program.md`, `autoconfig/universe.py`, `cpu_config.py`. Modified: `backtesting/runner.py`, `mirofish/orchestrator.py`, `config.json`.
+- **Key fix:** max_parallel_folds now auto-caps at cpu_cores//2. ProcessPoolExecutor forces "spawn" context on Linux to prevent OpenBLAS deadlocks.
 - **Next focus:** Pytest test suite coverage, then production hardening (Phase 4).

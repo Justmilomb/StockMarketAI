@@ -1,16 +1,33 @@
 # Running AutoConfig on a Cloud VM
 
-## Provider Options (ranked by cost)
+## Current VM (Active Deployment)
+
+The project currently runs on a **GCP e2-standard-24** instance:
+
+| Property | Value |
+|----------|-------|
+| Provider | Google Cloud Platform |
+| Machine type | e2-standard-24 (or equivalent) |
+| Physical cores | 12 |
+| vCPUs | 24 |
+| RAM | 186 GB |
+| OS | Ubuntu 24.04 |
+
+**CPU config:** `max_parallel_folds` is automatically capped at `cpu_cores // 2` (= 12 on this VM) to prevent over-subscription. `ProcessPoolExecutor` uses `mp.get_context("spawn")` to avoid OpenBLAS deadlocks on Linux.
+
+---
+
+## Provider Options (if provisioning a new VM)
 
 | Rank | Provider | Instance | vCPU | RAM | ~Cost/hr | Notes |
 |------|----------|----------|------|-----|----------|-------|
-| 1 | **Google Cloud** | c2d-standard-32 | 32 | 128 GB | **FREE** | $300 credit for new accounts (90 days) |
-| 2 | **Vultr** | Optimized 32 vCPU | 32 | 128 GB | ~$0.57 | Easy signup, reliable, hourly billing |
-| 3 | **Linode/Akamai** | Dedicated 32 vCPU | 32 | 64 GB | ~$0.58 | Easy signup, reliable, hourly billing |
-| 4 | **DigitalOcean** | CPU-Optimized 32 | 32 | 64 GB | ~$0.95 | Easiest signup of all |
-| 5 | **AWS EC2** | c7a.8xlarge | 32 | 64 GB | ~$1.00 | Spot instances ~$0.35/hr (can be interrupted) |
+| 1 | **Google Cloud** | e2-standard-24 | 24 | 96 GB | **FREE** | $300 credit for new accounts (90 days) |
+| 2 | **Vultr** | Optimized 24 vCPU | 24 | 96 GB | ~$0.43 | Easy signup, reliable, hourly billing |
+| 3 | **Linode/Akamai** | Dedicated 24 vCPU | 24 | 48 GB | ~$0.45 | Easy signup, reliable, hourly billing |
+| 4 | **DigitalOcean** | CPU-Optimized 24 | 24 | 48 GB | ~$0.72 | Easiest signup of all |
+| 5 | **AWS EC2** | c7a.6xlarge | 24 | 48 GB | ~$0.76 | Spot instances ~$0.25/hr (can be interrupted) |
 
-**Best pick:** Google Cloud if you've never used it — $300 free credit = ~300 hours of 32 vCPU for nothing.
+**Best pick:** Google Cloud if you've never used it — $300 free credit = ~300 hours of 24 vCPU for nothing.
 **Best pick (no free tier):** Vultr — simple, cheap, hourly billed, delete when done.
 
 ---
@@ -21,7 +38,7 @@
 
 Pick a provider above. Create a server with:
 - **OS:** Ubuntu 24.04
-- **Size:** 32+ vCPU dedicated (CPU-optimized)
+- **Size:** 24 vCPU / 12 physical cores (e.g. GCP e2-standard-24) — `max_parallel_folds` will auto-cap at `cpu_cores // 2`
 - **Region:** closest to you
 - **Auth:** SSH key or password
 
@@ -116,7 +133,7 @@ Go to your cloud provider's dashboard and **delete the server**. Billing stops i
 | Variable | Needed? | Notes |
 |----------|---------|-------|
 | Claude CLI auth | **Yes** | `claude login` on the server (step 3) |
-| `GEMINI_API_KEY` | No | Not used — pipeline uses Claude CLI |
+| `ANTHROPIC_API_KEY` | Optional | Only needed for direct API access; Claude CLI subscription works without it |
 | `T212_API_KEY` | No | Autoconfig only runs backtests, no live trading |
 
 The only auth needed is `claude login` — it uses your existing Claude subscription.
@@ -128,9 +145,9 @@ The only auth needed is `claude login` — it uses your existing Claude subscrip
 | Scenario | Provider | Duration | Cost |
 |----------|----------|----------|------|
 | Overnight run (10 hrs) | Google Cloud (free tier) | 10 hrs | **$0** |
-| Overnight run (10 hrs) | Vultr 32 vCPU | 10 hrs | ~$5.70 |
+| Overnight run (10 hrs) | Vultr 24 vCPU | 10 hrs | ~$4.30 |
 | Weekend run (48 hrs) | Google Cloud (free tier) | 48 hrs | **$0** |
-| Weekend run (48 hrs) | Vultr 32 vCPU | 48 hrs | ~$27 |
+| Weekend run (48 hrs) | Vultr 24 vCPU | 48 hrs | ~$20.60 |
 
 ---
 

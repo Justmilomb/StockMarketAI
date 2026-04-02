@@ -1,10 +1,10 @@
 # Auto Engine
 
 ## Goal
-Converts AI signals into actual broker orders when the terminal is in `full_auto_limited` mode, respecting daily loss limits.
+Converts AI signals into risk-managed broker orders when the terminal is in `full_auto_limited` mode, respecting daily loss limits.
 
 ## Implementation
-Single `step()` method called each refresh cycle. Only activates when `state.mode == "full_auto_limited"`. Fetches latest signals, generates market orders (qty=1) for all buy and sell signals. Checks unrealised PnL against `capital × max_daily_loss` — skips all orders if limit breached.
+Single `step()` method called each refresh cycle. Only activates when `state.mode == "full_auto_limited"`. Reads cached signals from `state.signals` (populated by the AI pipeline on refresh — does not re-run the pipeline). Skips protected/locked tickers. Checks unrealised PnL against `capital × max_daily_loss` — skips all orders if limit breached. Delegates to `RiskManager.generate_risk_enhanced_orders()` for Kelly + ATR-based sizing, then submits via `BrokerService.submit_orders()`.
 
 ## Key Code
 ```python
@@ -14,12 +14,15 @@ class AutoEngine:
     state: AppState
     ai_service: AiService
     broker_service: BrokerService
+    _risk_manager: RiskManager | None = None
 
     def step(self) -> None
 ```
 
 ## Notes
-- Only submits market orders with fixed quantity 1.0
-- Daily loss limit is a simple check, not a rolling window
+- Uses cached signals from state — does not redundantly re-run the AI pipeline
+- Position sizing via RiskManager (Kelly + ATR + drawdown + consensus disagreement)
+- Protected tickers from `state.protected_tickers` are filtered out before order generation
+- Daily loss limit is a simple unrealised PnL check, not a rolling window
 - Results appended to `state.recent_orders` for display
-- No position sizing logic yet — future enhancement
+- RiskManager is lazy-initialised on first `step()` call
