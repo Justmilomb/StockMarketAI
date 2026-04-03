@@ -1,5 +1,15 @@
 {
-  "watchlists": {},
+  "watchlists": {
+    "Trading 212": [
+      "CCCX_US_EQ",
+      "VLVLY_US_EQ",
+      "KRKNF_US_EQ",
+      "VUKGl_EQ",
+      "RRl_EQ",
+      "TSLA_US_EQ",
+      "BBYl_EQ"
+    ]
+  },
   "protected_tickers": [],
   "active_watchlist": "Trading 212",
   "cpu_cores": 12,

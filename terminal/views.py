@@ -293,12 +293,16 @@ class WatchlistView(Panel):
         Polymarket columns: Market | Mkt Prob | AI Prob | Edge % | Signal | Volume | Liquidity | Resolves | Conf | Category
         Data comes from consensus_data which stores edge detection results.
         """
+        self.state.polymarket_id_map.clear()
         if self.state.signals is not None and not self.state.signals.empty:
             for _, row in self.state.signals.head(30).iterrows():
                 question = str(row.get("ticker", row.get("question", "?")))
+                condition_id = str(row.get("condition_id", ""))
                 # Truncate long questions
                 if len(question) > 40:
                     question = question[:37] + "..."
+                if condition_id:
+                    self.state.polymarket_id_map[question] = condition_id
 
                 mkt_prob = float(row.get("market_prob", row.get("prob_up", 0.5)))
                 ai_prob = float(row.get("ai_prob", mkt_prob))
@@ -344,25 +348,49 @@ class WatchlistView(Panel):
 # ═══════════════════════════════════════════════════════════════════════
 
 class PositionsView(Panel):
+    _STOCK_POS_COLS = ("Ticker", "Qty", "Avg Px", "Cur Px", "PnL")
+    _POLY_POS_COLS = ("Market", "Side", "Size ($)", "Entry Prob", "Cur Prob", "PnL")
+
     def __init__(self, state: AppState) -> None:
         super().__init__("POSITIONS", id="positions-panel")
         self.state = state
         self.table = DataTable(cursor_type="row")
+        self._last_asset: str = ""
 
     def compose(self) -> ComposeResult:
         yield Label(self.panel_title, classes="panel-title")
         yield self.table
 
     def on_mount(self) -> None:
-        self.table.add_columns("Ticker", "Qty", "Avg Px", "Cur Px", "PnL")
+        self._rebuild_columns()
         self.refresh_view()
 
+    def _rebuild_columns(self) -> None:
+        """Rebuild table columns when asset class changes."""
+        asset = self.state.active_asset_class
+        if asset == self._last_asset:
+            return
+        self._last_asset = asset
+        self.table.clear(columns=True)
+        cols = self._POLY_POS_COLS if asset == "polymarket" else self._STOCK_POS_COLS
+        self.table.add_columns(*cols)
+
     def refresh_view(self) -> None:
+        self._rebuild_columns()
         self.table.clear()
+
+        asset = self.state.active_asset_class
         if not self.state.positions:
-            self.table.add_row("No Positions", "-", "-", "-", "-")
+            n_cols = len(self._POLY_POS_COLS if asset == "polymarket" else self._STOCK_POS_COLS)
+            self.table.add_row("No Positions", *["-"] * (n_cols - 1))
             return
 
+        if asset == "polymarket":
+            self._render_poly_positions()
+        else:
+            self._render_stock_positions()
+
+    def _render_stock_positions(self) -> None:
         for p in self.state.positions:
             ticker = p.get("ticker", "")
             qty = f"{p.get('quantity', 0):.2f}"
@@ -371,10 +399,25 @@ class PositionsView(Panel):
             pnl = p.get("unrealised_pnl", 0.0)
             pnl_color = "[#00ff00]" if pnl >= 0 else "[#ff0000]"
             pnl_str = f"{pnl_color}${pnl:.2f}[/]"
-
-            # Highlighting ticker in cyan
             ticker_str = f"[#00ffff]{ticker}[/]"
             self.table.add_row(ticker_str, qty, avg, cur, pnl_str)
+
+    def _render_poly_positions(self) -> None:
+        for p in self.state.positions:
+            market = p.get("question", p.get("ticker", ""))[:40]
+            side = p.get("side", "YES")
+            size = f"${p.get('size', 0.0):.2f}"
+            entry = f"{p.get('entry_prob', 0.0):.0%}"
+            cur = f"{p.get('current_prob', 0.0):.0%}"
+            pnl = p.get("unrealised_pnl", 0.0)
+            pnl_color = "[#00ff00]" if pnl >= 0 else "[#ff0000]"
+            pnl_str = f"{pnl_color}${pnl:.2f}[/]"
+            side_color = "#00ff00" if side == "YES" else "#ff5555"
+            self.table.add_row(
+                f"[#00bbff]{market}[/]",
+                f"[{side_color}]{side}[/]",
+                size, entry, cur, pnl_str,
+            )
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -467,18 +510,47 @@ class SettingsView(Panel):
         asset = self.state.active_asset_class
         asset_color = _asset_colors.get(asset, "#ffffff")
 
-        lines = [
-            f"Asset:      [{asset_color}]{asset.upper()}[/]",
-            f"Mode:       {mode_color}{self.state.mode}[/]",
-            f"Regime:     [{regime_color}]{regime}[/] ({self.state.regime_confidence:.0%})",
-            f"Strategy:   [{strat_color}]{regime_strat or '-'}[/]",
-            f"Models:     [#ffffff]{self.state.ensemble_model_count}[/]",
-            f"Balance:    [#ffffff]${balance:,.2f}[/]",
-            f"Invested:   [#ffffff]${invested:,.2f}[/]",
-            f"Total:      [#ffffff]${total:,.2f}[/]",
-            f"Unrlzd PnL: {upnl_color}${upnl:,.2f}[/]",
-            f"Max Loss:   [#ffffff]{self.state.max_daily_loss * 100:.1f}%[/]",
-        ]
+        if asset == "polymarket":
+            # Polymarket-specific summary stats
+            sig = self.state.signals
+            n_markets = len(sig) if sig is not None and not sig.empty else 0
+            n_edges = 0
+            avg_edge = 0.0
+            total_vol = 0.0
+            buy_yes = 0
+            buy_no = 0
+            if sig is not None and not sig.empty:
+                edges = sig["edge_pct"] if "edge_pct" in sig.columns else pd.Series(dtype=float)
+                n_edges = int((edges.abs() > 3.0).sum())
+                avg_edge = float(edges.mean()) if len(edges) > 0 else 0.0
+                if "volume" in sig.columns:
+                    total_vol = float(sig["volume"].sum())
+                if "signal" in sig.columns:
+                    buy_yes = int((sig["signal"].str.upper() == "BUY_YES").sum())
+                    buy_no = int((sig["signal"].str.upper() == "BUY_NO").sum())
+
+            lines = [
+                f"Asset:      [{asset_color}]{asset.upper()}[/]",
+                f"Regime:     [{regime_color}]{regime}[/]",
+                f"Markets:    [#ffffff]{n_markets}[/]",
+                f"Edges (>3%): [#00ff00]{n_edges}[/]",
+                f"Avg Edge:   [#ffffff]{avg_edge:+.1f}%[/]",
+                f"Volume:     [#ffffff]${total_vol:,.0f}[/]",
+                f"BUY YES:    [#00ff00]{buy_yes}[/]  BUY NO: [#ff5555]{buy_no}[/]",
+            ]
+        else:
+            lines = [
+                f"Asset:      [{asset_color}]{asset.upper()}[/]",
+                f"Mode:       {mode_color}{self.state.mode}[/]",
+                f"Regime:     [{regime_color}]{regime}[/] ({self.state.regime_confidence:.0%})",
+                f"Strategy:   [{strat_color}]{regime_strat or '-'}[/]",
+                f"Models:     [#ffffff]{self.state.ensemble_model_count}[/]",
+                f"Balance:    [#ffffff]${balance:,.2f}[/]",
+                f"Invested:   [#ffffff]${invested:,.2f}[/]",
+                f"Total:      [#ffffff]${total:,.2f}[/]",
+                f"Unrlzd PnL: {upnl_color}${upnl:,.2f}[/]",
+                f"Max Loss:   [#ffffff]{self.state.max_daily_loss * 100:.1f}%[/]",
+            ]
         self.metrics_label.update("\n".join(lines))
 
 

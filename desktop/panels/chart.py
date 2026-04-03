@@ -27,8 +27,10 @@ class ChartPanel(QGroupBox):
             self._plot_widget.getAxis("bottom").setPen("#444444")
             self._plot_widget.getAxis("left").setPen("#444444")
             layout.addWidget(self._plot_widget, 1)
-        except ImportError:
-            fallback = QLabel("pyqtgraph not installed — chart unavailable")
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).warning("pyqtgraph chart init failed: %s", exc)
+            fallback = QLabel(f"Chart unavailable — {type(exc).__name__}: {exc}")
             fallback.setStyleSheet("color: #ff5555;")
             layout.addWidget(fallback, 1)
 

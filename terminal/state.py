@@ -93,6 +93,9 @@ class AppState:
     research_is_running: bool = False
     research_live_progress: Dict[str, Any] = field(default_factory=dict)
 
+    # Polymarket: maps truncated question text → condition_id for chart lookups
+    polymarket_id_map: Dict[str, str] = field(default_factory=dict)
+
     # Per-asset caches — the active asset's data lives in the fields above
     # (signals, consensus_data, etc.). These dicts store background data
     # for inactive asset classes so switching is instant.

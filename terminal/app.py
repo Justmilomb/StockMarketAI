@@ -34,6 +34,7 @@ from terminal.views import (
 )
 from terminal.charts import PriceChartView
 from terminal.history_views import HistoryModal, PiesModal, InstrumentsModal
+from terminal.mode_selector import ModeSelectorModal
 from terminal.pipeline_view import PipelineView
 from pipeline_tracker import PipelineTracker
 
@@ -85,6 +86,7 @@ class TradingTerminalApp(App):  # type: ignore[misc]
         ("2", "switch_asset('polymarket')", "Polymarket"),
         ("3", "switch_asset('crypto')", "Crypto"),
         ("f5", "apply_research", "Apply Research"),
+        ("m", "show_mode_menu", "Mode Menu"),
     ]
 
     def __init__(self, config_path: Path | str = "config.json") -> None:
@@ -217,6 +219,9 @@ class TradingTerminalApp(App):  # type: ignore[misc]
     # ── Lifecycle ──────────────────────────────────────────────────────
 
     def on_mount(self) -> None:  # type: ignore[override]
+        # Show mode selector on startup
+        self.push_screen(ModeSelectorModal(), callback=self._on_mode_selected)
+
         # Restore chat history from DB
         if hasattr(self, 'history_manager'):
             try:
@@ -273,6 +278,15 @@ class TradingTerminalApp(App):  # type: ignore[misc]
             except Exception:
                 pass
 
+    def _on_mode_selected(self, asset_class: Optional[str]) -> None:
+        """Callback from ModeSelectorModal — switch to chosen asset class."""
+        if asset_class and asset_class != self.state.active_asset_class:
+            self.action_switch_asset(asset_class)
+
+    def action_show_mode_menu(self) -> None:
+        """Reopen the mode selector modal."""
+        self.push_screen(ModeSelectorModal(), callback=self._on_mode_selected)
+
     def _get_active_tickers(self) -> List[str]:
         asset = self.state.active_asset_class
         all_tickers: set[str] = set()
@@ -312,9 +326,14 @@ class TradingTerminalApp(App):  # type: ignore[misc]
             return
         from data_loader import _clean_ticker
 
-        watchlists = self.config.get("watchlists", {})
+        # Asset-class-aware watchlist lookup (matches _get_active_tickers pattern)
+        asset = self.state.active_asset_class
+        if asset == "stocks":
+            watchlists = self.config.get("watchlists", {})
+        else:
+            watchlists = self.config.get(asset, {}).setdefault("watchlists", {})
         active = self.state.active_watchlist
-        current = watchlists.get(active, [])
+        current = watchlists.setdefault(active, [])
 
         # Build lookup sets — case-insensitive for both raw and cleaned forms
         existing_raw_upper = {t.upper() for t in current}
@@ -965,30 +984,41 @@ class TradingTerminalApp(App):  # type: ignore[misc]
 
         closes: list = []
 
-        # Try yfinance first
-        try:
-            from data_loader import _clean_ticker
-            yf_ticker = _clean_ticker(ticker)
+        if self.state.active_asset_class == "polymarket":
+            # Polymarket: fetch probability history via condition_id
+            condition_id = self.state.polymarket_id_map.get(ticker, "")
+            if condition_id:
+                try:
+                    from polymarket.data_loader import fetch_market_history
+                    history = fetch_market_history(condition_id)
+                    if not history.empty and "price" in history.columns:
+                        closes = [float(p) for p in history["price"].dropna().tolist()]
+                except Exception as e:
+                    print(f"[chart] polymarket history error: {e}")
+        else:
+            # Stocks/crypto: yfinance
+            try:
+                from data_loader import _clean_ticker
+                yf_ticker = _clean_ticker(ticker)
 
-            import yfinance as yf
-            data = yf.download(yf_ticker, period="3mo", interval="1d", progress=False)
-            if data is not None and not data.empty:
-                if isinstance(data.columns, pd.MultiIndex):
-                    data.columns = data.columns.get_level_values(0)
-                closes = [float(c) for c in data["Close"].dropna().tolist()]
-        except Exception as e:
-            print(f"[chart] yfinance error for {ticker}: {e}")
+                import yfinance as yf
+                data = yf.download(yf_ticker, period="3mo", interval="1d", progress=False)
+                if data is not None and not data.empty:
+                    if isinstance(data.columns, pd.MultiIndex):
+                        data.columns = data.columns.get_level_values(0)
+                    closes = [float(c) for c in data["Close"].dropna().tolist()]
+            except Exception as e:
+                print(f"[chart] yfinance error for {ticker}: {e}")
 
-        # Fallback: if yfinance returned nothing, build a minimal chart from
-        # T212 position data (avg_price → current_price gives at least 2 points)
-        if not closes:
-            for pos in self.state.positions:
-                if pos.get("ticker") == ticker:
-                    avg = pos.get("avg_price", 0)
-                    cur = pos.get("current_price", 0)
-                    if avg > 0 and cur > 0:
-                        closes = [float(avg)] * 5 + [float(cur)]
-                    break
+            # Fallback: T212 position data (avg_price → current_price)
+            if not closes:
+                for pos in self.state.positions:
+                    if pos.get("ticker") == ticker:
+                        avg = pos.get("avg_price", 0)
+                        cur = pos.get("current_price", 0)
+                        if avg > 0 and cur > 0:
+                            closes = [float(avg)] * 5 + [float(cur)]
+                        break
 
         if closes:
             self.call_from_thread(self._update_chart, ticker, closes)
