@@ -28,7 +28,7 @@ from regime import RegimeDetector
 from risk_manager import RiskManager
 from strategy import StrategyConfig, generate_signals
 from strategy_selector import StrategySelector
-from strategy_profiles import load_profiles_from_config, REGIME_DEFAULT_MAPPING
+from strategy_profiles import load_research_profiles, REGIME_DEFAULT_MAPPING
 from timeframe import MultiTimeframeEnsemble
 from types_shared import (
     AssetClass,
@@ -630,7 +630,7 @@ class AiService:
         strategy_profiles_cfg = cfg.get("strategy_profiles", {})
         if strategy_profiles_cfg.get("enabled", False) and regime_state:
             capital = float(cfg.get("capital", 100_000))
-            profiles = load_profiles_from_config(cfg)
+            profiles = load_research_profiles(cfg)
             regime_mapping_raw = strategy_profiles_cfg.get("regime_mapping")
             regime_mapping = dict(REGIME_DEFAULT_MAPPING)
             if regime_mapping_raw:

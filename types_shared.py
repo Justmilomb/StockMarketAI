@@ -109,6 +109,25 @@ class StrategyProfile:
     min_consensus_pct: float
     description: str = ""
 
+    # Model hyperparams — defaults match BacktestConfig defaults
+    ensemble_n_models: int = 12
+    ensemble_stacking: bool = True
+    rf_n_estimators: int = 300
+    rf_max_depth: int = 10
+    xgb_n_estimators: int = 200
+    xgb_max_depth: int = 6
+    xgb_learning_rate: float = 0.1
+    lgbm_n_estimators: int = 200
+    lgbm_num_leaves: int = 31
+    knn_n_neighbors: int = 20
+
+    # Prediction horizons
+    horizons: tuple[int, ...] = (1, 5)
+    horizon_weights: tuple[float, ...] = (0.7, 0.3)
+
+    # Which regimes this profile targets (empty = all)
+    target_regimes: tuple[str, ...] = ()
+
 
 @dataclass
 class StrategyAssignment:

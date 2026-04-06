@@ -13,60 +13,66 @@ from PySide6.QtWidgets import (
 
 
 class ModeSelector(QDialog):
-    """Full-screen-ish dark dialog with 3 large mode buttons."""
+    """Sharp terminal dialog with 3 mode buttons."""
 
     def __init__(self, parent: object = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Blank — Select Mode")
-        self.setFixedSize(420, 400)
+        self.setFixedSize(400, 380)
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
         self.setStyleSheet(
-            "QDialog { background-color: #000000; border: 2px solid #ffb000; }"
+            "QDialog { background-color: #000000; border: 1px solid #444444; }"
         )
 
         self._selected: Optional[str] = None
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(32, 24, 32, 24)
-        layout.setSpacing(16)
+        layout.setContentsMargins(24, 20, 24, 16)
+        layout.setSpacing(8)
 
         # Title
         title = QLabel("BLANK")
         title.setAlignment(Qt.AlignCenter)
         title.setStyleSheet(
             "color: #ffd700; font-size: 32px; font-weight: bold; "
-            "font-family: Consolas, monospace; border: none;",
+            "font-family: Consolas, monospace; border: none; "
+            "letter-spacing: 4px;",
         )
         layout.addWidget(title)
 
-        subtitle = QLabel("Select Trading Mode")
+        subtitle = QLabel("SELECT TRADING MODE")
         subtitle.setAlignment(Qt.AlignCenter)
         subtitle.setStyleSheet(
-            "color: #888888; font-size: 12px; font-family: Consolas, monospace; "
-            "border: none;",
+            "color: #ff8c00; font-size: 11px; "
+            "font-family: Consolas, monospace; border: none; "
+            "letter-spacing: 2px;",
         )
         layout.addWidget(subtitle)
 
-        layout.addSpacing(12)
+        layout.addSpacing(16)
 
         # ── Mode buttons ─────────────────────────────────────────────
         btn_style = (
             "QPushButton {{ "
-            "  background-color: #111111; color: {color}; "
-            "  border: 1px solid #444444; font-size: 16px; "
-            "  font-family: Consolas, monospace; font-weight: bold; "
-            "  padding: 16px; min-height: 40px; "
+            "  background-color: #1a1a1a; color: {color}; "
+            "  border: 1px solid #444444; "
+            "  font-size: 14px; font-weight: bold; "
+            "  font-family: Consolas, monospace; "
+            "  padding: 12px; min-height: 16px; "
             "}} "
-            "QPushButton:hover {{ background-color: #222222; border-color: #ffb000; }} "
+            "QPushButton:hover {{ "
+            "  background-color: #2a2a2a; border-color: #ff8c00; "
+            "}} "
             "QPushButton:pressed {{ background-color: #333333; }}"
         )
 
         btn_disabled_style = (
             "QPushButton { "
-            "  background-color: #0a0a0a; color: #444444; "
-            "  border: 1px solid #222222; font-size: 16px; "
-            "  font-family: Consolas, monospace; font-weight: bold; "
-            "  padding: 16px; min-height: 40px; "
+            "  background-color: #0a0a0a; color: #333333; "
+            "  border: 1px solid #222222; "
+            "  font-size: 14px; font-weight: bold; "
+            "  font-family: Consolas, monospace; "
+            "  padding: 12px; min-height: 16px; "
             "}"
         )
 
@@ -80,20 +86,21 @@ class ModeSelector(QDialog):
         poly_btn.clicked.connect(lambda: self._select("polymarket"))
         layout.addWidget(poly_btn)
 
-        crypto_btn = QPushButton("CRYPTO  (Coming Soon)")
+        crypto_btn = QPushButton("CRYPTO  --  COMING SOON")
         crypto_btn.setStyleSheet(btn_disabled_style)
         crypto_btn.setEnabled(False)
         crypto_btn.setToolTip("Crypto trading is not yet available")
         layout.addWidget(crypto_btn)
 
-        layout.addSpacing(8)
+        layout.addSpacing(12)
 
         # Quit button
-        quit_btn = QPushButton("Quit")
+        quit_btn = QPushButton("QUIT")
         quit_btn.setStyleSheet(
-            "QPushButton { background-color: #0a0a0a; color: #666666; "
-            "  border: 1px solid #333333; font-size: 11px; padding: 6px; } "
-            "QPushButton:hover { color: #ff5555; border-color: #ff5555; }",
+            "QPushButton { background-color: transparent; color: #444444; "
+            "  border: none; font-size: 11px; padding: 4px; "
+            "  font-family: Consolas, monospace; } "
+            "QPushButton:hover { color: #ff0000; }",
         )
         quit_btn.clicked.connect(self.reject)
         layout.addWidget(quit_btn)
@@ -104,7 +111,6 @@ class ModeSelector(QDialog):
 
     def run(self) -> Optional[str]:
         """Show the dialog and return the selected mode, or None if cancelled."""
-        # QDialog modal — shows and blocks until user picks
         _show_modal = getattr(self, "exec")
         result = _show_modal()
         if result == QDialog.Accepted:

@@ -110,7 +110,7 @@ class WatchlistView(Panel):
         }
 
         if self.state.signals is not None and not self.state.signals.empty:
-            for _, row in self.state.signals.head(30).iterrows():
+            for _, row in self.state.signals.head(50).iterrows():
                 ticker = row['ticker']
                 prob_up = float(row['prob_up'])
                 signal = row['signal']
@@ -295,7 +295,7 @@ class WatchlistView(Panel):
         """
         self.state.polymarket_id_map.clear()
         if self.state.signals is not None and not self.state.signals.empty:
-            for _, row in self.state.signals.head(30).iterrows():
+            for _, row in self.state.signals.head(50).iterrows():
                 question = str(row.get("ticker", row.get("question", "?")))
                 condition_id = str(row.get("condition_id", ""))
                 # Truncate long questions
@@ -441,7 +441,7 @@ class OrdersView(Panel):
     def refresh_view(self) -> None:
         self.table.clear()
         if self.state.recent_orders:
-            for order in self.state.recent_orders[-20:]:
+            for order in self.state.recent_orders[-50:]:
                 ticker = order.get('ticker', 'N/A')
                 side = order.get('side', 'N/A')
                 qty = order.get('quantity', 0)

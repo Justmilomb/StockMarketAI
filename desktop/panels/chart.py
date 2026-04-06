@@ -2,12 +2,15 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, List
+from typing import Any
 
 import numpy as np
 from PySide6.QtWidgets import QGroupBox, QLabel, QVBoxLayout
 
 logger = logging.getLogger(__name__)
+
+# Fallback periods if the first one returns no data
+_PERIODS = ["3mo", "6mo", "1mo", "1y"]
 
 
 class ChartPanel(QGroupBox):
@@ -19,7 +22,7 @@ class ChartPanel(QGroupBox):
         layout.setContentsMargins(4, 16, 4, 4)
 
         self._title_label = QLabel("Select a ticker (G)")
-        self._title_label.setStyleSheet("color: #ffb000; font-weight: bold;")
+        self._title_label.setStyleSheet("color: #ff8c00; font-weight: bold;")
         layout.addWidget(self._title_label)
 
         self._price_plot = None
@@ -36,16 +39,16 @@ class ChartPanel(QGroupBox):
             # Price pane (candlestick + SMA)
             self._price_plot = pg.PlotWidget()
             self._price_plot.showGrid(x=True, y=True, alpha=0.15)
-            self._price_plot.getAxis("bottom").setPen("#444444")
-            self._price_plot.getAxis("left").setPen("#444444")
+            self._price_plot.getAxis("bottom").setPen("#333333")
+            self._price_plot.getAxis("left").setPen("#333333")
             self._price_plot.setLabel("left", "Price", color="#888888")
             layout.addWidget(self._price_plot, 4)
 
             # Volume pane
             self._volume_plot = pg.PlotWidget()
             self._volume_plot.showGrid(x=True, y=True, alpha=0.10)
-            self._volume_plot.getAxis("bottom").setPen("#444444")
-            self._volume_plot.getAxis("left").setPen("#444444")
+            self._volume_plot.getAxis("bottom").setPen("#333333")
+            self._volume_plot.getAxis("left").setPen("#333333")
             self._volume_plot.setLabel("left", "Vol", color="#888888")
             self._volume_plot.setMaximumHeight(100)
             layout.addWidget(self._volume_plot, 1)
@@ -67,26 +70,56 @@ class ChartPanel(QGroupBox):
         """Chart updates via load_chart() only."""
 
     def load_chart(self, ticker: str) -> None:
-        """Fetch 3-month OHLCV data and render candlestick chart."""
+        """Fetch OHLCV data via yfinance and render candlestick chart.
+
+        Tries multiple periods as fallback. Handles yfinance MultiIndex
+        columns and NaN values gracefully.
+        """
         self._current_ticker = ticker
         self._title_label.setText(f"CHART - {ticker}")
+        self._info_label.setText("Loading...")
 
         try:
             import yfinance as yf
 
-            data = yf.download(ticker, period="3mo", interval="1d", progress=False)
-            if data.empty:
-                self._info_label.setText("No data available")
+            data = None
+            for period in _PERIODS:
+                try:
+                    df = yf.download(
+                        ticker, period=period, interval="1d",
+                        progress=False, timeout=10,
+                    )
+                    if df is not None and not df.empty and len(df) >= 2:
+                        data = df
+                        break
+                except Exception:
+                    continue
+
+            if data is None or data.empty:
+                self._info_label.setText(f"No data for {ticker}")
                 return
 
-            opens = data["Open"].values.flatten()
-            highs = data["High"].values.flatten()
-            lows = data["Low"].values.flatten()
-            closes = data["Close"].values.flatten()
-            volumes = data["Volume"].values.flatten()
+            # Handle yfinance MultiIndex columns (newer versions)
+            if hasattr(data.columns, "nlevels") and data.columns.nlevels > 1:
+                data.columns = data.columns.droplevel(1)
 
-            if len(closes) == 0:
+            # Extract arrays, drop NaN rows
+            required = ["Open", "High", "Low", "Close", "Volume"]
+            missing = [c for c in required if c not in data.columns]
+            if missing:
+                self._info_label.setText(f"Missing columns: {missing}")
                 return
+
+            data = data[required].dropna()
+            if len(data) < 2:
+                self._info_label.setText(f"Insufficient data for {ticker}")
+                return
+
+            opens = data["Open"].values.astype(float).flatten()
+            highs = data["High"].values.astype(float).flatten()
+            lows = data["Low"].values.astype(float).flatten()
+            closes = data["Close"].values.astype(float).flatten()
+            volumes = data["Volume"].values.astype(float).flatten()
 
             self._draw_candlestick(opens, highs, lows, closes, volumes)
 
@@ -150,7 +183,7 @@ class ChartPanel(QGroupBox):
             g_x = x[green_mask]
             g_bottom = opens[green_mask]
             g_height = closes[green_mask] - opens[green_mask]
-            g_height = np.maximum(g_height, 0.01)  # minimum visible height
+            g_height = np.maximum(g_height, 0.01)
             green_bars = pg.BarGraphItem(
                 x=g_x, y=g_bottom, height=g_height, width=bar_width,
                 brush=pg.mkBrush(0, 180, 0, 200),
@@ -179,7 +212,7 @@ class ChartPanel(QGroupBox):
             if valid.any():
                 self._price_plot.plot(
                     x[valid], sma[valid],
-                    pen=pg.mkPen(color="#ffb000", width=2, style=pg.QtCore.Qt.DashLine),
+                    pen=pg.mkPen(color="#ff8c00", width=2, style=pg.QtCore.Qt.DashLine),
                     name="SMA 20",
                 )
 

@@ -14,8 +14,7 @@ from typing import Any, Dict, List, Optional
 from PySide6.QtCore import Qt, QTimer, Slot
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
-    QGridLayout,
-    QGroupBox,
+    QDockWidget,
     QLabel,
     QMainWindow,
     QStatusBar,
@@ -112,90 +111,147 @@ class MainWindow(QMainWindow):
         self._setup_shortcuts()
         self._setup_timers()
         self._restore_state()
+        self._check_for_updates()
 
     # ══════════════════════════════════════════════════════════════════
     #  UI Construction
     # ══════════════════════════════════════════════════════════════════
 
     def _build_ui(self) -> None:
-        """Create the 3x4 grid layout with all panels."""
+        """Create dockable panel layout with Bloomberg-style arrangement."""
         self.setWindowTitle("Blank")
         self.setMinimumSize(1280, 720)
+        self.setDockNestingEnabled(True)
 
         # ── Menu bar ─────────────────────────────────────────────────
         menu_bar = self.menuBar()
-        file_menu = menu_bar.addMenu("File")
+
+        file_menu = menu_bar.addMenu("&File")
         file_menu.addAction("Import Config...", self._import_config)
         file_menu.addAction("Export Config...", self._export_config)
+        file_menu.addSeparator()
+        file_menu.addAction("Main Menu  (M)", self.action_main_menu)
+        file_menu.addSeparator()
+        file_menu.addAction("Quit  (Q)", self.close)
 
-        # Central widget
-        central = QWidget()
-        self.setCentralWidget(central)
-        root_layout = QVBoxLayout(central)
-        root_layout.setContentsMargins(0, 0, 0, 0)
-        root_layout.setSpacing(0)
+        self._view_menu = menu_bar.addMenu("&View")
 
-        # Header label
+        # Header in menu bar corner
         mode_str = "AUTO" if self.state.mode == "full_auto_limited" else "ADVISOR"
         asset_str = self.state.active_asset_class.upper()
         self._header_label = QLabel(
-            f"  BLANK [{mode_str}] | {asset_str} | CERTIFIED RANDOM",
+            f" BLANK [{mode_str}] | {asset_str} | CERTIFIED RANDOM ",
         )
-        self._header_label.setFixedHeight(28)
         self._header_label.setStyleSheet(
-            "background-color: #0a0a0a; color: #ffb000; font-weight: bold; "
-            "border-bottom: 1px solid #333333; padding-left: 8px;",
+            "color: #ff8c00; font-weight: bold; font-size: 11px; "
+            "background: transparent; padding: 2px 8px;",
         )
-        root_layout.addWidget(self._header_label)
+        menu_bar.setCornerWidget(self._header_label, Qt.TopRightCorner)
 
-        # ── Grid ──────────────────────────────────────────────────────
-        grid_widget = QWidget()
-        grid = QGridLayout(grid_widget)
-        grid.setContentsMargins(0, 0, 0, 0)
-        grid.setSpacing(0)
+        # ── Central widget: Chart (always visible, main focus) ────────
+        self.chart_panel = ChartPanel(self.state)
+        self.setCentralWidget(self.chart_panel)
 
-        # Column stretch: 1fr 2fr 1fr
-        grid.setColumnStretch(0, 1)
-        grid.setColumnStretch(1, 2)
-        grid.setColumnStretch(2, 1)
-
-        # Row stretch: 1fr 1fr 1fr (row 3 is auto-height for pipeline)
-        grid.setRowStretch(0, 1)
-        grid.setRowStretch(1, 1)
-        grid.setRowStretch(2, 1)
-        grid.setRowStretch(3, 0)
-
-        # ── Create panels ─────────────────────────────────────────────
+        # ── Create all panels ─────────────────────────────────────────
         self.settings_panel = SettingsPanel(self.state)
-        self.watchlist_panel = WatchlistPanel(self.state)
         self.chat_panel = ChatPanel(self.state)
+        self.pipeline_panel = PipelinePanel(self.pipeline_tracker)
+        self.watchlist_panel = WatchlistPanel(self.state)
         self.positions_panel = PositionsPanel(self.state)
         self.orders_panel = OrdersPanel(self.state)
-        self.chart_panel = ChartPanel(self.state)
         self.news_panel = NewsPanel(self.state)
-        self.pipeline_panel = PipelinePanel(self.pipeline_tracker)
 
-        # ── Place panels in grid ──────────────────────────────────────
-        # (row, col, rowSpan, colSpan)
-        grid.addWidget(self.settings_panel,   0, 0, 1, 1)  # L1
-        grid.addWidget(self.watchlist_panel,   0, 1, 2, 1)  # C1-2 (span 2 rows)
-        grid.addWidget(self.chat_panel,        0, 2, 2, 1)  # R1-2 (span 2 rows)
-        grid.addWidget(self.positions_panel,   1, 0, 1, 1)  # L2
-        grid.addWidget(self.orders_panel,      2, 0, 1, 1)  # L3
-        grid.addWidget(self.chart_panel,       2, 1, 1, 1)  # C3
-        grid.addWidget(self.news_panel,        2, 2, 1, 1)  # R3
-        grid.addWidget(self.pipeline_panel,    3, 0, 1, 3)  # Row 4, full width
+        from desktop.panels.polymarket_markets import PolymarketPanel
+        self._poly_panel = PolymarketPanel(self.state)
 
-        root_layout.addWidget(grid_widget, 1)
+        # ── Create dock widgets ───────────────────────────────────────
+        self._watchlist_dock = self._make_dock("WATCHLIST", self.watchlist_panel)
+        self._settings_dock = self._make_dock("SETTINGS", self.settings_panel)
+        self._positions_dock = self._make_dock("POSITIONS", self.positions_panel)
+        self._orders_dock = self._make_dock("ORDERS", self.orders_panel)
+        self._chat_dock = self._make_dock("CHAT", self.chat_panel)
+        self._news_dock = self._make_dock("NEWS", self.news_panel)
+        self._pipeline_dock = self._make_dock("PIPELINE", self.pipeline_panel)
+        self._poly_dock = self._make_dock("POLYMARKET", self._poly_panel)
 
-        # ── Status bar (replaces Textual Footer) ──────────────────────
+        # ── Arrange docks ─────────────────────────────────────────────
+        # Top: Watchlist (full width above chart)
+        self.addDockWidget(Qt.TopDockWidgetArea, self._watchlist_dock)
+        self.addDockWidget(Qt.TopDockWidgetArea, self._poly_dock)
+
+        # Left: Settings (top), Positions (bottom)
+        self.addDockWidget(Qt.LeftDockWidgetArea, self._settings_dock)
+        self.addDockWidget(Qt.LeftDockWidgetArea, self._positions_dock)
+
+        # Right: Chat (top), News (bottom)
+        self.addDockWidget(Qt.RightDockWidgetArea, self._chat_dock)
+        self.addDockWidget(Qt.RightDockWidgetArea, self._news_dock)
+
+        # Bottom: Orders | Pipeline (side by side)
+        self.addDockWidget(Qt.BottomDockWidgetArea, self._orders_dock)
+        self.splitDockWidget(self._orders_dock, self._pipeline_dock, Qt.Horizontal)
+
+        # Set initial sizes
+        self.resizeDocks(
+            [self._settings_dock, self._chat_dock], [240, 300], Qt.Horizontal,
+        )
+        self.resizeDocks([self._watchlist_dock], [220], Qt.Vertical)
+        self.resizeDocks([self._orders_dock], [140], Qt.Vertical)
+
+        # Apply mode-specific visibility
+        self._apply_dock_layout()
+
+        # ── Add dock toggle actions to View menu ──────────────────────
+        for dock in [
+            self._watchlist_dock, self._settings_dock, self._positions_dock,
+            self._orders_dock, self._chat_dock, self._news_dock,
+            self._pipeline_dock, self._poly_dock,
+        ]:
+            self._view_menu.addAction(dock.toggleViewAction())
+
+        # ── Status bar ────────────────────────────────────────────────
         status = QStatusBar()
         self.setStatusBar(status)
         self._status_label = QLabel(
-            "  1 Stocks | 2 Poly | 3 Crypto | ? Help | B About | R Refresh | "
-            "A Mode | W Watchlist | T Trade | C Chat | G Chart | H History | Q Quit",
+            "  ? Help | B About | R Refresh | M Menu | A Mode | C Chat | G Chart | Q Quit",
         )
         status.addPermanentWidget(self._status_label, 1)
+
+    def _make_dock(self, title: str, widget: QWidget) -> QDockWidget:
+        """Create a QDockWidget wrapping the given panel."""
+        dock = QDockWidget(title, self)
+        dock.setWidget(widget)
+        dock.setAllowedAreas(
+            Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea
+            | Qt.TopDockWidgetArea | Qt.BottomDockWidgetArea,
+        )
+        dock.setFeatures(
+            QDockWidget.DockWidgetMovable
+            | QDockWidget.DockWidgetFloatable
+            | QDockWidget.DockWidgetClosable,
+        )
+        return dock
+
+    def _apply_dock_layout(self) -> None:
+        """Show/hide docks based on active asset class."""
+        asset = self.state.active_asset_class
+
+        stocks_docks = [
+            self._watchlist_dock, self._positions_dock,
+            self._orders_dock, self._news_dock,
+        ]
+        poly_docks = [self._poly_dock]
+
+        if asset == "polymarket":
+            for d in stocks_docks:
+                d.hide()
+            for d in poly_docks:
+                d.show()
+        else:
+            for d in poly_docks:
+                d.hide()
+            for d in stocks_docks:
+                d.show()
 
     # ══════════════════════════════════════════════════════════════════
     #  Keyboard Shortcuts
@@ -225,6 +281,7 @@ class MainWindow(QMainWindow):
             ("E", self.action_show_instruments),
             ("L", self.action_toggle_protect),
             ("B", self.action_show_about),
+            ("M", self.action_main_menu),
             ("1", lambda: self._switch_asset("stocks")),
             ("2", lambda: self._switch_asset("polymarket")),
             ("3", lambda: self._switch_asset("crypto")),
@@ -272,6 +329,9 @@ class MainWindow(QMainWindow):
         """Load chat history, wire signals, trigger initial data refresh."""
         # Wire chat submission
         self.chat_panel.message_submitted.connect(self._handle_chat_message)
+
+        # Auto-load chart when clicking a watchlist row
+        self.watchlist_panel.table.currentCellChanged.connect(self._on_watchlist_click)
         if self.history_manager:
             try:
                 saved_chat = self.history_manager.load_chat_history(50)
@@ -290,12 +350,53 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
 
+        # Show watchlist tickers immediately (placeholders until pipeline finishes)
+        self._populate_placeholder_signals()
+
         # First launch with default config — prompt user to import
         if self._is_fresh_config:
             QTimer.singleShot(500, self._prompt_first_run_import)
 
         # Initial data fetch
         QTimer.singleShot(100, self.action_refresh_data)
+
+    def _check_for_updates(self) -> None:
+        """Non-blocking update check — shows status bar message if newer version exists."""
+        def _do_check() -> None:
+            try:
+                from desktop.updater import check_for_update
+                update = check_for_update()
+                if update:
+                    ver = update["version"]
+                    url = update.get("download_url", "")
+                    msg = f"  Update v{ver} available"
+                    if url:
+                        msg += f" — {url}"
+                    self._status_label.setText(msg)
+            except Exception:
+                pass
+
+        from desktop.workers import BackgroundTask
+        worker = BackgroundTask(_do_check)
+        worker.start()
+        self._active_workers.append(worker)
+
+    def _populate_placeholder_signals(self) -> None:
+        """Create a minimal signals DataFrame from config tickers.
+
+        This makes the watchlist show ticker names immediately on startup
+        instead of staying empty until the ML pipeline finishes.
+        """
+        tickers = self._get_active_tickers()
+        if tickers and self.state.signals is None:
+            import pandas as pd
+            self.state.signals = pd.DataFrame({
+                "ticker": tickers,
+                "prob_up": [0.5] * len(tickers),
+                "signal": ["HOLD"] * len(tickers),
+                "ai_rec": ["--"] * len(tickers),
+            })
+            self._refresh_all_panels()
 
     # ══════════════════════════════════════════════════════════════════
     #  Data Refresh (main loop)
@@ -396,18 +497,15 @@ class MainWindow(QMainWindow):
     def _refresh_all_panels(self) -> None:
         """Refresh every panel with current state."""
         self.settings_panel.refresh_view(self.state)
+        self.chat_panel.refresh_view(self.state)
         self.watchlist_panel.refresh_view(self.state)
         self.positions_panel.refresh_view(self.state)
         self.orders_panel.refresh_view(self.state)
         self.chart_panel.refresh_view(self.state)
         self.news_panel.refresh_view(self.state)
-        self.chat_panel.refresh_view(self.state)
+        self._poly_panel.refresh_view(self.state)
 
-        # Update header
-        mode_str = "AUTO" if self.state.mode == "full_auto_limited" else "ADVISOR"
-        self._header_label.setText(
-            f"  TERMINAL [{mode_str}] | BLOOMBERG AI CORE",
-        )
+        self._update_header()
 
     # ══════════════════════════════════════════════════════════════════
     #  Action Stubs (will be implemented in Phases 7-9)
@@ -431,6 +529,14 @@ class MainWindow(QMainWindow):
             f"  BLANK [{mode_str}] | {asset_str} | CERTIFIED RANDOM",
         )
 
+    def action_main_menu(self) -> None:
+        """Show mode selector and switch asset class if changed."""
+        from desktop.dialogs.mode_selector import ModeSelector
+        selector = ModeSelector(self)
+        result = selector.run()
+        if result and result != self.state.active_asset_class:
+            self._switch_asset(result)
+
     def _switch_asset(self, asset_class: str) -> None:
         """Switch active asset class (1=stocks, 2=polymarket, 3=crypto)."""
         if asset_class == self.state.active_asset_class:
@@ -447,6 +553,7 @@ class MainWindow(QMainWindow):
         else:
             self.state.active_watchlist = asset_cfg.get("active_watchlist", "")
         self._save_config_key("active_asset_class", asset_class)
+        self._apply_dock_layout()
         self._update_header()
         self._refresh_all_panels()
         self.statusBar().showMessage(f"Switched to {asset_class.title()}", 3000)
@@ -525,7 +632,8 @@ class MainWindow(QMainWindow):
 
     def _on_news_refreshed(self, news_data: Any) -> None:
         self.state.news_sentiment = news_data
-        self.news_panel.refresh_view(self.state)
+        if self.news_panel:
+            self.news_panel.refresh_view(self.state)
         self.statusBar().showMessage("News refreshed", 3000)
 
     @Slot()
@@ -618,16 +726,109 @@ class MainWindow(QMainWindow):
 
         if grades:
             self.state.ai_color_grades = grades
-            self.watchlist_panel.refresh_view(self.state)
+            if self.watchlist_panel:
+                self.watchlist_panel.refresh_view(self.state)
 
     @Slot()
     def action_show_chart(self) -> None:
+        if not self.chart_panel:
+            return
+        if self.watchlist_panel:
+            ticker = self.watchlist_panel.selected_ticker()
+            if ticker:
+                self._load_chart_async(ticker)
+
+    def _on_watchlist_click(self, row: int, col: int, prev_row: int, prev_col: int) -> None:
+        """Auto-load chart when a watchlist row is selected."""
+        if row < 0 or not self.watchlist_panel or not self.chart_panel:
+            return
         ticker = self.watchlist_panel.selected_ticker()
         if ticker:
-            self.chart_panel.load_chart(ticker)
+            self._load_chart_async(ticker)
+
+    def _load_chart_async(self, ticker: str) -> None:
+        """Load chart data in a background thread to avoid freezing the UI."""
+        self.chart_panel._title_label.setText(f"CHART - {ticker} (loading...)")
+        self._run_background(
+            lambda: self._fetch_chart_data(ticker),
+            lambda result: self._on_chart_loaded(ticker, result),
+        )
+
+    def _fetch_chart_data(self, ticker: str) -> dict:
+        """Background: fetch OHLCV data via yfinance with fallback periods."""
+        import yfinance as yf
+
+        periods = ["3mo", "6mo", "1mo", "1y"]
+        for period in periods:
+            try:
+                df = yf.download(
+                    ticker, period=period, interval="1d",
+                    progress=False, timeout=10,
+                )
+                if df is not None and not df.empty and len(df) >= 2:
+                    # Handle MultiIndex columns from newer yfinance
+                    if hasattr(df.columns, "nlevels") and df.columns.nlevels > 1:
+                        df.columns = df.columns.droplevel(1)
+
+                    required = ["Open", "High", "Low", "Close", "Volume"]
+                    missing = [c for c in required if c not in df.columns]
+                    if missing:
+                        continue
+
+                    df = df[required].dropna()
+                    if len(df) < 2:
+                        continue
+
+                    return {
+                        "opens": df["Open"].values.astype(float).flatten(),
+                        "highs": df["High"].values.astype(float).flatten(),
+                        "lows": df["Low"].values.astype(float).flatten(),
+                        "closes": df["Close"].values.astype(float).flatten(),
+                        "volumes": df["Volume"].values.astype(float).flatten(),
+                        "period": period,
+                    }
+            except Exception:
+                continue
+        return {"error": f"No data available for {ticker}"}
+
+    def _on_chart_loaded(self, ticker: str, result: dict) -> None:
+        """Main thread: render chart from fetched data."""
+        if "error" in result:
+            self.chart_panel._title_label.setText(f"CHART - {ticker}")
+            self.chart_panel._info_label.setText(result["error"])
+            return
+
+        self.chart_panel._current_ticker = ticker
+        self.chart_panel._title_label.setText(f"CHART - {ticker}")
+
+        opens = result["opens"]
+        highs = result["highs"]
+        lows = result["lows"]
+        closes = result["closes"]
+        volumes = result["volumes"]
+
+        self.chart_panel._draw_candlestick(opens, highs, lows, closes, volumes)
+
+        cur = closes[-1]
+        prev = opens[0]
+        change_pct = ((cur - prev) / prev * 100) if prev else 0
+        hi = highs.max()
+        lo = lows.min()
+        vol = volumes[-1]
+        color = "#00ff00" if change_pct >= 0 else "#ff0000"
+
+        self.chart_panel._info_label.setText(
+            f"O: ${opens[-1]:.2f} | H: ${hi:.2f} | L: ${lo:.2f} | "
+            f"C: ${cur:.2f} | "
+            f'<span style="color:{color};">{change_pct:+.1f}%</span> | '
+            f"Vol: {vol:,.0f}"
+        )
 
     @Slot()
     def action_open_trade(self) -> None:
+        if not self.watchlist_panel:
+            self.statusBar().showMessage("Trading not available in this mode", 3000)
+            return
         ticker = self.watchlist_panel.selected_ticker()
         if not ticker:
             self.statusBar().showMessage("Select a ticker first", 3000)
@@ -672,6 +873,8 @@ class MainWindow(QMainWindow):
 
     @Slot()
     def action_remove_ticker(self) -> None:
+        if not self.watchlist_panel:
+            return
         ticker = self.watchlist_panel.selected_ticker()
         if not ticker:
             return
@@ -967,6 +1170,8 @@ class MainWindow(QMainWindow):
 
     @Slot()
     def action_toggle_protect(self) -> None:
+        if not self.watchlist_panel:
+            return
         ticker = self.watchlist_panel.selected_ticker()
         if not ticker:
             return

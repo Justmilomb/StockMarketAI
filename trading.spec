@@ -161,5 +161,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=str(Path(PROJECT_ROOT) / 'desktop' / 'assets' / 'icon.ico'),
+    # icon=str(Path(PROJECT_ROOT) / 'desktop' / 'assets' / 'icon.ico'),
 )

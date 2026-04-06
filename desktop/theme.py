@@ -1,7 +1,7 @@
-"""Bloomberg-dark QSS theme for the PySide6 desktop app.
+"""Bloomberg terminal dark theme — sharp, dense, monospace.
 
-Translates the Textual terminal.css aesthetic into Qt Style Sheets.
-Colours: black background, gold/amber text, green/red for signals.
+Pure black backgrounds, bright terminal colours, 0px border-radius,
+Consolas monospace everywhere. Designed for information density.
 """
 
 BLOOMBERG_DARK_QSS = """
@@ -9,69 +9,119 @@ BLOOMBERG_DARK_QSS = """
    Global
    ═══════════════════════════════════════════════════════════════════ */
 
+* {
+    font-family: "Consolas", "Cascadia Mono", "Courier New", monospace;
+    font-size: 12px;
+}
+
 QMainWindow {
     background-color: #000000;
-    color: #ffd700;
+    color: #ff8c00;
 }
 
 QWidget {
     background-color: #000000;
     color: #ffd700;
-    font-family: "Consolas", "Cascadia Mono", "Courier New", monospace;
-    font-size: 12px;
 }
 
 /* ═══════════════════════════════════════════════════════════════════
-   Panels — bordered containers
+   Dock Widgets — movable panel containers
+   ═══════════════════════════════════════════════════════════════════ */
+
+QDockWidget {
+    color: #ff8c00;
+    font-weight: bold;
+    font-size: 11px;
+    border: 1px solid #333333;
+}
+
+QDockWidget::title {
+    background-color: #1a1a1a;
+    color: #ff8c00;
+    padding: 3px 6px;
+    border-bottom: 1px solid #333333;
+    text-align: left;
+}
+
+QDockWidget::close-button, QDockWidget::float-button {
+    background: transparent;
+    border: none;
+    padding: 2px;
+}
+
+QDockWidget::close-button:hover, QDockWidget::float-button:hover {
+    background-color: #333333;
+}
+
+/* Hide QGroupBox titles inside docks — dock title bar is the label */
+QDockWidget QGroupBox {
+    margin-top: 2px;
+    border-top: none;
+}
+
+QDockWidget QGroupBox::title {
+    color: transparent;
+    padding: 0px;
+    margin: 0px;
+    font-size: 1px;
+    max-height: 0px;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   Panels (QGroupBox) — sharp containers
    ═══════════════════════════════════════════════════════════════════ */
 
 QGroupBox {
-    border: 1px solid #444444;
+    border: 1px solid #333333;
     border-radius: 0px;
     margin-top: 14px;
-    padding: 8px 4px 4px 4px;
-    background-color: #000000;
+    padding: 4px 2px 2px 2px;
+    background-color: #0a0a0a;
 }
 
 QGroupBox::title {
     subcontrol-origin: margin;
-    subcontrol-position: top center;
-    padding: 0 6px;
-    color: #ffb000;
+    subcontrol-position: top left;
+    padding: 1px 6px;
+    color: #ff8c00;
     font-weight: bold;
-    background-color: #000000;
+    font-size: 10px;
+    background-color: #0a0a0a;
 }
 
 /* ═══════════════════════════════════════════════════════════════════
-   Data Tables
+   Data Tables — dense, sharp
    ═══════════════════════════════════════════════════════════════════ */
 
 QTableWidget {
     background-color: #000000;
     color: #ffd700;
-    gridline-color: #1a1a1a;
-    border: none;
-    selection-background-color: #333333;
+    gridline-color: #222222;
+    border: 1px solid #333333;
+    border-radius: 0px;
+    selection-background-color: #1a2a3a;
     selection-color: #ffffff;
     alternate-background-color: #0a0a0a;
 }
 
 QHeaderView::section {
     background-color: #1a1a1a;
-    color: #ffb000;
+    color: #ff8c00;
     font-weight: bold;
+    font-size: 10px;
     border: none;
-    border-bottom: 1px solid #444444;
-    padding: 4px 6px;
+    border-right: 1px solid #333333;
+    border-bottom: 1px solid #333333;
+    padding: 3px 4px;
 }
 
 QTableWidget::item {
-    padding: 2px 6px;
+    padding: 1px 4px;
     border: none;
 }
 
 QTableWidget::item:selected {
-    background-color: #333333;
+    background-color: #1a2a3a;
     color: #ffffff;
 }
 
@@ -88,16 +138,8 @@ QLabel {
     background-color: transparent;
 }
 
-QLabel[panelTitle="true"] {
-    color: #ffb000;
-    font-weight: bold;
-    border-bottom: 1px solid #444444;
-    padding-bottom: 4px;
-    margin-bottom: 4px;
-}
-
 /* ═══════════════════════════════════════════════════════════════════
-   Inputs
+   Inputs — sharp, dark
    ═══════════════════════════════════════════════════════════════════ */
 
 QLineEdit {
@@ -105,66 +147,69 @@ QLineEdit {
     color: #ffffff;
     border: 1px solid #444444;
     border-radius: 0px;
-    padding: 4px 8px;
+    padding: 3px 6px;
 }
 
 QLineEdit:focus {
-    border-color: #ffb000;
+    border-color: #ff8c00;
 }
 
 /* ═══════════════════════════════════════════════════════════════════
-   Buttons
+   Buttons — sharp, dense
    ═══════════════════════════════════════════════════════════════════ */
 
 QPushButton {
     background-color: #1a1a1a;
-    color: #ffb000;
+    color: #ff8c00;
     border: 1px solid #444444;
     border-radius: 0px;
-    padding: 4px 12px;
-    min-height: 22px;
+    padding: 4px 10px;
+    min-height: 20px;
+    font-weight: bold;
 }
 
 QPushButton:hover {
-    background-color: #333333;
-    border-color: #ffb000;
+    background-color: #2a2a2a;
+    border-color: #ff8c00;
 }
 
 QPushButton:pressed {
-    background-color: #444444;
+    background-color: #333333;
 }
 
 QPushButton:disabled {
-    color: #666666;
-    border-color: #333333;
+    color: #444444;
+    border-color: #222222;
+    background-color: #0a0a0a;
 }
 
 /* ═══════════════════════════════════════════════════════════════════
-   ComboBox / Select
+   ComboBox
    ═══════════════════════════════════════════════════════════════════ */
 
 QComboBox {
     background-color: #111111;
     color: #ffffff;
     border: 1px solid #444444;
-    padding: 4px 8px;
+    border-radius: 0px;
+    padding: 3px 6px;
 }
 
 QComboBox:hover {
-    border-color: #ffb000;
+    border-color: #ff8c00;
 }
 
 QComboBox::drop-down {
     border: none;
-    width: 20px;
+    width: 16px;
 }
 
 QComboBox QAbstractItemView {
     background-color: #111111;
     color: #ffffff;
-    selection-background-color: #333333;
+    selection-background-color: #1a2a3a;
     selection-color: #ffffff;
-    border: 1px solid #444444;
+    border: 1px solid #333333;
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -175,27 +220,27 @@ QDoubleSpinBox, QSpinBox {
     background-color: #111111;
     color: #ffffff;
     border: 1px solid #444444;
-    padding: 4px 8px;
+    border-radius: 0px;
+    padding: 3px 6px;
 }
 
 /* ═══════════════════════════════════════════════════════════════════
-   ScrollBars (thin, dark)
+   ScrollBars — thin, sharp
    ═══════════════════════════════════════════════════════════════════ */
 
 QScrollBar:vertical {
     background-color: #0a0a0a;
-    width: 8px;
+    width: 10px;
     margin: 0;
 }
 
 QScrollBar::handle:vertical {
     background-color: #333333;
     min-height: 20px;
-    border-radius: 4px;
 }
 
 QScrollBar::handle:vertical:hover {
-    background-color: #555555;
+    background-color: #444444;
 }
 
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
@@ -204,14 +249,13 @@ QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
 
 QScrollBar:horizontal {
     background-color: #0a0a0a;
-    height: 8px;
+    height: 10px;
     margin: 0;
 }
 
 QScrollBar::handle:horizontal {
     background-color: #333333;
     min-width: 20px;
-    border-radius: 4px;
 }
 
 QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
@@ -219,7 +263,7 @@ QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
 }
 
 /* ═══════════════════════════════════════════════════════════════════
-   Progress Bars (pipeline)
+   Progress Bars
    ═══════════════════════════════════════════════════════════════════ */
 
 QProgressBar {
@@ -228,8 +272,8 @@ QProgressBar {
     border-radius: 0px;
     text-align: center;
     color: #ffd700;
-    min-height: 14px;
-    max-height: 14px;
+    min-height: 12px;
+    max-height: 12px;
 }
 
 QProgressBar::chunk {
@@ -241,9 +285,9 @@ QProgressBar::chunk {
    ═══════════════════════════════════════════════════════════════════ */
 
 QDialog {
-    background-color: #111111;
+    background-color: #0a0a0a;
     color: #ffd700;
-    border: 1px solid #ffb000;
+    border: 1px solid #444444;
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -251,23 +295,23 @@ QDialog {
    ═══════════════════════════════════════════════════════════════════ */
 
 QTabWidget::pane {
-    border: 1px solid #444444;
-    background-color: #000000;
+    border: 1px solid #333333;
+    background-color: #0a0a0a;
 }
 
 QTabBar::tab {
     background-color: #111111;
     color: #888888;
-    border: 1px solid #444444;
+    border: 1px solid #333333;
     border-bottom: none;
-    padding: 6px 16px;
-    min-width: 80px;
+    padding: 4px 12px;
+    min-width: 60px;
 }
 
 QTabBar::tab:selected {
-    background-color: #000000;
-    color: #ffb000;
-    border-bottom: 2px solid #ffb000;
+    background-color: #0a0a0a;
+    color: #ff8c00;
+    border-bottom: 2px solid #ff8c00;
 }
 
 QTabBar::tab:hover {
@@ -282,8 +326,8 @@ QTabBar::tab:hover {
 QTextEdit {
     background-color: #000000;
     color: #ffd700;
-    border: none;
-    selection-background-color: #333333;
+    border: 1px solid #333333;
+    selection-background-color: #1a2a3a;
     selection-color: #ffffff;
 }
 
@@ -293,7 +337,7 @@ QTextEdit {
 
 QStatusBar {
     background-color: #0a0a0a;
-    color: #ffb000;
+    color: #ff8c00;
     border-top: 1px solid #333333;
     font-size: 11px;
 }
@@ -303,27 +347,42 @@ QStatusBar::item {
 }
 
 /* ═══════════════════════════════════════════════════════════════════
-   Menu Bar (if used later)
+   Menu Bar
    ═══════════════════════════════════════════════════════════════════ */
 
 QMenuBar {
     background-color: #0a0a0a;
-    color: #ffb000;
+    color: #ff8c00;
     border-bottom: 1px solid #333333;
 }
 
+QMenuBar::item {
+    padding: 4px 8px;
+}
+
 QMenuBar::item:selected {
-    background-color: #333333;
+    background-color: #1a1a1a;
 }
 
 QMenu {
     background-color: #111111;
     color: #ffd700;
-    border: 1px solid #444444;
+    border: 1px solid #333333;
+    padding: 2px;
+}
+
+QMenu::item {
+    padding: 4px 16px;
 }
 
 QMenu::item:selected {
+    background-color: #1a2a3a;
+}
+
+QMenu::separator {
+    height: 1px;
     background-color: #333333;
+    margin: 2px 4px;
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -333,7 +392,7 @@ QMenu::item:selected {
 QToolTip {
     background-color: #1a1a1a;
     color: #ffd700;
-    border: 1px solid #444444;
+    border: 1px solid #333333;
     padding: 4px;
 }
 """
@@ -341,40 +400,40 @@ QToolTip {
 # Colour constants reused by panel code for per-cell colouring
 COLORS = {
     "gold": "#ffd700",
-    "amber": "#ffb000",
+    "amber": "#ff8c00",
     "green": "#00ff00",
     "red": "#ff0000",
     "cyan": "#00bfff",
     "white": "#ffffff",
     "gray": "#888888",
-    "dark_gray": "#666666",
+    "dark_gray": "#555555",
     "bg_dark": "#000000",
     "bg_panel": "#0a0a0a",
     "bg_input": "#111111",
     "bg_header": "#1a1a1a",
-    "bg_selected": "#333333",
-    "border": "#444444",
+    "bg_selected": "#1a2a3a",
+    "border": "#333333",
 }
 
-# Strategy profile colours (matching terminal/views.py)
+# Strategy profile colours
 STRATEGY_COLORS = {
     "conservative": "#888888",
-    "day_trader": "#00cccc",
-    "swing": "#cccc00",
-    "crisis_alpha": "#ff4444",
-    "trend_follower": "#00cc00",
+    "day_trader": "#00ff00",
+    "swing": "#ffd700",
+    "crisis_alpha": "#ff0000",
+    "trend_follower": "#00bfff",
 }
 
 # Signal/verdict colours
 SIGNAL_COLORS = {
     "BUY": "#00ff00",
     "SELL": "#ff0000",
-    "HOLD": "#ffb000",
+    "HOLD": "#ffd700",
 }
 
 VERDICT_COLORS = {
     "GREEN": "#00ff00",
     "RED": "#ff0000",
     "ORANGE": "#ff8c00",
-    "AMBER": "#ffb000",
+    "AMBER": "#ffd700",
 }

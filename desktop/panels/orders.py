@@ -22,7 +22,7 @@ class OrdersPanel(QGroupBox):
         self.refresh_view(state)
 
     def refresh_view(self, state: Any) -> None:
-        orders = (state.recent_orders or [])[:20]
+        orders = (state.recent_orders or [])[:50]
         self.table.setRowCount(len(orders))
         for row, order in enumerate(orders):
             side = order.get("side", "")

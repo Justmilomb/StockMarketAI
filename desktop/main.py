@@ -88,17 +88,26 @@ def main() -> None:
     pixmap.fill(QColor("#000000"))
     painter = QPainter(pixmap)
 
+    # App name
     painter.setFont(QFont("Consolas", 48, QFont.Bold))
     painter.setPen(QColor("#ffd700"))
     painter.drawText(pixmap.rect(), Qt.AlignCenter, "BLANK")
 
-    painter.setFont(QFont("Consolas", 14))
-    painter.setPen(QColor("#ffb000"))
-    subtitle_rect = pixmap.rect().adjusted(0, 80, 0, 80)
-    painter.drawText(subtitle_rect, Qt.AlignCenter, "Certified Random")
+    # Gold accent line under title
+    painter.setPen(QColor("#ff8c00"))
+    cx = pixmap.width() // 2
+    cy = pixmap.height() // 2 + 32
+    painter.drawLine(cx - 80, cy, cx + 80, cy)
 
+    # Subtitle
+    painter.setFont(QFont("Consolas", 12))
+    painter.setPen(QColor("#ff8c00"))
+    subtitle_rect = pixmap.rect().adjusted(0, 80, 0, 80)
+    painter.drawText(subtitle_rect, Qt.AlignCenter, "CERTIFIED RANDOM")
+
+    # Loading text
     painter.setFont(QFont("Consolas", 10))
-    painter.setPen(QColor("#888888"))
+    painter.setPen(QColor("#555555"))
     painter.drawText(
         pixmap.rect().adjusted(0, 0, 0, -20),
         Qt.AlignBottom | Qt.AlignHCenter,
@@ -113,9 +122,8 @@ def main() -> None:
     # ── Mode selector ────────────────────────────────────────────────
     from desktop.dialogs.mode_selector import ModeSelector
 
-    splash.showMessage(
-        "Select mode...", Qt.AlignBottom | Qt.AlignHCenter, QColor("#888888"),
-    )
+    # Hide splash so it doesn't overlap the mode selector
+    splash.close()
     app.processEvents()
 
     selector = ModeSelector()
@@ -123,7 +131,8 @@ def main() -> None:
     if selector_result is None:
         sys.exit(0)
 
-    # ── Main window ──────────────────────────────────────────────────
+    # ── Re-show splash while loading ─────────────────────────────────
+    splash.show()
     splash.showMessage(
         "Initialising services...", Qt.AlignBottom | Qt.AlignHCenter, QColor("#888888"),
     )

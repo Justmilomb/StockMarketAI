@@ -42,6 +42,39 @@ class BacktestEngine:
         self._config = config
 
     # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    def _get_model_params(self) -> Dict[str, Any]:
+        """Get model hyperparams — from active profile config or flat BacktestConfig."""
+        if self._config.active_profile and self._config.active_profile in self._config.profile_configs:
+            model = self._config.profile_configs[self._config.active_profile].get("model", {})
+            return {
+                "ensemble_n_models": int(model.get("ensemble_n_models", self._config.ensemble_n_models)),
+                "ensemble_stacking": bool(model.get("ensemble_stacking", self._config.ensemble_stacking)),
+                "rf_n_estimators": int(model.get("rf_n_estimators", self._config.rf_n_estimators)),
+                "rf_max_depth": int(model.get("rf_max_depth", self._config.rf_max_depth)),
+                "xgb_n_estimators": int(model.get("xgb_n_estimators", self._config.xgb_n_estimators)),
+                "xgb_max_depth": int(model.get("xgb_max_depth", self._config.xgb_max_depth)),
+                "xgb_learning_rate": float(model.get("xgb_learning_rate", self._config.xgb_learning_rate)),
+                "lgbm_n_estimators": int(model.get("lgbm_n_estimators", self._config.lgbm_n_estimators)),
+                "lgbm_num_leaves": int(model.get("lgbm_num_leaves", self._config.lgbm_num_leaves)),
+                "knn_n_neighbors": int(model.get("knn_n_neighbors", self._config.knn_n_neighbors)),
+            }
+        return {
+            "ensemble_n_models": self._config.ensemble_n_models,
+            "ensemble_stacking": self._config.ensemble_stacking,
+            "rf_n_estimators": self._config.rf_n_estimators,
+            "rf_max_depth": self._config.rf_max_depth,
+            "xgb_n_estimators": self._config.xgb_n_estimators,
+            "xgb_max_depth": self._config.xgb_max_depth,
+            "xgb_learning_rate": self._config.xgb_learning_rate,
+            "lgbm_n_estimators": self._config.lgbm_n_estimators,
+            "lgbm_num_leaves": self._config.lgbm_num_leaves,
+            "knn_n_neighbors": self._config.knn_n_neighbors,
+        }
+
+    # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
@@ -147,6 +180,9 @@ class BacktestEngine:
 
             self._config.initial_capital = original_capital
 
+        # Detect regime for this fold's training period
+        detected_regime = self._detect_simple_regime(universe_data, split.train_end)
+
         return FoldResult(
             fold_id=split.fold_id,
             split=split,
@@ -159,6 +195,7 @@ class BacktestEngine:
             recall=recall,
             n_predictions=n_predictions,
             n_correct=n_correct,
+            detected_regime=detected_regime,
         )
 
     # ------------------------------------------------------------------
@@ -214,20 +251,21 @@ class BacktestEngine:
                     meta_rows.append({"ticker": ticker, "date": idx_val})
             meta_df = pd.DataFrame(meta_rows)
 
+            mp = self._get_model_params()
             ens_config = EnsembleConfig(
-                n_models=self.config.ensemble_n_models,
-                stacking_enabled=self.config.ensemble_stacking,
+                n_models=mp["ensemble_n_models"],
+                stacking_enabled=mp["ensemble_stacking"],
                 model_dir="",
             )
             model = EnsembleModel(ens_config, model_overrides={
-                "rf_n_estimators": self.config.rf_n_estimators,
-                "rf_max_depth": self.config.rf_max_depth,
-                "xgb_n_estimators": self.config.xgb_n_estimators,
-                "xgb_max_depth": self.config.xgb_max_depth,
-                "xgb_learning_rate": self.config.xgb_learning_rate,
-                "lgbm_n_estimators": self.config.lgbm_n_estimators,
-                "lgbm_num_leaves": self.config.lgbm_num_leaves,
-                "knn_n_neighbors": self.config.knn_n_neighbors,
+                "rf_n_estimators": mp["rf_n_estimators"],
+                "rf_max_depth": mp["rf_max_depth"],
+                "xgb_n_estimators": mp["xgb_n_estimators"],
+                "xgb_max_depth": mp["xgb_max_depth"],
+                "xgb_learning_rate": mp["xgb_learning_rate"],
+                "lgbm_n_estimators": mp["lgbm_n_estimators"],
+                "lgbm_num_leaves": mp["lgbm_num_leaves"],
+                "knn_n_neighbors": mp["knn_n_neighbors"],
             })
             model.train(X, y, meta_df, feature_cols)
             return model, feature_cols
@@ -390,11 +428,45 @@ class BacktestEngine:
         # -- Per-ticker strategy overrides (regime-aware) -------------------
         per_ticker_overrides: Dict[str, Dict[str, float]] | None = None
 
-        if self._config.use_strategy_selector:
+        # Profile-aware mode: apply the active profile's params uniformly
+        if self._config.active_profile and self._config.active_profile in self._config.profile_configs:
+            pcfg = self._config.profile_configs[self._config.active_profile]
+            strat = pcfg.get("strategy", {})
+            risk = pcfg.get("risk", {})
+            per_ticker_overrides = {
+                ticker: {
+                    "threshold_buy": strat.get("threshold_buy", self._config.threshold_buy),
+                    "threshold_sell": strat.get("threshold_sell", self._config.threshold_sell),
+                    "position_size_fraction": strat.get("position_size_fraction", self._config.position_size_fraction),
+                    "atr_stop_multiplier": risk.get("atr_stop_multiplier", self._config.atr_stop_multiplier),
+                    "atr_profit_multiplier": risk.get("atr_profit_multiplier", self._config.atr_profit_multiplier),
+                    "max_positions": strat.get("max_positions", self._config.max_positions),
+                    "strategy_profile": self._config.active_profile,
+                }
+                for ticker in test_feats
+            }
+
+        elif self._config.use_strategy_selector:
             try:
                 from strategy_selector import StrategySelector
                 from strategy_profiles import DEFAULT_PROFILES, REGIME_DEFAULT_MAPPING
-                from types_shared import RegimeState, ConsensusResult
+                from types_shared import RegimeState, ConsensusResult, StrategyProfile
+
+                # Build profiles — use overrides from research if available
+                profiles = dict(DEFAULT_PROFILES)
+                if self._config.strategy_profiles_override:
+                    valid_fields = {f.name for f in StrategyProfile.__dataclass_fields__.values()}
+                    for pname, override_cfg in self._config.strategy_profiles_override.items():
+                        if pname not in profiles or not isinstance(override_cfg, dict):
+                            continue
+                        base = {k: getattr(profiles[pname], k) for k in valid_fields}
+                        for section in ("strategy", "risk", "model"):
+                            sub = override_cfg.get(section, {})
+                            if isinstance(sub, dict):
+                                for k, v in sub.items():
+                                    if k in valid_fields and k != "name":
+                                        base[k] = v
+                        profiles[pname] = StrategyProfile(**base)
 
                 # Detect regime from training-period data
                 regime_str = self._detect_simple_regime(universe_data, split.train_end)
@@ -431,7 +503,7 @@ class BacktestEngine:
                     )
 
                 selector = StrategySelector(
-                    profiles=DEFAULT_PROFILES,
+                    profiles=profiles,
                     capital=self._config.initial_capital,
                 )
                 assignments = selector.select_strategies(regime_state, consensus_dict)
@@ -521,12 +593,20 @@ class BacktestEngine:
         universe_data: Dict[str, pd.DataFrame],
         as_of: date,
     ) -> str:
-        """Simple regime detection from price data (no RegimeDetector dependency).
+        """Regime detection from price data using per-ticker trend/vol metrics.
 
-        Looks at a broad market proxy or average of all tickers to classify
-        the regime as trending_up, trending_down, or range_bound.
+        Classifies each ticker independently over a 40-day lookback, then
+        votes across the universe. This produces more varied regime labels
+        across folds than averaging all returns into one bucket.
         """
-        returns_all: List[float] = []
+        votes: Dict[str, int] = {
+            "trending_up": 0,
+            "trending_down": 0,
+            "high_volatility": 0,
+            "mean_reverting": 0,
+        }
+        n_tickers = 0
+
         for df in universe_data.values():
             idx = df.index
             if hasattr(idx, 'date'):
@@ -534,28 +614,40 @@ class BacktestEngine:
             else:
                 mask = idx <= pd.Timestamp(as_of)
             sliced = df.loc[mask]
-            if len(sliced) < 60:
+            if len(sliced) < 40:
                 continue
-            closes = pd.to_numeric(sliced["Close"], errors="coerce").dropna().values[-60:]
-            if len(closes) < 10:
+            closes = pd.to_numeric(sliced["Close"], errors="coerce").dropna().values[-40:]
+            if len(closes) < 20:
                 continue
-            rets = np.diff(closes) / np.maximum(closes[:-1], 1e-8)
-            returns_all.extend(rets.tolist())
 
-        if not returns_all:
+            rets = np.diff(closes) / np.maximum(closes[:-1], 1e-8)
+            avg_ret = float(np.mean(rets))
+            vol = float(np.std(rets))
+            n_tickers += 1
+
+            # Trend-to-noise ratio: is the trend large relative to noise?
+            trend_ratio = abs(avg_ret) / max(vol, 1e-8)
+
+            if vol > 0.025:
+                votes["high_volatility"] += 1
+            elif trend_ratio > 0.08 and avg_ret > 0:
+                votes["trending_up"] += 1
+            elif trend_ratio > 0.08 and avg_ret < 0:
+                votes["trending_down"] += 1
+            else:
+                votes["mean_reverting"] += 1
+
+        if n_tickers == 0:
             return "unknown"
 
-        avg_return = float(np.mean(returns_all))
-        vol = float(np.std(returns_all))
+        # Winner takes all — regime with most votes
+        winner = max(votes, key=votes.get)  # type: ignore[arg-type]
 
-        if avg_return > 0.001 and vol < 0.025:
-            return "trending_up"
-        elif avg_return < -0.001 and vol < 0.025:
-            return "trending_down"
-        elif vol >= 0.025:
-            return "high_volatility"
-        else:
-            return "range_bound"
+        # Require at least 30% of tickers to agree, otherwise "unknown"
+        if votes[winner] < n_tickers * 0.3:
+            return "unknown"
+
+        return winner
 
 
 # ---------------------------------------------------------------------------

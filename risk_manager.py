@@ -20,7 +20,7 @@ _DEFAULT_CONFIG: Dict[str, float | int | bool] = {
     "drawdown_threshold": 0.10,
     "drawdown_size_reduction": 0.5,
     "min_position_dollars": 1.0,
-    "max_open_positions": 10,
+    "max_open_positions": 20,
     "cash_buffer_pct": 0.05,
     "fractional_shares": True,
 }
@@ -324,6 +324,10 @@ class RiskManager:
         """
         orders: List[Dict[str, Any]] = []
 
+        # Work on copies so intra-batch tracking doesn't corrupt caller state
+        positions = list(positions)
+        account = dict(account)
+
         # Build a quick lookup of held tickers → position details
         held_map: Dict[str, Dict[str, Any]] = {}
         for pos in positions:
@@ -418,6 +422,16 @@ class RiskManager:
                     "take_profit": assessment.take_profit,
                 }
             )
+
+            # Track this pending order so subsequent BUYs see updated position count
+            synthetic = {
+                "ticker": ticker,
+                "quantity": assessment.position_size_shares,
+                "currentValue": assessment.position_size_dollars,
+                "price": price,
+            }
+            positions.append(synthetic)
+            held_map[ticker] = synthetic
 
         return orders
 

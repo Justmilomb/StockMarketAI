@@ -9,10 +9,10 @@ COLUMNS = ["Ticker", "Verdict", "Live Px", "Day %", "Prob", "Signal", "AI Rec", 
 
 STRATEGY_COLORS = {
     "conservative": "#888888",
-    "day_trader": "#00cccc",
-    "swing": "#cccc00",
-    "crisis_alpha": "#ff4444",
-    "trend_follower": "#00cc00",
+    "day_trader": "#00ff00",
+    "swing": "#ffd700",
+    "crisis_alpha": "#ff0000",
+    "trend_follower": "#00bfff",
 }
 
 def compute_verdict(prob: float, consensus_pct: float) -> str:
@@ -28,7 +28,7 @@ def compute_verdict(prob: float, consensus_pct: float) -> str:
 VERDICT_COLORS = {
     "GREEN": "#00ff00",
     "RED": "#ff0000",
-    "AMBER": "#ffb000",
+    "AMBER": "#ffd700",
     "ORANGE": "#ff8c00",
     "NEUTRAL": "#888888",
 }
@@ -36,7 +36,7 @@ VERDICT_COLORS = {
 SIGNAL_COLORS = {
     "BUY": "#00ff00",
     "SELL": "#ff0000",
-    "HOLD": "#ffb000",
+    "HOLD": "#ffd700",
 }
 
 class WatchlistPanel(QGroupBox):
@@ -155,7 +155,7 @@ class WatchlistPanel(QGroupBox):
             self.table.setItem(r, 9, _item(f"{sent_score:+.2f}" if sent_score else "--", s_color))
 
             # Strategy
-            st_color = STRATEGY_COLORS.get(strat_name, "#aaaaaa")
+            st_color = STRATEGY_COLORS.get(strat_name, "#888888")
             self.table.setItem(r, 10, _item(strat_name or "-", st_color))
 
             # Held row highlight
@@ -163,7 +163,7 @@ class WatchlistPanel(QGroupBox):
                 for col in range(len(COLUMNS)):
                     item = self.table.item(r, col)
                     if item:
-                        item.setBackground(QColor("#0a1a2a"))
+                        item.setBackground(QColor("#111111"))
 
 
 def _item(text: str, color: str) -> QTableWidgetItem:

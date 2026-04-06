@@ -69,6 +69,10 @@ class BacktestConfig:
     use_strategy_selector: bool = False
     strategy_profiles_override: Dict[str, Any] = field(default_factory=dict)
 
+    # -- Profile-aware optimization --------------------------------------------
+    active_profile: str = ""          # empty = legacy flat config mode
+    profile_configs: Dict[str, Any] = field(default_factory=dict)
+
 
 # ---------------------------------------------------------------------------
 # Walk-forward split
@@ -157,6 +161,9 @@ class FoldResult:
     recall: float = 0.0
     n_predictions: int = 0
     n_correct: int = 0
+
+    # Regime detected during this fold's training period
+    detected_regime: str = "unknown"
 
 
 # ---------------------------------------------------------------------------
