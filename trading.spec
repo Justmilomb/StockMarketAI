@@ -1,10 +1,10 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller spec for StockMarketAI desktop app.
+"""PyInstaller spec for Blank desktop app.
 
 Build:
     pyinstaller trading.spec --clean
 
-Output: dist/trading.exe
+Output: dist/blank.exe
 """
 
 import sys
@@ -100,13 +100,10 @@ a = Analysis(
         'consensus',
         'regime',
         'timeframe',
-        'meta_ensemble',
         'forecaster_statistical',
-        'forecaster_deep',
         'types_shared',
         'asset_registry',
         'terminal.state',
-        'mirofish',
         # Multi-asset packages
         'crypto',
         'crypto.types',
@@ -124,6 +121,8 @@ a = Analysis(
         'polymarket.regime',
         'polymarket.broker',
         'polymarket.strategy',
+        'polymarket.mirofish',
+        'polymarket.research',
     ],
     hookspath=[],
     hooksconfig={},
@@ -149,7 +148,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='trading',
+    name='blank',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -162,5 +161,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    # icon=str(Path(PROJECT_ROOT) / 'desktop' / 'assets' / 'icon.ico'),
+    icon=str(Path(PROJECT_ROOT) / 'desktop' / 'assets' / 'icon.ico'),
 )

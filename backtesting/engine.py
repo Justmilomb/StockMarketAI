@@ -214,8 +214,21 @@ class BacktestEngine:
                     meta_rows.append({"ticker": ticker, "date": idx_val})
             meta_df = pd.DataFrame(meta_rows)
 
-            ens_config = EnsembleConfig(n_models=12, stacking_enabled=True, model_dir="")
-            model = EnsembleModel(ens_config)
+            ens_config = EnsembleConfig(
+                n_models=self.config.ensemble_n_models,
+                stacking_enabled=self.config.ensemble_stacking,
+                model_dir="",
+            )
+            model = EnsembleModel(ens_config, model_overrides={
+                "rf_n_estimators": self.config.rf_n_estimators,
+                "rf_max_depth": self.config.rf_max_depth,
+                "xgb_n_estimators": self.config.xgb_n_estimators,
+                "xgb_max_depth": self.config.xgb_max_depth,
+                "xgb_learning_rate": self.config.xgb_learning_rate,
+                "lgbm_n_estimators": self.config.lgbm_n_estimators,
+                "lgbm_num_leaves": self.config.lgbm_num_leaves,
+                "knn_n_neighbors": self.config.knn_n_neighbors,
+            })
             model.train(X, y, meta_df, feature_cols)
             return model, feature_cols
         except Exception as e:

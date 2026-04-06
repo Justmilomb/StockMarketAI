@@ -39,7 +39,14 @@
       "Bash(.venvScriptsactivate.bat)",
       "Bash(.venv\\\\Scripts\\\\python.exe -c \"from data_loader import sanitise_ohlcv; import pandas as pd; df = pd.DataFrame\\({'Close': [1,2,3], 'Open': [1,2,3], 'High': [1,2,3], 'Low': [1,2,3], 'Volume': [100,200,300]}\\); print\\(sanitise_ohlcv\\(df\\)\\)\" 2>&1)",
       "Bash(ls:*)",
-      "Bash(find /e/Coding/StockMarketAI/terminal -type f -name *.py)"
+      "Bash(find /e/Coding/StockMarketAI/terminal -type f -name *.py)",
+      "Bash(tasklist)",
+      "Bash(wmic process:*)",
+      "Bash(taskkill //F //PID 17776)",
+      "Bash(taskkill //F //PID 14092)",
+      "Bash(taskkill //F //PID 1012)",
+      "Bash(taskkill //F //PID 21552)",
+      "Bash(taskkill //F //PID 9364)"
     ]
   }
 }

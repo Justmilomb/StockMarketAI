@@ -81,6 +81,9 @@ class AiService:
     # Expose latest features for auto_engine risk manager
     _last_features_df: pd.DataFrame | None = None
 
+    # Latest news sentiment data
+    _last_news_data: Dict[str, Any] = field(default_factory=dict)
+
     # Strategy selector assignments for TUI display
     _last_strategy_assignments: Dict[str, Any] = field(default_factory=dict)
 
@@ -270,7 +273,7 @@ class AiService:
         client = self._get_claude_client(cfg)
         suggestion = client.suggest_ticker(current_tickers)
         if suggestion and suggestion not in current_tickers:
-            watchlists[active].append(suggestion)
+            watchlists.setdefault(active, []).append(suggestion)
             cfg["watchlists"] = watchlists
             with self.config_path.open("w", encoding="utf-8") as f:
                 json.dump(cfg, f, indent=2)
@@ -782,12 +785,15 @@ class AiService:
         max_markets = poly_cfg.max_markets if poly_cfg else 20
         use_claude = poly_cfg.use_claude if poly_cfg else True
 
-        # 1. Fetch markets
+        # 1. Fetch markets (filtered by first configured category)
+        categories = poly_cfg.categories if poly_cfg else []
+        category = categories[0] if categories else None
         self._track("start_stage", "data_fetch", max_markets)
         events = poly_dl.fetch_markets(
             active_only=True,
             min_volume=min_volume,
             limit=max_markets,
+            category=category,
         )
         self._track("complete_stage", "data_fetch", f"{len(events)} markets")
 
@@ -801,7 +807,7 @@ class AiService:
         features_list: List[Dict[str, float]] = []
         for i, event in enumerate(events):
             token_id = event.tokens.get("Yes", "")
-            history = poly_dl.fetch_market_history(event.condition_id) if event.condition_id else pd.DataFrame()
+            history = poly_dl.fetch_market_history(event.condition_id, token_id) if event.condition_id else pd.DataFrame()
             orderbook = poly_dl.fetch_orderbook(token_id) if token_id else {"bids": [], "asks": []}
             feat = poly_feat.build_event_features(event, history, orderbook)
             features_list.append(feat)

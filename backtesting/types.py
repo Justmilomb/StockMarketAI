@@ -46,6 +46,18 @@ class BacktestConfig:
     use_mirofish: bool = False        # Kept for backward compat with existing database records
     mirofish_n_sims: int = 8          # Fewer sims in backtest for speed
 
+    # -- Ensemble hyperparameters (agent-tuneable) ----------------------------
+    ensemble_n_models: int = 12
+    ensemble_stacking: bool = True
+    rf_n_estimators: int = 300
+    rf_max_depth: int = 10
+    xgb_n_estimators: int = 200
+    xgb_max_depth: int = 6
+    xgb_learning_rate: float = 0.1
+    lgbm_n_estimators: int = 200
+    lgbm_num_leaves: int = 31
+    knn_n_neighbors: int = 20
+
     # -- Execution ------------------------------------------------------------
     n_processes: int | None = None    # None = all cores
     mode: Literal["fast", "full"] = "full"

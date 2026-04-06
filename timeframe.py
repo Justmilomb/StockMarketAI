@@ -20,8 +20,8 @@ from types_shared import EnsembleConfig, ModelSignal
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_HORIZONS: List[int] = [1, 5, 20]
-_DEFAULT_WEIGHTS: Dict[int, float] = {1: 0.5, 5: 0.3, 20: 0.2}
+_DEFAULT_HORIZONS: List[int] = [1, 5]
+_DEFAULT_WEIGHTS: Dict[int, float] = {1: 0.7, 5: 0.3}
 
 
 # ---------------------------------------------------------------------------

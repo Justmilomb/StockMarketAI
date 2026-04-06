@@ -190,7 +190,8 @@ def _compute_momentum_features(price_history: pd.DataFrame) -> Dict[str, float]:
         # Simple OLS slope: cov(x,y) / var(x)
         x_mean = x.mean()
         y_mean = y.mean()
-        slope = float(np.sum((x - x_mean) * (y - y_mean)) / np.sum((x - x_mean) ** 2))
+        denom = np.sum((x - x_mean) ** 2)
+        slope = float(np.sum((x - x_mean) * (y - y_mean)) / denom) if denom > 0 else 0.0
         features["price_trend_slope"] = slope
     else:
         features["price_trend_slope"] = 0.0

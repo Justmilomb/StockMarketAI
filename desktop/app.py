@@ -32,18 +32,24 @@ from desktop.panels.chat import ChatPanel
 from desktop.panels.news import NewsPanel
 from desktop.panels.chart import ChartPanel
 from desktop.panels.pipeline import PipelinePanel
+from desktop.dialogs.about import AboutDialog
 from desktop.workers import BackgroundTask, RefreshWorker
 
 
 class MainWindow(QMainWindow):
     """Bloomberg-style trading terminal window."""
 
-    def __init__(self, config_path: Path | str = "config.json") -> None:
+    def __init__(
+        self,
+        config_path: Path | str = "config.json",
+        initial_asset: str = "stocks",
+    ) -> None:
         super().__init__()
         self.config_path = resolve_config_path(config_path)
         self.config: Dict[str, Any] = load_config(self.config_path)
         self._is_fresh_config = self._detect_fresh_config()
         self.state = init_state(self.config)
+        self.state.active_asset_class = initial_asset
 
         # ── Services ──────────────────────────────────────────────────
         from ai_service import AiService
@@ -85,7 +91,8 @@ class MainWindow(QMainWindow):
                 self._claude_client, refresh_interval_minutes=news_interval,
             )
         except Exception as e:
-            print(f"[desktop] Could not init Claude/news: {e}")
+            import logging
+            logging.getLogger(__name__).warning("Could not init Claude/news: %s", e)
 
         self.state.broker_is_live = self.broker_service.is_live
 
@@ -112,7 +119,7 @@ class MainWindow(QMainWindow):
 
     def _build_ui(self) -> None:
         """Create the 3x4 grid layout with all panels."""
-        self.setWindowTitle("StockMarketAI Terminal")
+        self.setWindowTitle("Blank")
         self.setMinimumSize(1280, 720)
 
         # ── Menu bar ─────────────────────────────────────────────────
@@ -132,7 +139,7 @@ class MainWindow(QMainWindow):
         mode_str = "AUTO" if self.state.mode == "full_auto_limited" else "ADVISOR"
         asset_str = self.state.active_asset_class.upper()
         self._header_label = QLabel(
-            f"  TERMINAL [{mode_str}] | {asset_str} | BLOOMBERG AI CORE",
+            f"  BLANK [{mode_str}] | {asset_str} | CERTIFIED RANDOM",
         )
         self._header_label.setFixedHeight(28)
         self._header_label.setStyleSheet(
@@ -185,8 +192,8 @@ class MainWindow(QMainWindow):
         status = QStatusBar()
         self.setStatusBar(status)
         self._status_label = QLabel(
-            "  1 Stocks | 2 Poly | 3 Crypto | ? Help | R Refresh | A Mode | "
-            "W Watchlist | T Trade | C Chat | G Chart | H History | Q Quit",
+            "  1 Stocks | 2 Poly | 3 Crypto | ? Help | B About | R Refresh | "
+            "A Mode | W Watchlist | T Trade | C Chat | G Chart | H History | Q Quit",
         )
         status.addPermanentWidget(self._status_label, 1)
 
@@ -217,6 +224,7 @@ class MainWindow(QMainWindow):
             ("P", self.action_show_pies),
             ("E", self.action_show_instruments),
             ("L", self.action_toggle_protect),
+            ("B", self.action_show_about),
             ("1", lambda: self._switch_asset("stocks")),
             ("2", lambda: self._switch_asset("polymarket")),
             ("3", lambda: self._switch_asset("crypto")),
@@ -408,14 +416,19 @@ class MainWindow(QMainWindow):
     @Slot()
     def action_show_help(self) -> None:
         from desktop.dialogs.help import HelpDialog
-        HelpDialog(self).exec()
+        dlg = HelpDialog(self)
+        dlg.open()
+
+    def action_show_about(self) -> None:
+        dlg = AboutDialog(self)
+        dlg.open()
 
     @Slot()
     def _update_header(self) -> None:
         mode_str = "AUTO" if self.state.mode == "full_auto_limited" else "ADVISOR"
         asset_str = self.state.active_asset_class.upper()
         self._header_label.setText(
-            f"  TERMINAL [{mode_str}] | {asset_str} | BLOOMBERG AI CORE",
+            f"  BLANK [{mode_str}] | {asset_str} | CERTIFIED RANDOM",
         )
 
     def _switch_asset(self, asset_class: str) -> None:

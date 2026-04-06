@@ -105,6 +105,7 @@ class PolymarketBroker(Broker):
         order_type: str = "market",
         limit_price: Optional[float] = None,
         stop_price: Optional[float] = None,
+        token_id: Optional[str] = None,
     ) -> Dict[str, str | float | int | None]:
         """Submit an order to Polymarket.
 
@@ -115,6 +116,9 @@ class PolymarketBroker(Broker):
             order_type: "market" or "limit".
             limit_price: Required for limit orders (probability price 0-1).
             stop_price: Not supported on Polymarket (ignored).
+            token_id: The CLOB token ID for the outcome being traded.
+                      If None, falls back to ticker (condition_id) which
+                      may not work with the CLOB API.
         """
         try:
             client = self._get_client()
@@ -139,7 +143,7 @@ class PolymarketBroker(Broker):
             price = limit_price if limit_price is not None else 0.5
 
             order_args = {
-                "token_id": ticker,
+                "token_id": token_id if token_id else ticker,
                 "price": price,
                 "size": quantity,
                 "side": order_side,

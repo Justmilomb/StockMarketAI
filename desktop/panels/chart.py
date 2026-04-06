@@ -1,10 +1,17 @@
-"""Chart panel — pyqtgraph price chart with dark theme."""
+"""Chart panel — candlestick + volume chart with pyqtgraph."""
 from __future__ import annotations
+
+import logging
 from typing import Any, List
+
+import numpy as np
 from PySide6.QtWidgets import QGroupBox, QLabel, QVBoxLayout
 
+logger = logging.getLogger(__name__)
+
+
 class ChartPanel(QGroupBox):
-    """Price chart using pyqtgraph (falls back to text if unavailable)."""
+    """OHLC candlestick chart with volume bars and 20-day SMA."""
 
     def __init__(self, state: Any) -> None:
         super().__init__("CHART")
@@ -15,21 +22,40 @@ class ChartPanel(QGroupBox):
         self._title_label.setStyleSheet("color: #ffb000; font-weight: bold;")
         layout.addWidget(self._title_label)
 
-        self._plot_widget = None
+        self._price_plot = None
+        self._volume_plot = None
+        self._has_pyqtgraph = False
         self._info_label = QLabel("")
         self._info_label.setStyleSheet("color: #888888; font-size: 11px;")
 
         try:
             import pyqtgraph as pg
+
             pg.setConfigOptions(background="#000000", foreground="#ffd700", antialias=True)
-            self._plot_widget = pg.PlotWidget()
-            self._plot_widget.showGrid(x=True, y=True, alpha=0.15)
-            self._plot_widget.getAxis("bottom").setPen("#444444")
-            self._plot_widget.getAxis("left").setPen("#444444")
-            layout.addWidget(self._plot_widget, 1)
+
+            # Price pane (candlestick + SMA)
+            self._price_plot = pg.PlotWidget()
+            self._price_plot.showGrid(x=True, y=True, alpha=0.15)
+            self._price_plot.getAxis("bottom").setPen("#444444")
+            self._price_plot.getAxis("left").setPen("#444444")
+            self._price_plot.setLabel("left", "Price", color="#888888")
+            layout.addWidget(self._price_plot, 4)
+
+            # Volume pane
+            self._volume_plot = pg.PlotWidget()
+            self._volume_plot.showGrid(x=True, y=True, alpha=0.10)
+            self._volume_plot.getAxis("bottom").setPen("#444444")
+            self._volume_plot.getAxis("left").setPen("#444444")
+            self._volume_plot.setLabel("left", "Vol", color="#888888")
+            self._volume_plot.setMaximumHeight(100)
+            layout.addWidget(self._volume_plot, 1)
+
+            # Link X axes
+            self._volume_plot.setXLink(self._price_plot)
+
+            self._has_pyqtgraph = True
         except Exception as exc:
-            import logging
-            logging.getLogger(__name__).warning("pyqtgraph chart init failed: %s", exc)
+            logger.warning("pyqtgraph chart init failed: %s", exc)
             fallback = QLabel(f"Chart unavailable — {type(exc).__name__}: {exc}")
             fallback.setStyleSheet("color: #ff5555;")
             layout.addWidget(fallback, 1)
@@ -38,43 +64,140 @@ class ChartPanel(QGroupBox):
         self._current_ticker = ""
 
     def refresh_view(self, state: Any) -> None:
-        """Update chart info label if data is loaded."""
-        pass  # Chart updates via load_chart() only
+        """Chart updates via load_chart() only."""
 
     def load_chart(self, ticker: str) -> None:
-        """Fetch 3-month data and render line chart."""
+        """Fetch 3-month OHLCV data and render candlestick chart."""
         self._current_ticker = ticker
         self._title_label.setText(f"CHART - {ticker}")
 
         try:
             import yfinance as yf
+
             data = yf.download(ticker, period="3mo", interval="1d", progress=False)
             if data.empty:
                 self._info_label.setText("No data available")
                 return
 
-            closes = data["Close"].values.flatten().tolist()
-            if not closes:
+            opens = data["Open"].values.flatten()
+            highs = data["High"].values.flatten()
+            lows = data["Low"].values.flatten()
+            closes = data["Close"].values.flatten()
+            volumes = data["Volume"].values.flatten()
+
+            if len(closes) == 0:
                 return
 
-            if self._plot_widget:
-                self._plot_widget.clear()
-                self._plot_widget.plot(
-                    closes,
-                    pen={"color": "#00bfff", "width": 2},
-                )
+            self._draw_candlestick(opens, highs, lows, closes, volumes)
 
-            open_px = closes[0]
-            cur_px = closes[-1]
-            change_pct = ((cur_px - open_px) / open_px * 100) if open_px else 0
+            cur = closes[-1]
+            prev = opens[0]
+            change_pct = ((cur - prev) / prev * 100) if prev else 0
+            hi = highs.max()
+            lo = lows.min()
+            vol = volumes[-1]
             color = "#00ff00" if change_pct >= 0 else "#ff0000"
+
             self._info_label.setText(
-                f"Open: ${open_px:.2f} | Current: ${cur_px:.2f} | "
-                f'<span style="color:{color};">Change: {change_pct:+.1f}%</span> | '
-                f"Points: {len(closes)}"
+                f"O: ${opens[-1]:.2f} | H: ${hi:.2f} | L: ${lo:.2f} | "
+                f"C: ${cur:.2f} | "
+                f'<span style="color:{color};">{change_pct:+.1f}%</span> | '
+                f"Vol: {vol:,.0f}"
             )
         except Exception as e:
+            logger.warning("Chart load failed for %s: %s", ticker, e)
             self._info_label.setText(f"Chart error: {e}")
+
+    def _draw_candlestick(
+        self,
+        opens: np.ndarray,
+        highs: np.ndarray,
+        lows: np.ndarray,
+        closes: np.ndarray,
+        volumes: np.ndarray,
+    ) -> None:
+        """Render OHLC candlestick bars, SMA, and volume."""
+        if not self._has_pyqtgraph:
+            return
+
+        import pyqtgraph as pg
+
+        self._price_plot.clear()
+        self._volume_plot.clear()
+
+        n = len(closes)
+        x = np.arange(n, dtype=np.float64)
+        bar_width = 0.6
+
+        green = (0, 200, 0)
+        red = (200, 0, 0)
+
+        # ── Candlestick wicks (high-low lines) ──────────────────────
+        for i in range(n):
+            colour = green if closes[i] >= opens[i] else red
+            pen = pg.mkPen(color=colour, width=1)
+            self._price_plot.plot(
+                [float(i), float(i)],
+                [float(lows[i]), float(highs[i])],
+                pen=pen,
+            )
+
+        # ── Candlestick bodies (bar items) ───────────────────────────
+        green_mask = closes >= opens
+        red_mask = ~green_mask
+
+        if green_mask.any():
+            g_x = x[green_mask]
+            g_bottom = opens[green_mask]
+            g_height = closes[green_mask] - opens[green_mask]
+            g_height = np.maximum(g_height, 0.01)  # minimum visible height
+            green_bars = pg.BarGraphItem(
+                x=g_x, y=g_bottom, height=g_height, width=bar_width,
+                brush=pg.mkBrush(0, 180, 0, 200),
+                pen=pg.mkPen(0, 200, 0),
+            )
+            self._price_plot.addItem(green_bars)
+
+        if red_mask.any():
+            r_x = x[red_mask]
+            r_bottom = closes[red_mask]
+            r_height = opens[red_mask] - closes[red_mask]
+            r_height = np.maximum(r_height, 0.01)
+            red_bars = pg.BarGraphItem(
+                x=r_x, y=r_bottom, height=r_height, width=bar_width,
+                brush=pg.mkBrush(180, 0, 0, 200),
+                pen=pg.mkPen(200, 0, 0),
+            )
+            self._price_plot.addItem(red_bars)
+
+        # ── 20-day SMA overlay ───────────────────────────────────────
+        if n >= 20:
+            import pandas as pd
+
+            sma = pd.Series(closes).rolling(20).mean().values
+            valid = ~np.isnan(sma)
+            if valid.any():
+                self._price_plot.plot(
+                    x[valid], sma[valid],
+                    pen=pg.mkPen(color="#ffb000", width=2, style=pg.QtCore.Qt.DashLine),
+                    name="SMA 20",
+                )
+
+        # ── Volume bars ──────────────────────────────────────────────
+        if self._volume_plot is not None and len(volumes) > 0:
+            vol_green_mask = closes >= opens
+            vol_colours = [
+                pg.mkBrush(0, 150, 0, 150) if vol_green_mask[i]
+                else pg.mkBrush(150, 0, 0, 150)
+                for i in range(n)
+            ]
+            for i in range(n):
+                bar = pg.BarGraphItem(
+                    x=[float(i)], height=[float(volumes[i])],
+                    width=bar_width, brush=vol_colours[i],
+                    pen=pg.mkPen(None),
+                )
+                self._volume_plot.addItem(bar)
 
     def selected_ticker(self) -> str:
         return self._current_ticker

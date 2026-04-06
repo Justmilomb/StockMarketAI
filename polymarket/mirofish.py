@@ -122,7 +122,7 @@ class MiroFishSimulator:
         if brief.estimates and n_research > 0:
             per_specialist = max(1, n_research // len(brief.estimates))
             for est in brief.estimates:
-                count = min(per_specialist, n_research - (idx - 0))
+                count = min(per_specialist, n_research - idx)
                 if count <= 0:
                     break
                 # Lower confidence → more noise (wider distribution)

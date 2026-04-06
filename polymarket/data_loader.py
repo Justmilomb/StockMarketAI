@@ -40,15 +40,27 @@ def fetch_markets(
 ) -> List[PolymarketEvent]:
     """Fetch prediction markets from the Gamma API.
 
+    Uses the /events endpoint when a category is specified (tag_slug
+    filtering only works on events, not individual markets).  Falls
+    back to /markets when no category is given.
+
     Args:
         active_only: Only return markets that are still open.
         min_volume: Minimum 24h volume in USD.
         limit: Maximum number of markets to return.
-        category: Optional category filter (e.g. "politics", "crypto").
+        category: Optional category filter (e.g. "crypto").
 
     Returns:
         List of PolymarketEvent dataclasses sorted by 24h volume desc.
     """
+    if category:
+        return _fetch_via_events(
+            category=category,
+            active_only=active_only,
+            min_volume=min_volume,
+            limit=limit,
+        )
+
     params: Dict[str, str | int | bool] = {
         "limit": limit,
         "order": "volume24hr",
@@ -57,8 +69,6 @@ def fetch_markets(
     if active_only:
         params["active"] = "true"
         params["closed"] = "false"
-    if category:
-        params["tag"] = category
 
     raw_markets = _gamma_get("/markets", params)
     if raw_markets is None:
@@ -80,20 +90,76 @@ def fetch_markets(
     return events
 
 
-def fetch_market_history(condition_id: str) -> pd.DataFrame:
+def _fetch_via_events(
+    category: str,
+    active_only: bool = True,
+    min_volume: float = 0,
+    limit: int = _DEFAULT_LIMIT,
+) -> List[PolymarketEvent]:
+    """Fetch markets via the /events endpoint which supports tag_slug filtering."""
+    params: Dict[str, str | int | bool] = {
+        "tag_slug": category,
+        "limit": limit,
+        "order": "volume24hr",
+        "ascending": "false",
+    }
+    if active_only:
+        params["active"] = "true"
+        params["closed"] = "false"
+
+    raw_events = _gamma_get("/events", params)
+    if raw_events is None:
+        return []
+
+    events: List[PolymarketEvent] = []
+    raw_markets_flat: List[dict] = []
+
+    for raw_event in raw_events:
+        nested_markets = raw_event.get("markets", [])
+        if not nested_markets:
+            continue
+
+        for m in nested_markets:
+            # Inherit category from the event's tag
+            m.setdefault("groupSlug", category)
+
+            try:
+                event = _parse_market(m)
+            except (KeyError, ValueError, TypeError) as exc:
+                logger.debug("Skipping malformed market: %s", exc)
+                continue
+
+            raw_markets_flat.append(m)
+
+            if active_only and event.closed:
+                continue
+            if event.volume_24h >= min_volume:
+                events.append(event)
+
+    # Sort by volume descending and cap at limit
+    events.sort(key=lambda e: e.volume_24h, reverse=True)
+    events = events[:limit]
+
+    _cache_write("markets_latest.json", raw_markets_flat)
+    logger.info("Fetched %d Polymarket events via /events (category=%s)", len(events), category)
+    return events
+
+
+def fetch_market_history(condition_id: str, token_id: str = "") -> pd.DataFrame:
     """Fetch YES-token price timeseries for a single market.
 
+    Uses the CLOB API with the token_id (not Gamma API which returns 404
+    for most markets).  Falls back to cached data if the API call fails.
+
     Returns a DataFrame with columns: timestamp, price (YES probability).
-    Falls back to cached data if the API call fails.
     """
     cache_key = f"history_{condition_id}.json"
-    params: Dict[str, str | int] = {
-        "market": condition_id,
-        "interval": "max",
-        "fidelity": 60,  # 1-hour candles
-    }
 
-    raw = _gamma_get("/prices-history", params)
+    if token_id:
+        raw = _clob_get_history(token_id)
+    else:
+        raw = None
+
     if raw is None:
         cached = _cache_read(cache_key)
         if cached is not None:
@@ -102,6 +168,19 @@ def fetch_market_history(condition_id: str) -> pd.DataFrame:
 
     _cache_write(cache_key, raw)
     return _history_to_dataframe(raw)
+
+
+def _clob_get_history(token_id: str) -> Optional[list | dict]:
+    """Fetch price history from the CLOB API using the token ID."""
+    url = f"{CLOB_API_BASE}/prices-history"
+    params = {"market": token_id, "interval": "max", "fidelity": 60}
+    try:
+        resp = requests.get(url, params=params, timeout=_REQUEST_TIMEOUT)
+        resp.raise_for_status()
+        return resp.json()
+    except (requests.RequestException, json.JSONDecodeError) as exc:
+        logger.debug("CLOB price-history failed for token %s: %s", token_id[:20], exc)
+        return None
 
 
 def fetch_orderbook(token_id: str) -> Dict[str, List[Dict[str, float]]]:

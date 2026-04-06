@@ -67,7 +67,7 @@ class NewsAgent:
         try:
             self._fetch_all()
         except Exception as e:
-            print(f"[news_agent] Immediate fetch error: {e}")
+            logger.warning("Immediate fetch error: %s", e)
 
     def _run_loop(self) -> None:
         # Fetch immediately on start, then sleep-and-repeat
@@ -120,7 +120,8 @@ class NewsAgent:
                     title = entry.get("title", "").strip()
                     if title and title not in headlines:
                         headlines.append(title)
-            except Exception:
+            except Exception as exc:
+                logger.debug("RSS fetch failed for %s: %s", url, exc)
                 continue
         return headlines[:8]
 
@@ -181,14 +182,11 @@ class NewsAgent:
                             headlines=headlines[:5],
                             last_updated=datetime.utcnow(),
                         )
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        logger.debug("Sentiment parse failed for %s: %s", ticker, exc)
 
     def _analyze_sentiment(self, ticker: str, headlines: List[str]) -> Dict[str, Any]:
         if self.ai_client is None:
             return {"sentiment": 0.0, "summary": "No AI client available."}
         return self.ai_client.analyze_news(ticker, headlines)
 
-    def fetch_now(self) -> None:
-        """Force an immediate fetch (called from a worker thread)."""
-        self._fetch_all()

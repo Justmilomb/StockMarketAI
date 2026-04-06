@@ -57,13 +57,11 @@
   "timeframes": {
     "horizons": [
       1,
-      5,
-      20
+      5
     ],
     "weights": {
       "1": 0.7,
-      "5": 0.2,
-      "20": 0.1
+      "5": 0.3
     }
   },
   "regime": {
@@ -95,9 +93,6 @@
     "enabled": true,
     "personas": [
       "technical",
-      "fundamental",
-      "momentum",
-      "contrarian",
       "risk"
     ]
   },
@@ -141,7 +136,8 @@
   },
   "active_asset_class": "stocks",
   "enabled_asset_classes": [
-    "stocks"
+    "stocks",
+    "polymarket"
   ],
   "crypto": {
     "enabled": false,
@@ -197,7 +193,7 @@
     }
   },
   "polymarket": {
-    "enabled": false,
+    "enabled": true,
     "api_url": "https://clob.polymarket.com",
     "gamma_api_url": "https://gamma-api.polymarket.com",
     "private_key_env": "POLYMARKET_PRIVATE_KEY",
@@ -219,7 +215,7 @@
       "max_open_positions": 15
     },
     "max_markets": 20,
-    "categories": ["crypto", "politics", "sports", "science"],
+    "categories": ["crypto"],
     "model": {
       "calibration_method": "platt_scaling",
       "use_claude": true

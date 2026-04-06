@@ -132,15 +132,12 @@ class ClaudeClient:
 
             return output
         except subprocess.TimeoutExpired:
-            print(f"[claude_client] Timeout after {timeout}s on {model}")
             logger.warning("claude CLI timed out after %ds on %s", timeout, model)
             return ""
         except subprocess.CalledProcessError as e:
-            print(f"[claude_client] CLI error: {e}")
             logger.warning("claude CLI process error: %s", e)
             return ""
         except Exception as e:
-            print(f"[claude_client] Unexpected error: {e}")
             logger.warning("Unexpected error calling claude CLI: %s", e)
             return ""
 
@@ -206,7 +203,7 @@ class ClaudeClient:
             p_up = float(obj.get("p_up", 0.5))
             reason = str(obj.get("reason", "No explanation provided."))
         except Exception as e:
-            print(f"[claude_client] Signal error for {ticker}: {e}")
+            logger.warning("Signal error for %s: %s", ticker, e)
             p_up = 0.5
             reason = f"AI Error: {e}"
 
@@ -521,7 +518,7 @@ class ClaudeClient:
             if text and len(text) <= 5 and text.isalpha():
                 return text
         except Exception as e:
-            print(f"Error getting ticker suggestion: {e}")
+            logger.warning("Error getting ticker suggestion: %s", e)
         return ""
 
     def recommend_tickers(
@@ -555,7 +552,7 @@ class ClaudeClient:
                     if r.get("ticker")
                 ]
         except Exception as e:
-            print(f"Error getting recommendations: {e}")
+            logger.warning("Error getting recommendations: %s", e)
         return []
 
     def search_tickers(self, query: str) -> List[Dict[str, str]]:
@@ -585,7 +582,7 @@ class ClaudeClient:
                     if r.get("ticker")
                 ]
         except Exception as e:
-            print(f"Error searching tickers: {e}")
+            logger.warning("Error searching tickers: %s", e)
         return []
 
     def analyze_portfolio(self, positions: List[Dict[str, Any]], signals_df: Any) -> str:

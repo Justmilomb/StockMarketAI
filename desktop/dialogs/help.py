@@ -3,7 +3,7 @@ from __future__ import annotations
 from PySide6.QtWidgets import QDialog, QPushButton, QTextEdit, QVBoxLayout
 
 HELP_TEXT = """
-<h3 style="color:#ffb000;">StockMarketAI Terminal — Keyboard Shortcuts</h3>
+<h3 style="color:#ffb000;">Blank — Keyboard Shortcuts</h3>
 <table style="color:#ffd700; width:100%;">
 <tr><td style="color:#00ff00; width:60px;">?</td><td>Show this help</td></tr>
 <tr><td style="color:#00ff00;">Q</td><td>Quit</td></tr>
@@ -25,6 +25,7 @@ HELP_TEXT = """
 <tr><td style="color:#00ff00;">P</td><td>Show investment pies</td></tr>
 <tr><td style="color:#00ff00;">E</td><td>Browse instruments</td></tr>
 <tr><td style="color:#00ff00;">L</td><td>Lock/unlock ticker (protect from auto-trade)</td></tr>
+<tr><td style="color:#00ff00;">B</td><td>About Blank</td></tr>
 </table>
 """
 

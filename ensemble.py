@@ -315,12 +315,44 @@ class EnsembleModel:
     soft vote.
     """
 
-    def __init__(self, config: EnsembleConfig | None = None) -> None:
+    def __init__(
+        self,
+        config: EnsembleConfig | None = None,
+        model_overrides: Dict[str, int | float] | None = None,
+    ) -> None:
         self._config: EnsembleConfig = config or EnsembleConfig()
+        self._model_overrides: Dict[str, int | float] = model_overrides or {}
         self._models: List[_ModelEntry] = []
         self._weights: List[float] = []
         # Cache the most recent per-model predictions for weight updates
         self._last_predictions: Dict[str, Dict[str, float]] = {}  # model_name -> {ticker: prob}
+
+    # ------------------------------------------------------------------
+    # Hyperparameter overrides from research agent
+    # ------------------------------------------------------------------
+
+    _OVERRIDE_MAP: Dict[str, tuple] = {
+        # key_prefix: (model_name_prefix, hyperparam_name)
+        "rf_n_estimators": ("rf_", "n_estimators"),
+        "rf_max_depth": ("rf_", "max_depth"),
+        "xgb_n_estimators": ("xgb_", "n_estimators"),
+        "xgb_max_depth": ("xgb_", "max_depth"),
+        "xgb_learning_rate": ("xgb_", "learning_rate"),
+        "lgbm_n_estimators": ("lgbm_", "n_estimators"),
+        "lgbm_num_leaves": ("lgbm_", "num_leaves"),
+        "knn_n_neighbors": ("knn_", "n_neighbors"),
+    }
+
+    def _apply_overrides(self, specs: List[ModelSpec]) -> None:
+        """Apply research agent hyperparameter overrides to model specs."""
+        for key, value in self._model_overrides.items():
+            mapping = self._OVERRIDE_MAP.get(key)
+            if not mapping:
+                continue
+            prefix, param_name = mapping
+            for spec in specs:
+                if spec.name.startswith(prefix):
+                    spec.hyperparams[param_name] = value
 
     # ------------------------------------------------------------------
     # Training
@@ -339,6 +371,8 @@ class EnsembleModel:
         initialises equal weights.
         """
         specs = generate_diverse_specs(n_models=self._config.n_models)
+        if self._model_overrides:
+            self._apply_overrides(specs)
         save_dir = Path(self._config.model_dir) if self._config.model_dir else None
 
         self._models = []
