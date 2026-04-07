@@ -152,6 +152,15 @@ class TradeSimulator:
             if high >= pos.take_profit:
                 fill_price = pos.take_profit
                 self._close_position(ticker, current_date, fill_price, "take_profit")
+                continue
+
+            # Trailing stop: ratchet stop_loss upward as price rises
+            trail_atr = self._config.trailing_stop_atr
+            if trail_atr > 0:
+                atr_est = (high - low) if (high - low) > 0 else pos.entry_price * 0.02
+                new_stop = price_data["close"] - trail_atr * atr_est
+                if new_stop > pos.stop_loss:
+                    pos.stop_loss = new_stop
 
     def _process_sells(
         self,
@@ -218,6 +227,14 @@ class TradeSimulator:
             size_fraction = overrides.get(
                 "position_size_fraction", self._config.position_size_fraction,
             )
+
+            # Confidence-based sizing: scale fraction by signal strength
+            if self._config.confidence_sizing:
+                # prob ranges ~0.5-1.0 after threshold; map to 0.5-1.5x multiplier
+                confidence_mult = 0.5 + (prob - 0.5) * 2.0
+                confidence_mult = max(0.5, min(confidence_mult, 1.5))
+                size_fraction *= confidence_mult
+
             equity = self._cash + sum(
                 prices.get(t, {}).get("close", p.entry_price) * p.quantity
                 for t, p in self._positions.items()

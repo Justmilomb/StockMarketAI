@@ -65,6 +65,11 @@ class BacktestConfig:
     max_holding_bars: int | None = None  # Auto-exit after N bars (intraday)
     target_horizon_bars: int = 1       # Prediction target: close[t+N] > close[t]
 
+    # -- Trailing stop --------------------------------------------------------
+    trailing_stop_atr: float = 0.0    # 0 = disabled; >0 = ratchet stop N*ATR below peak
+    # -- Confidence-based sizing ----------------------------------------------
+    confidence_sizing: bool = False   # Scale position size by signal strength
+
     # -- Execution ------------------------------------------------------------
     n_processes: int | None = None    # None = all cores
     mode: Literal["fast", "full"] = "full"
