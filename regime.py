@@ -181,9 +181,9 @@ class RegimeDetector:
         if len(spy_data) < period * 3:
             return 0.0
 
-        high = pd.to_numeric(spy_data["High"], errors="coerce").fillna(method="ffill").values
-        low = pd.to_numeric(spy_data["Low"], errors="coerce").fillna(method="ffill").values
-        close = pd.to_numeric(spy_data["Close"], errors="coerce").fillna(method="ffill").values
+        high = pd.to_numeric(spy_data["High"], errors="coerce").ffill().values
+        low = pd.to_numeric(spy_data["Low"], errors="coerce").ffill().values
+        close = pd.to_numeric(spy_data["Close"], errors="coerce").ffill().values
         n = len(high)
 
         # Step 1: True Range, +DM, -DM (raw, per-bar)

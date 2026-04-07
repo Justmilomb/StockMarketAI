@@ -37,32 +37,40 @@ PROFILES_DIR = Path(__file__).parent / "profiles"
 
 # ── Score weights per profile ──────────────────────────────────────────
 
+# 8 scoring components (matching stock research rigour)
+# brier, return, edge_accuracy, win_rate, bet_volume, drawdown, profit_factor, sharpe
 PROFILE_SCORE_WEIGHTS: Dict[str, Dict[str, float]] = {
     "balanced_edge": {
-        "brier": 25.0, "return": 25.0, "edge_accuracy": 20.0,
-        "win_rate": 15.0, "bet_volume": 15.0,
+        "brier": 15.0, "return": 15.0, "edge_accuracy": 15.0,
+        "win_rate": 15.0, "bet_volume": 10.0, "drawdown": 15.0,
+        "profit_factor": 10.0, "sharpe": 5.0,
     },
     "aggressive_edge": {
-        "brier": 15.0, "return": 35.0, "edge_accuracy": 15.0,
-        "win_rate": 15.0, "bet_volume": 20.0,
+        "brier": 10.0, "return": 25.0, "edge_accuracy": 10.0,
+        "win_rate": 10.0, "bet_volume": 15.0, "drawdown": 10.0,
+        "profit_factor": 10.0, "sharpe": 10.0,
     },
     "conservative_edge": {
-        "brier": 30.0, "return": 15.0, "edge_accuracy": 25.0,
-        "win_rate": 20.0, "bet_volume": 10.0,
+        "brier": 20.0, "return": 10.0, "edge_accuracy": 15.0,
+        "win_rate": 15.0, "bet_volume": 5.0, "drawdown": 20.0,
+        "profit_factor": 10.0, "sharpe": 5.0,
     },
-    "crypto_specialist": {
-        "brier": 20.0, "return": 30.0, "edge_accuracy": 20.0,
-        "win_rate": 15.0, "bet_volume": 15.0,
+    "trend_follower": {
+        "brier": 10.0, "return": 20.0, "edge_accuracy": 15.0,
+        "win_rate": 10.0, "bet_volume": 10.0, "drawdown": 10.0,
+        "profit_factor": 15.0, "sharpe": 10.0,
     },
-    "high_volume": {
-        "brier": 20.0, "return": 25.0, "edge_accuracy": 15.0,
-        "win_rate": 15.0, "bet_volume": 25.0,
+    "mean_reversion": {
+        "brier": 15.0, "return": 15.0, "edge_accuracy": 20.0,
+        "win_rate": 15.0, "bet_volume": 10.0, "drawdown": 10.0,
+        "profit_factor": 10.0, "sharpe": 5.0,
     },
 }
 
 DEFAULT_WEIGHTS: Dict[str, float] = {
-    "brier": 25.0, "return": 25.0, "edge_accuracy": 20.0,
-    "win_rate": 15.0, "bet_volume": 15.0,
+    "brier": 15.0, "return": 15.0, "edge_accuracy": 15.0,
+    "win_rate": 15.0, "bet_volume": 10.0, "drawdown": 15.0,
+    "profit_factor": 10.0, "sharpe": 5.0,
 }
 
 
@@ -72,14 +80,25 @@ def _compute_score(
     metrics: PolymarketMetrics,
     weights: Optional[Dict[str, float]] = None,
 ) -> float:
-    """Composite score — higher is better. Max theoretical ~100."""
+    """Composite score — higher is better. Max theoretical ~100.
+
+    8 components matching the stock research scorer rigour:
+    - Brier: calibration quality (lower = better)
+    - Return: total profit normalised to 25% (not 50% — harder target)
+    - Edge accuracy: fraction of edge calls that were correct
+    - Win rate: fraction of bets won
+    - Bet volume: normalised to 50 bets (not 30)
+    - Drawdown: penalise large drawdowns (inverted — lower dd = higher score)
+    - Profit factor: gross wins / gross losses, capped at 3.0
+    - Sharpe: risk-adjusted return, capped at 2.0
+    """
     w = weights or DEFAULT_WEIGHTS
 
-    # Brier score: 0.0 = perfect, 0.25 = random. Invert for scoring.
+    # Brier score: 0.0 = perfect, 0.25 = random
     brier_norm = max(0.0, 1.0 - metrics.brier_score / 0.25)
 
-    # Return: /50% is excellent for Polymarket edge betting
-    return_norm = max(0.0, min(metrics.total_return_pct / 50.0, 1.0))
+    # Return: 25% = full credit (was 50% — too easy with binary payouts)
+    return_norm = max(0.0, min(metrics.total_return_pct / 25.0, 1.0))
 
     # Edge accuracy: raw 0-1
     edge_acc = metrics.edge_accuracy
@@ -87,8 +106,17 @@ def _compute_score(
     # Win rate: raw 0-1
     win_rate = metrics.win_rate
 
-    # Bet volume: 30 bets = full credit
-    bet_vol_norm = min(metrics.n_bets / 30.0, 1.0)
+    # Bet volume: 50 bets = full credit (was 30 — too easy)
+    bet_vol_norm = min(metrics.n_bets / 50.0, 1.0)
+
+    # Drawdown: 0% = perfect, 50%+ = zero score (inverted)
+    dd_norm = max(0.0, 1.0 - metrics.max_drawdown_pct / 50.0)
+
+    # Profit factor: 3.0+ = full credit
+    pf_norm = min(metrics.profit_factor / 3.0, 1.0)
+
+    # Sharpe: 2.0+ = full credit
+    sharpe_norm = max(0.0, min(metrics.sharpe_ratio / 2.0, 1.0))
 
     score = (
         brier_norm * w["brier"]
@@ -96,6 +124,9 @@ def _compute_score(
         + edge_acc * w["edge_accuracy"]
         + win_rate * w["win_rate"]
         + bet_vol_norm * w["bet_volume"]
+        + dd_norm * w["drawdown"]
+        + pf_norm * w["profit_factor"]
+        + sharpe_norm * w["sharpe"]
     )
     return round(score, 4)
 
@@ -113,6 +144,8 @@ def _extract_metrics(m: PolymarketMetrics) -> dict:
         "n_markets_evaluated": m.n_markets_evaluated,
         "max_drawdown_pct": round(m.max_drawdown_pct, 2),
         "avg_bet_size": round(m.avg_bet_size, 2),
+        "profit_factor": round(m.profit_factor, 4),
+        "sharpe_ratio": round(m.sharpe_ratio, 4),
         "category_win_rates": {
             k: round(v, 4) for k, v in m.category_win_rates.items()
         },
@@ -231,7 +264,7 @@ def _run_legacy(train: object, args: object) -> None:
 
     t0 = time.time()
     print("Fetching resolved markets...", flush=True)
-    markets = fetch_resolved_markets(max_markets=100)
+    markets = fetch_resolved_markets(max_markets=300)
     print(f"Loaded {len(markets)} resolved markets", flush=True)
 
     if not markets:
@@ -280,7 +313,7 @@ def _run_profile(profile_name: str, train: object, args: object) -> None:
 
     t0 = time.time()
     print("Fetching resolved markets...", flush=True)
-    markets = fetch_resolved_markets(max_markets=100)
+    markets = fetch_resolved_markets(max_markets=300)
     print(f"Loaded {len(markets)} resolved markets", flush=True)
 
     if not markets:
@@ -336,7 +369,7 @@ def _run_combined(train: object, args: object) -> None:
 
     # Fetch markets once (shared across profiles)
     print("Fetching resolved markets...", flush=True)
-    markets = fetch_resolved_markets(max_markets=100)
+    markets = fetch_resolved_markets(max_markets=300)
     print(f"Loaded {len(markets)} resolved markets", flush=True)
 
     if not markets:

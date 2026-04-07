@@ -1,0 +1,40 @@
+{
+  "profile": "mean_reversion",
+  "score": 75.5867,
+  "previous_best": 75.5278,
+  "metrics": {
+    "brier_score": 0.2284,
+    "log_loss": 0.6488,
+    "total_return_pct": 25.99,
+    "final_bankroll": 1259.9,
+    "edge_accuracy": 0.7465,
+    "win_rate": 0.7465,
+    "n_bets": 142,
+    "n_markets_evaluated": 300,
+    "max_drawdown_pct": 3.64,
+    "avg_bet_size": 4.27,
+    "profit_factor": 2.6678,
+    "sharpe_ratio": 6.0375,
+    "category_win_rates": {
+      "other": 0.7465
+    }
+  },
+  "config": {
+    "bankroll": 1000,
+    "min_edge_pct": 5.0,
+    "kelly_fraction_cap": 0.0075,
+    "max_bet_fraction": 0.00375,
+    "min_volume": 1000,
+    "min_liquidity": 500,
+    "calibration_method": "heuristic",
+    "confidence_threshold": 0.15,
+    "eval_point_days_before": 1,
+    "crypto_indicator_weight": 0.4,
+    "rsi_weight": 0.45,
+    "macd_weight": 0.05,
+    "trend_weight": 0.05,
+    "bb_weight": 0.4,
+    "momentum_weight": 0.05
+  },
+  "timestamp": "2026-04-07 12:27:01"
+}

@@ -73,6 +73,8 @@ class PolymarketMetrics:
     # Risk
     max_drawdown_pct: float = 0.0
     avg_bet_size: float = 0.0
+    profit_factor: float = 0.0
+    sharpe_ratio: float = 0.0
 
     # Per-category breakdown
     category_win_rates: Dict[str, float] = field(default_factory=dict)
@@ -468,10 +470,8 @@ def evaluate_edge_strategy(
         if abs(edge_val) < threshold:
             continue
 
-        # Compute confidence
+        # Compute confidence (no free boost — model must earn it)
         confidence = edge_detector._estimate_confidence(features, edge_val)
-        if crypto_prob is not None:
-            confidence = min(0.95, confidence + 0.15)
 
         if confidence < confidence_threshold:
             continue
@@ -491,9 +491,11 @@ def evaluate_edge_strategy(
             or (recommended_side == "NO" and market.outcome == "No")
         )
 
-        # Binary bet payout
+        # Binary bet payout (with 2% spread — realistic Polymarket cost)
+        spread = 0.02
         if won:
             buy_price = eval_prob if recommended_side == "YES" else (1.0 - eval_prob)
+            buy_price = min(buy_price + spread, 0.99)  # worse fill due to spread
             if buy_price > 0:
                 pnl = bet_size * (1.0 / buy_price - 1.0)
             else:
@@ -556,6 +558,20 @@ def evaluate_edge_strategy(
         if ws
     }
 
+    # Profit factor: gross wins / gross losses
+    gross_wins = sum(b.pnl for b in bets if b.pnl > 0)
+    gross_losses = abs(sum(b.pnl for b in bets if b.pnl < 0))
+    profit_factor = gross_wins / gross_losses if gross_losses > 0 else 0.0
+
+    # Sharpe ratio: mean(pnl) / std(pnl) * sqrt(n_bets)
+    if n_bets >= 2:
+        pnls = [b.pnl for b in bets]
+        mean_pnl = float(np.mean(pnls))
+        std_pnl = float(np.std(pnls, ddof=1))
+        sharpe = (mean_pnl / std_pnl) * math.sqrt(n_bets) if std_pnl > 0 else 0.0
+    else:
+        sharpe = 0.0
+
     return PolymarketMetrics(
         brier_score=brier,
         log_loss=ll,
@@ -567,6 +583,8 @@ def evaluate_edge_strategy(
         n_markets_evaluated=n_evaluated,
         max_drawdown_pct=max_dd * 100.0,
         avg_bet_size=float(np.mean([b.bet_size for b in bets])) if bets else 0.0,
+        profit_factor=profit_factor,
+        sharpe_ratio=sharpe,
         category_win_rates=cat_win_rates,
         bets=bets,
     )

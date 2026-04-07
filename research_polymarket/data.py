@@ -94,7 +94,7 @@ def _fetch_from_api(limit: int) -> List[ResolvedMarket]:
     resolved: List[ResolvedMarket] = []
     page_size = 100
     offset = 0
-    max_pages = 5
+    max_pages = 10
 
     for page in range(max_pages):
         params: Dict[str, str | int] = {

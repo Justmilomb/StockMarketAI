@@ -196,15 +196,15 @@ class StatisticalForecaster:
         """
         try:
             series = close_prices.iloc[-_MAX_HISTORY:]
-            # Suppress convergence warnings that are expected for some tickers
+            # Suppress convergence and date-index warnings from statsmodels
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
                 model = ARIMA(series, order=self._arima_order)
                 fitted = model.fit()
 
-            forecast_obj = fitted.get_forecast(steps=horizon)
-            forecast_mean = forecast_obj.predicted_mean.iloc[-1]
-            forecast_se = forecast_obj.se_mean.iloc[-1]
+                forecast_obj = fitted.get_forecast(steps=horizon)
+                forecast_mean = forecast_obj.predicted_mean.iloc[-1]
+                forecast_se = forecast_obj.se_mean.iloc[-1]
 
             current_price = float(series.iloc[-1])
             if current_price <= 0:
@@ -245,8 +245,8 @@ class StatisticalForecaster:
                 )
                 fitted = model.fit(optimized=True)
 
-            forecast_values = fitted.forecast(steps=horizon)
-            forecast_price = float(forecast_values.iloc[-1])
+                forecast_values = fitted.forecast(steps=horizon)
+                forecast_price = float(forecast_values.iloc[-1])
 
             current_price = float(series.iloc[-1])
             if current_price <= 0:

@@ -57,15 +57,18 @@ The `crypto_indicator_weight` parameter controls the blend (0.6 = 60% crypto ind
 - `trend_follower` — 70% crypto, MACD+trend weighted, medium threshold
 - `mean_reversion` — 65% crypto, RSI+Bollinger weighted, short eval window
 
-## Scoring Components
+## Scoring Components (8 metrics — matches stock research rigour)
 
 | Component | Weight (balanced) | Normalization |
 |-----------|-------------------|---------------|
-| Brier score | 25% | 1 - brier/0.25 (lower=better) |
-| Return % | 25% | return_pct / 50 |
-| Edge accuracy | 20% | Raw (0-1) |
+| Brier score | 15% | 1 - brier/0.25 (lower=better) |
+| Return % | 15% | return_pct / 25 |
+| Edge accuracy | 15% | Raw (0-1) |
 | Win rate | 15% | Raw (0-1) |
-| Bet volume | 15% | n_bets / 30 |
+| Bet volume | 10% | n_bets / 50 |
+| Drawdown | 15% | 1 - drawdown/50 (lower dd=better) |
+| Profit factor | 10% | profit_factor / 3.0 |
+| Sharpe | 5% | sharpe / 2.0 |
 
 ## Tips
 

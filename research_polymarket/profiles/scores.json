@@ -1,12 +1,172 @@
 [
   {
     "profile": "balanced_edge",
-    "score": 31.6465,
-    "timestamp": "2026-04-07 11:40:24"
+    "score": 14.1231,
+    "timestamp": "2026-04-07 12:00:08"
   },
   {
     "profile": "balanced_edge",
-    "score": 72.7409,
-    "timestamp": "2026-04-07 11:50:19"
+    "score": 28.5533,
+    "timestamp": "2026-04-07 12:00:30"
+  },
+  {
+    "profile": "balanced_edge",
+    "score": 53.2916,
+    "timestamp": "2026-04-07 12:00:49"
+  },
+  {
+    "profile": "balanced_edge",
+    "score": 57.2221,
+    "timestamp": "2026-04-07 12:01:11"
+  },
+  {
+    "profile": "balanced_edge",
+    "score": 57.843,
+    "timestamp": "2026-04-07 12:01:26"
+  },
+  {
+    "profile": "balanced_edge",
+    "score": 62.3068,
+    "timestamp": "2026-04-07 12:02:03"
+  },
+  {
+    "profile": "balanced_edge",
+    "score": 64.7488,
+    "timestamp": "2026-04-07 12:02:21"
+  },
+  {
+    "profile": "balanced_edge",
+    "score": 66.0306,
+    "timestamp": "2026-04-07 12:02:35"
+  },
+  {
+    "profile": "balanced_edge",
+    "score": 67.353,
+    "timestamp": "2026-04-07 12:02:47"
+  },
+  {
+    "profile": "balanced_edge",
+    "score": 70.8164,
+    "timestamp": "2026-04-07 12:03:22"
+  },
+  {
+    "profile": "balanced_edge",
+    "score": 73.7125,
+    "timestamp": "2026-04-07 12:03:38"
+  },
+  {
+    "profile": "balanced_edge",
+    "score": 73.8831,
+    "timestamp": "2026-04-07 12:04:27"
+  },
+  {
+    "profile": "balanced_edge",
+    "score": 73.8868,
+    "timestamp": "2026-04-07 12:04:41"
+  },
+  {
+    "profile": "balanced_edge",
+    "score": 73.9417,
+    "timestamp": "2026-04-07 12:04:57"
+  },
+  {
+    "profile": "aggressive_edge",
+    "score": 80.0403,
+    "timestamp": "2026-04-07 12:06:33"
+  },
+  {
+    "profile": "aggressive_edge",
+    "score": 80.8406,
+    "timestamp": "2026-04-07 12:07:25"
+  },
+  {
+    "profile": "aggressive_edge",
+    "score": 80.8472,
+    "timestamp": "2026-04-07 12:08:45"
+  },
+  {
+    "profile": "conservative_edge",
+    "score": 68.2466,
+    "timestamp": "2026-04-07 12:09:13"
+  },
+  {
+    "profile": "conservative_edge",
+    "score": 69.413,
+    "timestamp": "2026-04-07 12:09:45"
+  },
+  {
+    "profile": "conservative_edge",
+    "score": 70.6081,
+    "timestamp": "2026-04-07 12:09:59"
+  },
+  {
+    "profile": "trend_follower",
+    "score": 79.7104,
+    "timestamp": "2026-04-07 12:11:07"
+  },
+  {
+    "profile": "trend_follower",
+    "score": 80.3043,
+    "timestamp": "2026-04-07 12:11:27"
+  },
+  {
+    "profile": "mean_reversion",
+    "score": 73.6887,
+    "timestamp": "2026-04-07 12:12:24"
+  },
+  {
+    "profile": "mean_reversion",
+    "score": 74.1454,
+    "timestamp": "2026-04-07 12:20:50"
+  },
+  {
+    "profile": "balanced_edge",
+    "score": 74.8577,
+    "timestamp": "2026-04-07 12:24:00"
+  },
+  {
+    "profile": "balanced_edge",
+    "score": 75.7971,
+    "timestamp": "2026-04-07 12:24:20"
+  },
+  {
+    "profile": "balanced_edge",
+    "score": 76.1795,
+    "timestamp": "2026-04-07 12:24:38"
+  },
+  {
+    "profile": "aggressive_edge",
+    "score": 83.1103,
+    "timestamp": "2026-04-07 12:25:24"
+  },
+  {
+    "profile": "aggressive_edge",
+    "score": 83.3462,
+    "timestamp": "2026-04-07 12:25:42"
+  },
+  {
+    "profile": "trend_follower",
+    "score": 81.899,
+    "timestamp": "2026-04-07 12:25:58"
+  },
+  {
+    "profile": "trend_follower",
+    "score": 81.9673,
+    "timestamp": "2026-04-07 12:26:15"
+  },
+  {
+    "profile": "mean_reversion",
+    "score": 75.5278,
+    "timestamp": "2026-04-07 12:26:48"
+  },
+  {
+    "profile": "mean_reversion",
+    "score": 75.5867,
+    "timestamp": "2026-04-07 12:27:01"
+  },
+  {
+    "profile": "conservative_edge",
+    "score": 71.0943,
+    "timestamp": "2026-04-07 12:27:34"
   }
 ]

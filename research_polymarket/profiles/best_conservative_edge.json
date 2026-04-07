@@ -1,7 +1,7 @@
 {
-  "profile": "balanced_edge",
-  "score": 76.1795,
-  "previous_best": 75.7971,
+  "profile": "conservative_edge",
+  "score": 71.0943,
+  "previous_best": 70.6081,
   "metrics": {
     "brier_score": 0.2331,
     "log_loss": 0.6589,
@@ -36,5 +36,5 @@
     "bb_weight": 0.1,
     "momentum_weight": 0.4
   },
-  "timestamp": "2026-04-07 12:24:38"
+  "timestamp": "2026-04-07 12:27:34"
 }
