@@ -50,7 +50,11 @@
       "Read(//c/Users/milo/.claude/plans/**)",
       "Read(//c/Users/milo/.claude/**)",
       "Bash(kill %1)",
-      "Bash(kill %2)"
+      "Bash(kill %2)",
+      "Bash(.venv/Scripts/python -c \"import pyqtgraph; print\\(pyqtgraph.__version__\\)\")",
+      "Bash(.venv/Scripts/pip install:*)",
+      "Bash(.venv/Scripts/python -c \"import feedparser; print\\(feedparser.__version__\\)\")",
+      "Bash(.venv/Scripts/python -c ':*)"
     ]
   }
 }

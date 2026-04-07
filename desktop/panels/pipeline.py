@@ -1,6 +1,6 @@
-"""Pipeline monitor panel — progress bars or model dashboard."""
+"""Pipeline monitor panel — progress bars, model dashboard, and status log."""
 from __future__ import annotations
-from typing import Any, Optional
+from typing import Any, List, Optional
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
@@ -8,13 +8,15 @@ from PySide6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget, QHeaderView,
 )
 
+
 class PipelinePanel(QGroupBox):
-    """Dual-mode: progress bars when running, model dashboard when idle."""
+    """Dual-mode: progress bars when running, model dashboard when idle.
+    Always shows a status log at the bottom with the latest activity."""
 
     def __init__(self, tracker: Any) -> None:
         super().__init__("PIPELINE MONITOR")
         self._tracker = tracker
-        self.setMaximumHeight(180)
+        self.setMaximumHeight(220)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(6, 16, 6, 4)
@@ -39,16 +41,44 @@ class PipelinePanel(QGroupBox):
         self._dashboard.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self._dashboard.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self._dashboard.verticalHeader().setVisible(False)
-        self._dashboard.setMaximumHeight(120)
+        self._dashboard.setMaximumHeight(100)
+
+        # Status log — persistent, always visible
+        self._status_log = QLabel("Waiting for first refresh...")
+        self._status_log.setStyleSheet("color: #888888; font-size: 10px;")
+        self._status_log.setWordWrap(True)
+        self._status_log.setMaximumHeight(60)
 
         layout.addWidget(self._progress_container)
         layout.addWidget(self._overall_bar)
         layout.addWidget(self._overall_label)
         layout.addWidget(self._dashboard)
+        layout.addWidget(self._status_log)
 
         # Start in dashboard mode
         self._progress_container.hide()
         self._overall_bar.hide()
+
+        # Error tracking
+        self._last_errors: List[str] = []
+
+    def update_status(self, message: str) -> None:
+        """Called by app.py when RefreshWorker emits progress."""
+        self._overall_label.setText(message)
+        self._overall_label.setStyleSheet("color: #00bfff; font-size: 10px;")
+
+    def set_refresh_result(self, elapsed: float, errors: List[str]) -> None:
+        """Called after a refresh completes. Shows persistent summary."""
+        self._last_errors = errors
+        if errors:
+            error_text = " | ".join(errors[:3])
+            if len(errors) > 3:
+                error_text += f" (+{len(errors) - 3} more)"
+            self._status_log.setText(f"Last refresh: {elapsed:.0f}s — ERRORS: {error_text}")
+            self._status_log.setStyleSheet("color: #ff5555; font-size: 10px;")
+        else:
+            self._status_log.setText(f"Last refresh: {elapsed:.0f}s — all OK")
+            self._status_log.setStyleSheet("color: #00ff00; font-size: 10px;")
 
     def poll_tracker(self) -> None:
         """Called every 250ms by the main window timer."""
@@ -97,20 +127,29 @@ class PipelinePanel(QGroupBox):
             name = getattr(stage, "display_name", f"Stage {i}")
             status = getattr(stage, "status", "pending")
             progress = getattr(stage, "progress", 0)
+            detail = getattr(stage, "detail", "")
 
             icon = {"done": "OK", "running": ">>", "error": "!!", "skipped": "--"}.get(status, "..")
             color = {"done": "#00ff00", "running": "#00bfff", "error": "#ff0000", "skipped": "#888888"}.get(status, "#888888")
 
-            lbl.setText(f'<span style="color:{color};">[{icon}]</span> {name}')
+            label_text = f'<span style="color:{color};">[{icon}]</span> {name}'
+            if status == "error" and detail:
+                label_text += f' <span style="color:#ff5555;">({detail[:30]})</span>'
+            lbl.setText(label_text)
             bar.setValue(int(progress * 100) if progress <= 1 else int(progress))
 
         # Overall
         total_elapsed = getattr(state, "total_elapsed", 0)
         done = sum(1 for s in stages if getattr(s, "status", "") == "done")
+        errored = sum(1 for s in stages if getattr(s, "status", "") == "error")
         total = len(stages) or 1
         pct = int(done / total * 100)
         self._overall_bar.setValue(pct)
-        self._overall_label.setText(f"Pipeline: {pct}% | Elapsed: {total_elapsed:.0f}s")
+
+        status_parts = [f"Pipeline: {pct}%", f"Elapsed: {total_elapsed:.0f}s"]
+        if errored:
+            status_parts.append(f"{errored} error(s)")
+        self._overall_label.setText(" | ".join(status_parts))
         self._overall_label.setStyleSheet("color: #00bfff; font-size: 10px;")
 
     def _show_dashboard(self, state: Any) -> None:

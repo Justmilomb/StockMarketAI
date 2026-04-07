@@ -440,6 +440,7 @@ class MainWindow(QMainWindow):
         )
         self._refresh_worker.finished_signal.connect(self._on_refresh_done)
         self._refresh_worker.error_signal.connect(self._on_refresh_error)
+        self._refresh_worker.progress_signal.connect(self._on_refresh_progress)
 
         if need_signals:
             self._pipeline_running = True
@@ -450,6 +451,18 @@ class MainWindow(QMainWindow):
     @Slot(object)
     def _on_refresh_done(self, result: Dict[str, Any]) -> None:
         """Apply refresh results to state and update all panels."""
+        # Report errors/success to pipeline panel
+        errors = result.pop("_errors", [])
+        elapsed = result.pop("_elapsed", 0)
+        if self.pipeline_panel:
+            self.pipeline_panel.set_refresh_result(elapsed, errors)
+        if errors:
+            self.statusBar().showMessage(
+                f"Refresh done ({elapsed:.0f}s) — {len(errors)} error(s)", 10000,
+            )
+        else:
+            self.statusBar().showMessage(f"Refresh done ({elapsed:.0f}s)", 3000)
+
         if result.get("signals") is not None:
             self.state.signals = result["signals"]
             self._last_signal_run = time.time()
@@ -500,10 +513,19 @@ class MainWindow(QMainWindow):
                 self.statusBar().showMessage(f"Auto-engine error: {exc}", 5000)
 
     @Slot(str)
+    def _on_refresh_progress(self, message: str) -> None:
+        """Show worker progress in pipeline panel and status bar."""
+        self.statusBar().showMessage(message, 10000)
+        if self.pipeline_panel:
+            self.pipeline_panel.update_status(message)
+
+    @Slot(str)
     def _on_refresh_error(self, error_msg: str) -> None:
         """Handle refresh errors."""
         self._pipeline_running = False
-        self.statusBar().showMessage(f"Refresh error: {error_msg}", 5000)
+        self.statusBar().showMessage(f"Refresh error: {error_msg}", 10000)
+        if self.pipeline_panel:
+            self.pipeline_panel.set_refresh_result(0, [error_msg])
 
     def _calculate_pnl(self) -> None:
         """Calculate unrealised PnL from positions and live data."""
@@ -728,34 +750,39 @@ class MainWindow(QMainWindow):
         """
         import re
         grades: dict[str, str] = {}
+        # Ticker pattern: letters, digits, dots, underscores, hyphens (covers T212 suffixed tickers)
+        _T = r'[A-Za-z][A-Za-z0-9._\-]{0,19}'
         patterns = [
             # Inline format: TICKER: GRADE or TICKER — GRADE
             re.compile(
-                r'\*{0,2}([A-Z][A-Z0-9.]{0,9})\*{0,2}\s*[:—\-–]\s*(?:\S+\s+)?(GREEN|RED|ORANGE)',
+                rf'\*{{0,2}}({_T})\*{{0,2}}\s*[:—\-–]\s*(?:\S+\s+)?(GREEN|RED|ORANGE)',
                 re.IGNORECASE,
             ),
             # Markdown table: | TICKER | ... GREEN/RED/ORANGE ... |
             re.compile(
-                r'\|\s*\*{0,2}([A-Z][A-Z0-9.]{0,9})\*{0,2}\s*\|[^|]*?(GREEN|RED|ORANGE)',
+                rf'\|\s*\*{{0,2}}({_T})\*{{0,2}}\s*\|[^|]*?(GREEN|RED|ORANGE)',
                 re.IGNORECASE,
             ),
         ]
         for pattern in patterns:
             for match in pattern.finditer(response):
-                ticker = match.group(1).upper()
+                ticker = match.group(1)
                 grade = match.group(2).upper()
                 if ticker not in grades:
                     grades[ticker] = grade
 
         if grades and self.state.signals is not None and not self.state.signals.empty:
             signal_tickers = set(self.state.signals["ticker"].tolist())
+            # Build case-insensitive lookup
+            grades_upper = {k.upper(): v for k, v in grades.items()}
             mapped: dict[str, str] = {}
             for sig_ticker in signal_tickers:
                 sig_upper = sig_ticker.upper()
-                if sig_upper in grades:
-                    mapped[sig_ticker] = grades[sig_upper]
+                if sig_upper in grades_upper:
+                    mapped[sig_ticker] = grades_upper[sig_upper]
                 else:
-                    for grade_ticker, grade_val in grades.items():
+                    # Fuzzy: check if grade ticker is a prefix of signal ticker
+                    for grade_ticker, grade_val in grades_upper.items():
                         if grade_ticker in sig_upper or sig_upper.startswith(grade_ticker):
                             mapped[sig_ticker] = grade_val
                             break
@@ -1226,10 +1253,10 @@ class MainWindow(QMainWindow):
             return
         if ticker in self.state.protected_tickers:
             self.state.protected_tickers.discard(ticker)
-            self.statusBar().showMessage(f"Unlocked {ticker}", 3000)
+            self.statusBar().showMessage(f"Unlocked {ticker}", 2000)
         else:
             self.state.protected_tickers.add(ticker)
-            self.statusBar().showMessage(f"Locked {ticker}", 3000)
+            self.statusBar().showMessage(f"Locked {ticker}", 2000)
         self._save_config_key(
             "protected_tickers", list(self.state.protected_tickers),
         )

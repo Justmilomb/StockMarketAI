@@ -67,7 +67,8 @@ class WatchlistPanel(QGroupBox):
         item = self.table.item(row, 0)
         if not item:
             return ""
-        return item.text().replace("[P] ", "")
+        import re
+        return re.sub(r'\[[A-Z]\]', '', item.text()).strip()
 
     def refresh_view(self, state: Any) -> None:
         signals_df = state.signals
@@ -104,12 +105,13 @@ class WatchlistPanel(QGroupBox):
             # Protected / daily-only tags
             is_protected = ticker in state.protected_tickers
             daily_only = not is_intraday_supported(ticker)
-            prefix = ""
+            tags = []
             if is_protected:
-                prefix += "[P] "
+                tags.append("L")
             if daily_only:
-                prefix += "[D] "
-            display_ticker = f"{prefix}{ticker}" if prefix else ticker
+                tags.append("D")
+            prefix = "".join(f"[{t}]" for t in tags)
+            display_ticker = f"{prefix} {ticker}" if prefix else ticker
 
             rows.append((
                 display_ticker, verdict, price, change_pct, prob,

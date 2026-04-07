@@ -22,7 +22,6 @@ class SettingsPanel(QGroupBox):
             ("invested", "Invested"),
             ("total", "Total"),
             ("upnl", "Unrealised"),
-            ("max_loss", "Max Loss"),
         ]
         for key, label_text in fields:
             lbl = QLabel(f"{label_text}: --")
@@ -62,10 +61,6 @@ class SettingsPanel(QGroupBox):
         color = "#00ff00" if upnl >= 0 else "#ff0000"
         self._labels["upnl"].setText(f"Unrealised: {_fmt_money(upnl)}")
         self._labels["upnl"].setStyleSheet(f"color: {color}; font-size: 11px;")
-
-        self._labels["max_loss"].setText(
-            f"Max Loss: {state.max_daily_loss:.0%}"
-        )
 
 
 def _fmt_money(val: Any) -> str:

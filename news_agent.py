@@ -116,6 +116,13 @@ class NewsAgent:
         for ticker, headlines in results:
             if headlines:
                 ticker_headlines[ticker] = headlines
+                # Store headlines immediately so the panel shows something
+                if ticker not in self._news_data:
+                    self._news_data[ticker] = TickerNews(
+                        ticker=ticker,
+                        headlines=headlines[:5],
+                        last_updated=datetime.utcnow(),
+                    )
 
         # Phase 2: Batch sentiment analysis to reduce API calls
         # Instead of one call per ticker, send all tickers in one prompt
