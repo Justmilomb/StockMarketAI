@@ -12,8 +12,8 @@ edge accuracy, win rate, and bet volume. Higher is better.
 """
 
 # ── Multi-profile mode flags ───────────────────────────────────────
-PROFILE_MODE = True
-ACTIVE_PROFILE = "balanced_edge"
+PROFILE_MODE = False
+ACTIVE_PROFILE = ""
 EVALUATE_COMBINED = False
 
 # ── Legacy single-config mode ─────────────────────────────────────
@@ -23,7 +23,7 @@ CONFIG = {
     "bankroll": 1000,
 
     # Edge detection parameters
-    "min_edge_pct": 5.0,           # minimum edge to trigger a bet (percentage points)
+    "min_edge_pct": 3.0,           # minimum edge to trigger a bet (percentage points)
     "kelly_fraction_cap": 0.10,    # cap on Kelly bet sizing
     "max_bet_fraction": 0.05,      # max fraction of bankroll per bet
 
@@ -36,16 +36,16 @@ CONFIG = {
     "confidence_threshold": 0.3,
 
     # Evaluate edge N days before market resolution
-    "eval_point_days_before": 7,
+    "eval_point_days_before": 2,
 
     # How much weight to give crypto price indicators vs Polymarket features
     # 0.0 = pure Polymarket heuristic, 1.0 = pure crypto indicators
-    "crypto_indicator_weight": 0.6,
+    "crypto_indicator_weight": 0.9,
 
     # Individual indicator weights (must sum to ~1.0)
-    "rsi_weight": 0.25,
-    "macd_weight": 0.20,
+    "rsi_weight": 0.20,
+    "macd_weight": 0.30,
     "trend_weight": 0.25,
-    "bb_weight": 0.15,
+    "bb_weight": 0.10,
     "momentum_weight": 0.15,
 }
