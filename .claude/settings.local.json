@@ -79,7 +79,8 @@
       "Bash(curl -s -X POST http://127.0.0.1:8000/api/download)",
       "Bash(curl -s -X POST http://127.0.0.1:8000/api/logs -H 'Content-Type: application/json' -d '{\"license_key\":\"BLK-C311-3F95\",\"entries\":[{\"level\":\"ok\",\"message\":\"pipeline complete — 8 signals, 2 actionable\"},{\"level\":\"info\",\"message\":\"ensemble: 6 models x 3 horizons\"},{\"level\":\"warn\",\"message\":\"rate limit 900/1000\"}]}')",
       "Bash(curl -s -X POST http://127.0.0.1:8000/api/logs -H \"Content-Type: application/json\" -d \"{\\\\\"license_key\\\\\":\\\\\"BLK-C311-3F95\\\\\",\\\\\"entries\\\\\":[{\\\\\"level\\\\\":\\\\\"ok\\\\\",\\\\\"message\\\\\":\\\\\"pipeline complete\\\\\"},{\\\\\"level\\\\\":\\\\\"warn\\\\\",\\\\\"message\\\\\":\\\\\"rate limit 900/1000\\\\\"}]}\")",
-      "Bash(curl -s http://127.0.0.1:8000/api/admin/config -H \"X-Admin-Key: admin\")"
+      "Bash(curl -s http://127.0.0.1:8000/api/admin/config -H \"X-Admin-Key: admin\")",
+      "Bash(gh release:*)"
     ]
   }
 }
