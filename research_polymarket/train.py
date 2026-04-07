@@ -12,8 +12,8 @@ edge accuracy, win rate, and bet volume. Higher is better.
 """
 
 # ── Multi-profile mode flags ───────────────────────────────────────
-PROFILE_MODE = False
-ACTIVE_PROFILE = ""
+PROFILE_MODE = True
+ACTIVE_PROFILE = "balanced_edge"
 EVALUATE_COMBINED = False
 
 # ── Legacy single-config mode ─────────────────────────────────────

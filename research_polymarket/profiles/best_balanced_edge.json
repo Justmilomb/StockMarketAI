@@ -1,0 +1,38 @@
+{
+  "profile": "balanced_edge",
+  "score": 72.7409,
+  "previous_best": 31.6465,
+  "metrics": {
+    "brier_score": 0.2128,
+    "log_loss": 0.6101,
+    "total_return_pct": 266.86,
+    "final_bankroll": 3668.61,
+    "edge_accuracy": 0.8293,
+    "win_rate": 0.8293,
+    "n_bets": 41,
+    "n_markets_evaluated": 100,
+    "max_drawdown_pct": 14.48,
+    "avg_bet_size": 90.01,
+    "category_win_rates": {
+      "other": 0.8293
+    }
+  },
+  "config": {
+    "bankroll": 1000,
+    "min_edge_pct": 3.0,
+    "kelly_fraction_cap": 0.1,
+    "max_bet_fraction": 0.05,
+    "min_volume": 1000,
+    "min_liquidity": 500,
+    "calibration_method": "heuristic",
+    "confidence_threshold": 0.3,
+    "eval_point_days_before": 2,
+    "crypto_indicator_weight": 0.9,
+    "rsi_weight": 0.2,
+    "macd_weight": 0.3,
+    "trend_weight": 0.25,
+    "bb_weight": 0.1,
+    "momentum_weight": 0.15
+  },
+  "timestamp": "2026-04-07 11:50:19"
+}
