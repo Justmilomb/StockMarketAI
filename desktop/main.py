@@ -64,6 +64,72 @@ def _setup_error_handlers() -> None:
     threading.excepthook = _on_thread_error
 
 
+def _apply_remote_config(remote_cfg: dict[str, str]) -> None:
+    """Override local config.json values with remote admin settings."""
+    import json
+
+    config_path = Path("config.json")
+    if not config_path.exists():
+        return
+
+    try:
+        with open(config_path, encoding="utf-8") as f:
+            local = json.load(f)
+    except Exception:
+        return
+
+    changed = False
+
+    # paper_mode → broker.practice
+    if "paper_mode" in remote_cfg:
+        practice = remote_cfg["paper_mode"] == "true"
+        local.setdefault("broker", {})["practice"] = practice
+        changed = True
+
+    # auto_trading → stored for AutoEngine to read
+    if "auto_trading" in remote_cfg:
+        local["auto_trading_enabled"] = remote_cfg["auto_trading"] == "true"
+        changed = True
+
+    # strategy params
+    if "max_position_pct" in remote_cfg:
+        try:
+            val = float(remote_cfg["max_position_pct"]) / 100
+            local.setdefault("strategy", {})["position_size_fraction"] = val
+            changed = True
+        except ValueError:
+            pass
+
+    if "confidence_threshold" in remote_cfg:
+        try:
+            val = float(remote_cfg["confidence_threshold"])
+            local.setdefault("strategy", {})["threshold_buy"] = val
+            changed = True
+        except ValueError:
+            pass
+
+    if "trailing_stop_pct" in remote_cfg:
+        try:
+            val = float(remote_cfg["trailing_stop_pct"]) / 100
+            local.setdefault("strategy", {})["trailing_stop"] = val
+            changed = True
+        except ValueError:
+            pass
+
+    if "refresh_interval_s" in remote_cfg:
+        try:
+            val = int(float(remote_cfg["refresh_interval_s"]))
+            local["refresh_interval_seconds"] = val
+            changed = True
+        except ValueError:
+            pass
+
+    if changed:
+        with open(config_path, "w", encoding="utf-8") as f:
+            json.dump(local, f, indent=2)
+        logger.info("Remote config applied to local config.json")
+
+
 def main() -> None:
     _load_dotenv(Path(os.getcwd()))
 
@@ -106,13 +172,58 @@ def main() -> None:
             dialog = LicenseDialog(server_url=server_url)
             if not dialog.run():
                 sys.exit(0)
+            # re-validate to get config
+            result = validate(server_url=server_url)
     else:
         # no stored key — must enter one
         dialog = LicenseDialog(server_url=server_url)
         if not dialog.run():
             sys.exit(0)
+        result = validate(server_url=server_url)
 
     logger.info("License validated — launching app")
+
+    # ── Remote config enforcement ────────────────────────────────────
+    from PySide6.QtWidgets import QMessageBox
+
+    remote_cfg = result.get("config", {})
+
+    if remote_cfg.get("kill_switch") == "true":
+        QMessageBox.critical(
+            None, "Blank",
+            "TRADING HAS BEEN DISABLED BY THE ADMINISTRATOR.\n\n"
+            "Contact support if you believe this is an error.",
+        )
+        sys.exit(1)
+
+    if remote_cfg.get("maintenance_mode") == "true":
+        QMessageBox.information(
+            None, "Blank",
+            "BLANK IS CURRENTLY UNDER MAINTENANCE.\n\n"
+            "The service will be back shortly. Please try again later.",
+        )
+        sys.exit(0)
+
+    if remote_cfg.get("force_update") == "true":
+        update_url = remote_cfg.get("update_url", "")
+        msg = QMessageBox(
+            QMessageBox.Warning, "Blank \u2014 Update Required",
+            "A NEW VERSION OF BLANK IS AVAILABLE.\n\n"
+            "You must update before continuing.",
+        )
+        if update_url:
+            msg.setInformativeText("Download: " + update_url)
+        msg.addButton("Download", QMessageBox.AcceptRole)
+        msg.addButton("Quit", QMessageBox.RejectRole)
+        _show_msg = getattr(msg, "exec")
+        choice = _show_msg()
+        if choice == 0 and update_url:
+            import webbrowser
+            webbrowser.open(update_url)
+        sys.exit(0)
+
+    # Apply remote overrides to local config
+    _apply_remote_config(remote_cfg)
 
     # ── Splash screen ────────────────────────────────────────────────
     pixmap = QPixmap(600, 340)

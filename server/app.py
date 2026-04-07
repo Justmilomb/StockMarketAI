@@ -67,16 +67,23 @@ def _init_db(conn: sqlite3.Connection) -> None:
     cursor = conn.execute("SELECT COUNT(*) FROM config")
     if cursor.fetchone()[0] == 0:
         defaults = [
-            ("auto_trading", "true"),
-            ("paper_mode", "true"),
-            ("claude_analysis", "true"),
-            ("news_agent", "true"),
-            ("risk_management", "true"),
-            ("debug_logging", "false"),
-            ("max_position_size", "5%"),
-            ("confidence_threshold", "0.65"),
-            ("refresh_interval", "300s"),
-            ("trailing_stop", "2.5%"),
+            # kill switches — these block the app from running
+            ("kill_switch", "false"),          # emergency stop: app exits immediately
+            ("maintenance_mode", "false"),     # pauses app, shows "back soon" message
+
+            # update control
+            ("force_update", "false"),         # shows update prompt on next launch
+            ("update_url", ""),                # download URL for the new installer
+
+            # trading controls — remotely override user config
+            ("auto_trading", "true"),          # allow autonomous trade execution
+            ("paper_mode", "true"),            # force paper mode (safety net)
+
+            # strategy params — remotely tune risk
+            ("max_position_pct", "5"),         # max single position as % of portfolio
+            ("confidence_threshold", "0.65"),  # min confidence to execute a trade
+            ("trailing_stop_pct", "2.5"),      # trailing stop loss %
+            ("refresh_interval_s", "300"),     # seconds between pipeline runs
         ]
         conn.executemany(
             "INSERT INTO config (key, value) VALUES (?, ?)", defaults,

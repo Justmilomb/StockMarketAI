@@ -1,6 +1,6 @@
 {
   "server": {
-    "url": "http://localhost:8000"
+    "url": "https://blank-api.onrender.com"
   },
   "watchlists": {
     "Trading 212": [

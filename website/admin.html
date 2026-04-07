@@ -377,6 +377,35 @@
         .config-val.on { color: var(--glow); }
         .config-val.off { color: var(--red); }
 
+        .config-input {
+            background: none;
+            border: 1px solid transparent;
+            border-bottom: 1px solid var(--border);
+            color: var(--text);
+            font-family: 'Outfit', sans-serif;
+            font-size: 0.8125rem;
+            font-weight: 400;
+            padding: 0.25rem 0.4rem;
+            width: 120px;
+            text-align: right;
+            outline: none;
+            transition: border-color 0.3s ease;
+        }
+
+        .config-input:focus { border-color: var(--glow); }
+
+        .config-saved {
+            font-size: 0.5625rem;
+            color: var(--glow);
+            opacity: 0;
+            margin-left: 0.5rem;
+            transition: opacity 0.3s ease;
+        }
+
+        .config-saved.show { opacity: 1; }
+
+        .config-danger .config-key { color: var(--red); }
+
         /* toggle */
         .toggle {
             width: 36px;
@@ -759,11 +788,46 @@
             loadStats();
         }
 
+        // config keys that are dangerous — shown with red labels
+        const DANGER_KEYS = new Set(['kill_switch', 'maintenance_mode']);
+        // display labels for config keys
+        const CONFIG_LABELS = {
+            kill_switch: 'kill switch — emergency stop',
+            maintenance_mode: 'maintenance mode — pauses app',
+            force_update: 'force update prompt',
+            update_url: 'update download url',
+            auto_trading: 'auto trading',
+            paper_mode: 'paper mode (safety)',
+            max_position_pct: 'max position size %',
+            confidence_threshold: 'min confidence to trade',
+            trailing_stop_pct: 'trailing stop %',
+            refresh_interval_s: 'refresh interval (seconds)',
+        };
+        // order config keys so dangerous ones are first
+        const CONFIG_ORDER = [
+            'kill_switch', 'maintenance_mode',
+            'force_update', 'update_url',
+            'auto_trading', 'paper_mode',
+            'max_position_pct', 'confidence_threshold', 'trailing_stop_pct', 'refresh_interval_s',
+        ];
+
         async function loadConfig() {
             const config = await api('/api/admin/config');
             const grid = document.getElementById('config-grid');
-            const items = Object.entries(config).map(function(pair) {
-                var k = pair[0], v = pair[1];
+
+            // sort keys by defined order, then alphabetical for any extras
+            const keys = Object.keys(config).sort(function(a, b) {
+                var ia = CONFIG_ORDER.indexOf(a), ib = CONFIG_ORDER.indexOf(b);
+                if (ia === -1) ia = 999;
+                if (ib === -1) ib = 999;
+                return ia - ib;
+            });
+
+            const items = keys.map(function(k) {
+                var v = config[k];
+                var label = CONFIG_LABELS[k] || k;
+                var isDanger = DANGER_KEYS.has(k);
+
                 if (v === 'true' || v === 'false') {
                     const toggle = el('div', { class: 'toggle' + (v === 'true' ? ' on' : ''), 'data-config': k });
                     toggle.addEventListener('click', async function() {
@@ -774,13 +838,35 @@
                             body: JSON.stringify({ key: k, value: isOn ? 'false' : 'true' }),
                         });
                     });
-                    return el('div', { class: 'config-item' }, [
-                        el('span', { class: 'config-key', text: k }), toggle,
+                    return el('div', { class: 'config-item' + (isDanger ? ' config-danger' : '') }, [
+                        el('span', { class: 'config-key', text: label }), toggle,
                     ]);
                 }
+
+                // editable text/number input
+                var saved = el('span', { class: 'config-saved', text: 'saved' });
+                var input = el('input', {
+                    class: 'config-input',
+                    type: 'text',
+                    value: v,
+                });
+                var debounce = null;
+                input.addEventListener('input', function() {
+                    clearTimeout(debounce);
+                    saved.classList.remove('show');
+                    debounce = setTimeout(async function() {
+                        await api('/api/admin/config', {
+                            method: 'PUT',
+                            body: JSON.stringify({ key: k, value: input.value }),
+                        });
+                        saved.classList.add('show');
+                        setTimeout(function() { saved.classList.remove('show'); }, 1500);
+                    }, 600);
+                });
+
                 return el('div', { class: 'config-item' }, [
-                    el('span', { class: 'config-key', text: k }),
-                    el('span', { class: 'config-val', text: v }),
+                    el('span', { class: 'config-key', text: label }),
+                    el('div', { style: { display: 'flex', alignItems: 'center' } }, [input, saved]),
                 ]);
             });
             grid.replaceChildren(...items);
