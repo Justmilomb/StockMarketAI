@@ -163,6 +163,25 @@ class HistoryManager:
                     total_pnl REAL
                 );
                 CREATE INDEX IF NOT EXISTS idx_bt_folds_run ON backtest_folds(run_id);
+
+                CREATE TABLE IF NOT EXISTS position_notes (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ticker TEXT NOT NULL,
+                    opened_at TEXT DEFAULT (datetime('now')),
+                    entry_reason TEXT,
+                    strategy_profile TEXT,
+                    regime_at_entry TEXT,
+                    intended_hold TEXT,
+                    entry_signal_prob REAL,
+                    entry_consensus_pct REAL,
+                    special_instructions TEXT,
+                    exit_reason TEXT,
+                    closed_at TEXT,
+                    pnl_realized REAL,
+                    is_open INTEGER DEFAULT 1
+                );
+                CREATE INDEX IF NOT EXISTS idx_pn_ticker ON position_notes(ticker);
+                CREATE INDEX IF NOT EXISTS idx_pn_open ON position_notes(is_open);
             """)
 
     # ── Migrations ─────────────────────────────────────────────────────
@@ -552,6 +571,62 @@ class HistoryManager:
                 (limit,),
             ).fetchall()
         return [dict(r) for r in rows]
+
+    # ── Position notes ("patient chart") ─────────────────────────────
+
+    def save_position_note(
+        self,
+        ticker: str,
+        entry_reason: str = "",
+        strategy_profile: str = "",
+        regime_at_entry: str = "",
+        intended_hold: str = "",
+        entry_signal_prob: float = 0.0,
+        entry_consensus_pct: float = 0.0,
+        special_instructions: str = "",
+    ) -> int:
+        """Record context for a newly opened position."""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute(
+                """INSERT INTO position_notes
+                   (ticker, entry_reason, strategy_profile, regime_at_entry,
+                    intended_hold, entry_signal_prob, entry_consensus_pct,
+                    special_instructions)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (ticker, entry_reason, strategy_profile, regime_at_entry,
+                 intended_hold, entry_signal_prob, entry_consensus_pct,
+                 special_instructions),
+            )
+            return cursor.lastrowid or 0
+
+    def close_position_note(
+        self,
+        ticker: str,
+        exit_reason: str = "",
+        pnl_realized: float = 0.0,
+    ) -> None:
+        """Mark the most recent open note for *ticker* as closed."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                """UPDATE position_notes
+                   SET is_open = 0, closed_at = datetime('now'),
+                       exit_reason = ?, pnl_realized = ?
+                   WHERE ticker = ? AND is_open = 1""",
+                (exit_reason, pnl_realized, ticker),
+            )
+
+    def get_open_position_notes(self) -> Dict[str, Dict[str, Any]]:
+        """Return open position notes keyed by ticker."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                """SELECT * FROM position_notes WHERE is_open = 1
+                   ORDER BY opened_at DESC""",
+            ).fetchall()
+        notes: Dict[str, Dict[str, Any]] = {}
+        for r in rows:
+            notes[r["ticker"]] = dict(r)
+        return notes
 
     def close(self) -> None:
         pass  # connections are per-call via context manager

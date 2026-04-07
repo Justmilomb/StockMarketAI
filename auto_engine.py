@@ -107,3 +107,43 @@ class AutoEngine:
 
         results = self.broker_service.submit_orders(orders)
         self.state.recent_orders.extend(results)
+
+        # Save position notes for successful buy orders
+        history = getattr(self.state, "history_manager", None)
+        if history:
+            regime = getattr(self.state, "current_regime", "unknown")
+            for order_result in results:
+                ticker = order_result.get("ticker", "")
+                side = order_result.get("side", "")
+                status = order_result.get("status", "")
+                if side == "buy" and status in ("filled", "submitted", "accepted"):
+                    # Gather context from signals and consensus
+                    sig_row = signals_df[signals_df["ticker"] == ticker]
+                    prob = float(sig_row["prob_up"].iloc[0]) if len(sig_row) else 0.0
+                    cons = consensus.get(ticker)
+                    cons_pct = cons.consensus_pct if cons else 0.0
+                    strat = self.state.strategy_assignments.get(ticker, {})
+                    profile_name = strat.get("name", "") if isinstance(strat, dict) else ""
+                    reason = strat.get("reason", "") if isinstance(strat, dict) else ""
+
+                    # Infer intended hold from profile type
+                    hold_map = {
+                        "day_trader": "days", "swing": "weeks",
+                        "trend_follower": "weeks", "conservative": "days",
+                        "crisis_alpha": "days", "scalper": "intraday",
+                        "intraday_momentum": "intraday",
+                    }
+                    intended = hold_map.get(profile_name, "days")
+
+                    try:
+                        history.save_position_note(
+                            ticker=ticker,
+                            entry_reason=f"{reason} | prob={prob:.2f} consensus={cons_pct:.0f}%",
+                            strategy_profile=profile_name,
+                            regime_at_entry=str(regime),
+                            intended_hold=intended,
+                            entry_signal_prob=prob,
+                            entry_consensus_pct=cons_pct,
+                        )
+                    except Exception as exc:
+                        logger.debug("Failed to save position note for %s: %s", ticker, exc)

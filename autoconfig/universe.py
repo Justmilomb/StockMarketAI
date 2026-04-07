@@ -103,7 +103,8 @@ UNIVERSE_EU = [
 # ── User's watchlist tickers (always included) ───────────────────────
 
 USER_WATCHLIST = [
-    "CCCX", "VLVLY", "KRKNF",
+    "VLVLY", "KRKNF",
+    # CCCX removed — delisted, no yfinance data pre-2024
     # VUKG.L, RR.L, BBY.L already in UNIVERSE_UK
     # TSLA already in UNIVERSE_US_MEGA
 ]

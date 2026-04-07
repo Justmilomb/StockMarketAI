@@ -228,6 +228,12 @@ class PerformanceMetrics:
     signal_precision: float = 0.0         # Precision for buy signals
     signal_recall: float = 0.0
 
+    # -- Advanced metrics -----------------------------------------------------
+    expectancy: float = 0.0               # avg $ per trade
+    recovery_factor: float = 0.0          # net profit / max drawdown
+    max_consecutive_wins: int = 0
+    max_consecutive_losses: int = 0
+
     # -- Attribution ----------------------------------------------------------
     per_source_accuracy: Dict[str, float] = field(default_factory=dict)
 

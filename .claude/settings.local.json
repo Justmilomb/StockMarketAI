@@ -48,7 +48,8 @@
       "Bash(taskkill //F //PID 21552)",
       "Bash(taskkill //F //PID 9364)",
       "Read(//c/Users/milo/.claude/plans/**)",
-      "Read(//c/Users/milo/.claude/**)"
+      "Read(//c/Users/milo/.claude/**)",
+      "Bash(kill %1)"
     ]
   }
 }

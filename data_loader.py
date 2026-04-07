@@ -231,26 +231,18 @@ def fetch_live_prices(tickers: List[str]) -> Dict[str, Dict[str, float]]:
     try:
         # If a ticker is delisted, yfinance might raise an error for the whole batch or return empty.
         # We try to get as much as we can.
-        df = yf.download(yf_tickers, period="5d", auto_adjust=False, progress=False, group_by='column')
-        
-        # yfinance returns a DataFrame with MultiIndex columns (Attribute, Ticker) if len(yf_tickers) > 1
-        # If len(yf_tickers) == 1, it might return a simple Index if group_by='column' (default)
-        
+        # Fetch each ticker individually to avoid MultiIndex issues (yfinance 1.2.0+)
         for original_ticker, cleaned_ticker in ticker_map.items():
             try:
-                if len(yf_tickers) > 1:
-                    # Access Close attribute, then specific ticker
-                    if "Close" in df.columns.levels[0] and cleaned_ticker in df["Close"].columns:
-                        ticker_closes = df["Close"][cleaned_ticker].dropna()
-                    else:
-                        ticker_closes = pd.Series()
-                else:
-                    # Single ticker or empty matches
-                    if "Close" in df.columns:
-                        ticker_closes = df["Close"].dropna()
-                    else:
-                        ticker_closes = pd.Series()
-                
+                tdf = yf.download(
+                    cleaned_ticker, period="5d", auto_adjust=False,
+                    progress=False, timeout=15, multi_level_index=False,
+                )
+                if tdf is None or tdf.empty or "Close" not in tdf.columns:
+                    live_data[original_ticker] = {"price": 0.0, "change_pct": 0.0}
+                    continue
+
+                ticker_closes = tdf["Close"].dropna()
                 if len(ticker_closes) >= 2:
                     current = float(ticker_closes.iloc[-1])
                     prev_close = float(ticker_closes.iloc[-2])
@@ -261,10 +253,10 @@ def fetch_live_prices(tickers: List[str]) -> Dict[str, Dict[str, float]]:
                 else:
                     current = 0.0
                     change_pct = 0.0
-                    
+
                 live_data[original_ticker] = {
                     "price": current,
-                    "change_pct": change_pct
+                    "change_pct": change_pct,
                 }
             except Exception:
                 live_data[original_ticker] = {"price": 0.0, "change_pct": 0.0}

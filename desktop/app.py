@@ -85,6 +85,7 @@ class MainWindow(QMainWindow):
 
             from database import HistoryManager
             self.history_manager = HistoryManager()
+            self.state.history_manager = self.history_manager
 
             from accuracy_tracker import AccuracyTracker
             self.ai_service._accuracy_tracker = AccuracyTracker(self.history_manager)
@@ -480,8 +481,23 @@ class MainWindow(QMainWindow):
         # Calculate PnL
         self._calculate_pnl()
 
+        # Load position notes from DB
+        if hasattr(self, "history_manager"):
+            try:
+                self.state.position_notes = self.history_manager.get_open_position_notes()
+            except Exception:
+                pass
+
         # Refresh all panels
         self._refresh_all_panels()
+
+        # Run auto-engine if in full_auto mode and fresh signals arrived
+        if result.get("signals") is not None:
+            try:
+                self.auto_engine.step()
+            except Exception as exc:
+                logger.exception("Auto-engine error: %s", exc)
+                self.statusBar().showMessage(f"Auto-engine error: {exc}", 5000)
 
     @Slot(str)
     def _on_refresh_error(self, error_msg: str) -> None:

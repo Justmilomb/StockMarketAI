@@ -147,6 +147,12 @@ def compute_metrics(
     # -- Per-source attribution -----------------------------------------------
     per_source = _compute_attribution(all_trades)
 
+    # -- Advanced metrics -----------------------------------------------------
+    total_pnl = sum(t.pnl for t in all_trades)
+    expectancy = total_pnl / total_trades if total_trades > 0 else 0.0
+    recovery_factor = (total_return_pct / max_dd) if max_dd > 0 else 0.0
+    max_consec_wins, max_consec_losses = _streak_counts(all_trades)
+
     return PerformanceMetrics(
         total_return_pct=total_return_pct,
         annualised_return_pct=annualised_return_pct,
@@ -170,6 +176,10 @@ def compute_metrics(
         signal_accuracy=signal_accuracy,
         signal_precision=weighted_precision,
         signal_recall=weighted_recall,
+        expectancy=expectancy,
+        recovery_factor=recovery_factor,
+        max_consecutive_wins=max_consec_wins,
+        max_consecutive_losses=max_consec_losses,
         per_source_accuracy=per_source,
         equity_curve=equity_curve,
         equity_dates=equity_dates,
@@ -247,6 +257,22 @@ def _weighted_avg(folds: List[FoldResult], attr: str, weight_attr: str) -> float
     return sum(getattr(f, attr, 0) * getattr(f, weight_attr, 0) for f in folds) / total_weight
 
 
+def _streak_counts(trades: List[TradeRecord]) -> tuple[int, int]:
+    """Return (max_consecutive_wins, max_consecutive_losses)."""
+    max_wins = max_losses = 0
+    cur_wins = cur_losses = 0
+    for t in trades:
+        if t.pnl > 0:
+            cur_wins += 1
+            cur_losses = 0
+            max_wins = max(max_wins, cur_wins)
+        else:
+            cur_losses += 1
+            cur_wins = 0
+            max_losses = max(max_losses, cur_losses)
+    return max_wins, max_losses
+
+
 def format_report(result: "BacktestResult") -> str:
     """Generate a human-readable text report from backtest results."""
     from backtesting.types import BacktestResult
@@ -297,6 +323,10 @@ def format_report(result: "BacktestResult") -> str:
             f"  Best Trade:        {m.best_trade_pct:+.2f}%",
             f"  Worst Trade:       {m.worst_trade_pct:+.2f}%",
             f"  Avg Hold:          {m.avg_hold_days:.1f} days",
+            f"  Expectancy:        ${m.expectancy:+.4f} /trade",
+            f"  Recovery Factor:   {m.recovery_factor:.2f}",
+            f"  Max Consec Wins:   {m.max_consecutive_wins}",
+            f"  Max Consec Losses: {m.max_consecutive_losses}",
             "",
         ])
 

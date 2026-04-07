@@ -33,6 +33,8 @@ class AppState:
     selected_ticker: str = ""
     signals: Optional[pd.DataFrame] = None
     positions: List[Dict[str, Any]] = field(default_factory=list)
+    position_notes: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    history_manager: Any = None
     recent_orders: List[Dict[str, Any]] = field(default_factory=list)
     live_data: Dict[str, Dict[str, float]] = field(default_factory=dict)
     ai_insights: str = "Press 'i' to generate AI portfolio insights."

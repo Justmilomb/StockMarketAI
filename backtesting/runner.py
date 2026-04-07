@@ -34,6 +34,7 @@ from backtesting.types import (
 
 logger = logging.getLogger(__name__)
 
+
 # Shared data loaded once per worker process via initializer
 _worker_shared_data: Dict[str, Any] = {}
 
