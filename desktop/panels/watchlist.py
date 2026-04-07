@@ -5,6 +5,8 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QGroupBox, QHeaderView, QTableWidget, QTableWidgetItem, QVBoxLayout
 
+from intraday_data import is_intraday_supported
+
 COLUMNS = ["Ticker", "Verdict", "Live Px", "Day %", "Prob", "Signal", "AI Rec", "Consensus", "Conf", "Sentiment", "Strategy"]
 
 STRATEGY_COLORS = {
@@ -13,6 +15,8 @@ STRATEGY_COLORS = {
     "swing": "#ffd700",
     "crisis_alpha": "#ff0000",
     "trend_follower": "#00bfff",
+    "scalper": "#ff00ff",
+    "intraday_momentum": "#ff8c00",
 }
 
 def compute_verdict(prob: float, consensus_pct: float) -> str:
@@ -97,9 +101,15 @@ class WatchlistPanel(QGroupBox):
             strat_data = state.strategy_assignments.get(ticker, {})
             strat_name = strat_data.get("name", "") if isinstance(strat_data, dict) else ""
 
-            # Protected?
+            # Protected / daily-only tags
             is_protected = ticker in state.protected_tickers
-            display_ticker = f"[P] {ticker}" if is_protected else ticker
+            daily_only = not is_intraday_supported(ticker)
+            prefix = ""
+            if is_protected:
+                prefix += "[P] "
+            if daily_only:
+                prefix += "[D] "
+            display_ticker = f"{prefix}{ticker}" if prefix else ticker
 
             rows.append((
                 display_ticker, verdict, price, change_pct, prob,

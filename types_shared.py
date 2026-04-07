@@ -91,6 +91,7 @@ class RegimeState:
 
 StrategyProfileName = Literal[
     "conservative", "day_trader", "swing", "crisis_alpha", "trend_follower",
+    "scalper", "intraday_momentum",
 ]
 
 
@@ -127,6 +128,12 @@ class StrategyProfile:
 
     # Which regimes this profile targets (empty = all)
     target_regimes: tuple[str, ...] = ()
+
+    # Intraday fields (dormant — used when intraday trading is activated)
+    bar_interval: str = "1d"
+    data_source: str = "yfinance"
+    max_holding_bars: int | None = None
+    is_intraday: bool = False
 
 
 @dataclass

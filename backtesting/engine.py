@@ -10,8 +10,12 @@ Each fold is self-contained and can run in a separate process.
 from __future__ import annotations
 
 import logging
+import warnings
 from datetime import date
 from typing import Any, Callable, Dict, List, Optional, Tuple
+
+warnings.filterwarnings("ignore", category=UserWarning, module=r"sklearn\..*")
+warnings.filterwarnings("ignore", category=FutureWarning, module=r"sklearn\..*")
 
 import numpy as np
 import pandas as pd

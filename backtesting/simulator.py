@@ -74,16 +74,23 @@ class TradeSimulator:
             signals:      {ticker: prob_up} — probabilities for today
             atr_values:   {ticker: ATR} — for stop/take-profit calculation
         """
-        # 1. Check stops and take-profits on open positions
+        # 0. Increment bar counter for open positions
+        for pos in self._positions.values():
+            pos.bars_held += 1
+
+        # 1. Check max holding time (intraday auto-exit)
+        self._check_max_holding(current_date, prices)
+
+        # 2. Check stops and take-profits on open positions
         self._check_stops(current_date, prices)
 
-        # 2. Process sell signals
+        # 3. Process sell signals
         self._process_sells(current_date, prices, signals)
 
-        # 3. Process buy signals
+        # 4. Process buy signals
         self._process_buys(current_date, prices, signals, atr_values)
 
-        # 4. Mark-to-market and record daily snapshot
+        # 5. Mark-to-market and record daily snapshot
         self._record_snapshot(current_date, prices)
 
     def close_all_positions(self, current_date: date, prices: Dict[str, Dict[str, float]]) -> None:
@@ -98,6 +105,24 @@ class TradeSimulator:
     # ------------------------------------------------------------------
     # Internal execution logic
     # ------------------------------------------------------------------
+
+    def _check_max_holding(
+        self,
+        current_date: date,
+        prices: Dict[str, Dict[str, float]],
+    ) -> None:
+        """Auto-close positions that exceed max_holding_bars (intraday)."""
+        max_bars = self._config.max_holding_bars
+        if max_bars is None:
+            return
+        for ticker in list(self._positions.keys()):
+            pos = self._positions[ticker]
+            if pos.bars_held >= max_bars:
+                price_data = prices.get(ticker)
+                if price_data is None:
+                    continue
+                fill = price_data["close"] * (1.0 - self._config.slippage_pct)
+                self._close_position(ticker, current_date, fill, "max_holding")
 
     def _check_stops(
         self,

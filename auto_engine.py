@@ -6,6 +6,7 @@ from typing import Any, Dict, List
 
 from ai_service import AiService
 from broker_service import BrokerService
+from intraday_data import is_intraday_supported
 from risk_manager import RiskManager
 from terminal.state import AppState
 from types_shared import ConsensusResult
@@ -27,6 +28,21 @@ class AutoEngine:
     ai_service: AiService
     broker_service: BrokerService
     _risk_manager: RiskManager | None = None
+
+    def _select_intent(self, ticker: str) -> str:
+        """Decide whether to use daily or intraday strategy for a ticker.
+
+        Intraday is dormant for now — always returns "daily".
+        When activated, this will check intraday eligibility and signal strength.
+        """
+        # Intraday trading is dormant — uncomment below when ready
+        # if not is_intraday_supported(ticker):
+        #     return "daily"
+        # # High short-term volatility + strong signal → intraday opportunity
+        # vol = self.state.live_data.get(ticker, {}).get("volatility", 0)
+        # if vol > 0.03:  # >3% intraday move
+        #     return "intraday"
+        return "daily"
 
     def _get_risk_manager(self) -> RiskManager:
         if self._risk_manager is None:

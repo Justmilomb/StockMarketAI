@@ -7,9 +7,12 @@ background timers and keyboard shortcuts.
 from __future__ import annotations
 
 import json
+import logging
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 from PySide6.QtCore import Qt, QTimer, Slot
 from PySide6.QtGui import QKeySequence, QShortcut
@@ -74,6 +77,9 @@ class MainWindow(QMainWindow):
             claude_cfg_raw = self.config.get("claude", {})
             ccfg = ClaudeConfig(
                 model=claude_cfg_raw.get("model", "claude-sonnet-4-20250514"),
+                model_complex=claude_cfg_raw.get("model_complex", "claude-opus-4-6"),
+                model_medium=claude_cfg_raw.get("model_medium", "claude-sonnet-4-20250514"),
+                model_simple=claude_cfg_raw.get("model_simple", "claude-haiku-4-5-20251001"),
             )
             self._claude_client = ClaudeClient(ccfg)
 
@@ -346,6 +352,7 @@ class MainWindow(QMainWindow):
 
         if self.news_agent:
             try:
+                self.news_agent.update_tickers(self._get_active_tickers())
                 self.news_agent.start()
             except Exception:
                 pass
@@ -697,17 +704,32 @@ class MainWindow(QMainWindow):
             self._parse_color_grades(response)
 
     def _parse_color_grades(self, response: str) -> None:
-        """Parse AI response for per-ticker colour grades (GREEN/RED/ORANGE)."""
+        """Parse AI response for per-ticker colour grades (GREEN/RED/ORANGE).
+
+        Handles multiple AI response formats:
+        - Inline: "TSLA: GREEN", "TSLA — RED"
+        - Markdown table: "| **TSLA** | 🔴 RED |"
+        """
         import re
         grades: dict[str, str] = {}
-        pattern = re.compile(
-            r'\*{0,2}([A-Z][A-Z0-9.]{0,9})\*{0,2}\s*[:—\-–]\s*(GREEN|RED|ORANGE)',
-            re.IGNORECASE,
-        )
-        for match in pattern.finditer(response):
-            ticker = match.group(1).upper()
-            grade = match.group(2).upper()
-            grades[ticker] = grade
+        patterns = [
+            # Inline format: TICKER: GRADE or TICKER — GRADE
+            re.compile(
+                r'\*{0,2}([A-Z][A-Z0-9.]{0,9})\*{0,2}\s*[:—\-–]\s*(?:\S+\s+)?(GREEN|RED|ORANGE)',
+                re.IGNORECASE,
+            ),
+            # Markdown table: | TICKER | ... GREEN/RED/ORANGE ... |
+            re.compile(
+                r'\|\s*\*{0,2}([A-Z][A-Z0-9.]{0,9})\*{0,2}\s*\|[^|]*?(GREEN|RED|ORANGE)',
+                re.IGNORECASE,
+            ),
+        ]
+        for pattern in patterns:
+            for match in pattern.finditer(response):
+                ticker = match.group(1).upper()
+                grade = match.group(2).upper()
+                if ticker not in grades:
+                    grades[ticker] = grade
 
         if grades and self.state.signals is not None and not self.state.signals.empty:
             signal_tickers = set(self.state.signals["ticker"].tolist())
@@ -757,39 +779,50 @@ class MainWindow(QMainWindow):
     def _fetch_chart_data(self, ticker: str) -> dict:
         """Background: fetch OHLCV data via yfinance with fallback periods."""
         import yfinance as yf
+        from data_loader import _clean_ticker
 
+        yf_ticker = _clean_ticker(ticker)
+        logger.info("Chart fetch: %s → yfinance symbol '%s'", ticker, yf_ticker)
         periods = ["3mo", "6mo", "1mo", "1y"]
+        last_err = ""
         for period in periods:
             try:
                 df = yf.download(
-                    ticker, period=period, interval="1d",
-                    progress=False, timeout=10,
+                    yf_ticker, period=period, interval="1d",
+                    progress=False, timeout=15,
+                    multi_level_index=False,
                 )
-                if df is not None and not df.empty and len(df) >= 2:
-                    # Handle MultiIndex columns from newer yfinance
-                    if hasattr(df.columns, "nlevels") and df.columns.nlevels > 1:
-                        df.columns = df.columns.droplevel(1)
+                if df is None or df.empty:
+                    logger.debug("Chart %s period=%s: empty result", yf_ticker, period)
+                    continue
 
-                    required = ["Open", "High", "Low", "Close", "Volume"]
-                    missing = [c for c in required if c not in df.columns]
-                    if missing:
-                        continue
+                required = ["Open", "High", "Low", "Close", "Volume"]
+                missing = [c for c in required if c not in df.columns]
+                if missing:
+                    logger.debug("Chart %s period=%s: missing cols %s (have %s)",
+                                 yf_ticker, period, missing, list(df.columns))
+                    continue
 
-                    df = df[required].dropna()
-                    if len(df) < 2:
-                        continue
+                df = df[required].dropna()
+                if len(df) < 2:
+                    continue
 
-                    return {
-                        "opens": df["Open"].values.astype(float).flatten(),
-                        "highs": df["High"].values.astype(float).flatten(),
-                        "lows": df["Low"].values.astype(float).flatten(),
-                        "closes": df["Close"].values.astype(float).flatten(),
-                        "volumes": df["Volume"].values.astype(float).flatten(),
-                        "period": period,
-                    }
-            except Exception:
+                return {
+                    "opens": df["Open"].values.astype(float).flatten(),
+                    "highs": df["High"].values.astype(float).flatten(),
+                    "lows": df["Low"].values.astype(float).flatten(),
+                    "closes": df["Close"].values.astype(float).flatten(),
+                    "volumes": df["Volume"].values.astype(float).flatten(),
+                    "period": period,
+                }
+            except Exception as exc:
+                last_err = str(exc)
+                logger.warning("Chart %s period=%s error: %s", yf_ticker, period, exc)
                 continue
-        return {"error": f"No data available for {ticker}"}
+        err_msg = f"No data for {yf_ticker}"
+        if last_err:
+            err_msg += f" ({last_err})"
+        return {"error": err_msg}
 
     def _on_chart_loaded(self, ticker: str, result: dict) -> None:
         """Main thread: render chart from fetched data."""

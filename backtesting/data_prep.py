@@ -25,11 +25,25 @@ def prepare_backtest_data(
 ) -> Tuple[Dict[str, pd.DataFrame], Dict[str, pd.Series]]:
     """Pre-compute features and labels for every ticker across full history.
 
+    Routes to daily or intraday feature engineering based on
+    ``config.bar_interval``.
+
     Returns:
         features_by_ticker: {ticker: DataFrame of features indexed by date}
         labels_by_ticker:   {ticker: Series of binary labels indexed by date}
-            label[t] = 1 if close[t+1] > close[t], else 0
     """
+    is_intraday = config.bar_interval != "1d"
+
+    if is_intraday:
+        return _prepare_intraday(universe_data, config)
+    return _prepare_daily(universe_data, config)
+
+
+def _prepare_daily(
+    universe_data: Dict[str, pd.DataFrame],
+    config: BacktestConfig,
+) -> Tuple[Dict[str, pd.DataFrame], Dict[str, pd.Series]]:
+    """Daily feature engineering (original path)."""
     from features_advanced import FEATURE_COLUMNS_V2, engineer_features_v2
 
     features_by_ticker: Dict[str, pd.DataFrame] = {}
@@ -71,6 +85,65 @@ def prepare_backtest_data(
     logger.info(
         "Prepared %d tickers, %d total feature rows",
         len(features_by_ticker),
+        sum(len(f) for f in features_by_ticker.values()),
+    )
+    return features_by_ticker, labels_by_ticker
+
+
+def _prepare_intraday(
+    universe_data: Dict[str, pd.DataFrame],
+    config: BacktestConfig,
+) -> Tuple[Dict[str, pd.DataFrame], Dict[str, pd.Series]]:
+    """Intraday feature engineering for minute/hour bars."""
+    from features_intraday import FEATURE_COLUMNS_INTRADAY, engineer_intraday_features
+
+    interval_map = {"1Min": 1, "5Min": 5, "15Min": 15, "30Min": 30, "1Hour": 60}
+    interval_minutes = interval_map.get(config.bar_interval, 5)
+    horizon = config.target_horizon_bars
+
+    features_by_ticker: Dict[str, pd.DataFrame] = {}
+    labels_by_ticker: Dict[str, pd.Series] = {}
+
+    for ticker, df in universe_data.items():
+        if len(df) < 200:
+            logger.warning("Skipping %s — only %d intraday bars (need 200+)", ticker, len(df))
+            continue
+
+        try:
+            feat_df = engineer_intraday_features(df, interval_minutes, horizon)
+            if feat_df.empty:
+                continue
+
+            # Align to intraday feature spec
+            for col in FEATURE_COLUMNS_INTRADAY:
+                if col not in feat_df.columns:
+                    feat_df[col] = np.nan
+            feat_cols = [c for c in FEATURE_COLUMNS_INTRADAY if c in feat_df.columns]
+            feat_df = feat_df[feat_cols].dropna()
+
+            if len(feat_df) < 200:
+                continue
+
+            # Labels from engineer_intraday_features already set target_up
+            closes = df["Close"].reindex(feat_df.index) if "Close" in df.columns else df["close"].reindex(feat_df.index)
+            next_close = closes.shift(-horizon)
+            labels = (next_close > closes).astype(int)
+            labels = labels.reindex(feat_df.index).dropna().astype(int)
+            # Trim to common index
+            common_idx = feat_df.index.intersection(labels.index)
+            feat_df = feat_df.loc[common_idx]
+            labels = labels.loc[common_idx]
+
+            features_by_ticker[ticker] = feat_df
+            labels_by_ticker[ticker] = labels
+
+        except Exception as e:
+            logger.warning("Intraday feature computation failed for %s: %s", ticker, e)
+            continue
+
+    logger.info(
+        "Prepared %d tickers (intraday %s), %d total bars",
+        len(features_by_ticker), config.bar_interval,
         sum(len(f) for f in features_by_ticker.values()),
     )
     return features_by_ticker, labels_by_ticker

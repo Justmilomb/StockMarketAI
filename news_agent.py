@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import logging
 import time
 import threading
 import concurrent.futures
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 try:
     import feedparser
@@ -46,8 +49,20 @@ class NewsAgent:
         self._tickers: List[str] = []
 
     @property
-    def news_data(self) -> Dict[str, TickerNews]:
-        return self._news_data.copy()
+    def news_data(self) -> Dict[str, Dict[str, Any]]:
+        """Return news as plain dicts for panel consumers.
+
+        Maps TickerNews.sentiment → 'sentiment_score' to match what
+        watchlist and news panels expect.
+        """
+        return {
+            ticker: {
+                "sentiment_score": tn.sentiment,
+                "summary": tn.summary,
+                "headlines": tn.headlines,
+            }
+            for ticker, tn in self._news_data.items()
+        }
 
     def update_tickers(self, tickers: List[str]) -> None:
         self._tickers = list(tickers)

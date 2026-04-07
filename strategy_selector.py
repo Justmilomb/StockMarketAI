@@ -82,6 +82,7 @@ class StrategySelector:
         regime: RegimeState,
         consensus: Dict[str, ConsensusResult],
         volatility: Dict[str, float] | None = None,
+        trading_intent: str | None = None,
     ) -> Dict[str, StrategyAssignment]:
         """Select a strategy profile for every ticker in *consensus*.
 
@@ -92,6 +93,9 @@ class StrategySelector:
             volatility: Optional per-ticker normalised volatility
                 (ATR / price).  When provided, high-vol tickers are
                 shifted towards conservative / crisis_alpha profiles.
+            trading_intent: ``"daily"``, ``"intraday"``, or None (auto).
+                When ``"intraday"``, only intraday profiles are considered
+                for US-eligible tickers; non-US tickers fall back to daily.
 
         Returns:
             Mapping of ticker -> ``StrategyAssignment``.
@@ -100,11 +104,22 @@ class StrategySelector:
         assignments: Dict[str, StrategyAssignment] = {}
 
         for ticker, cr in consensus.items():
-            profile_name, reason = self._select_single(
-                regime=regime,
-                cr=cr,
-                ticker_vol=vol_map.get(ticker),
-            )
+            # Intraday intent: only use intraday profiles for eligible tickers
+            if trading_intent == "intraday":
+                from intraday_data import is_intraday_supported
+                if is_intraday_supported(ticker):
+                    profile_name, reason = self._select_intraday(regime, cr)
+                else:
+                    profile_name, reason = self._select_single(
+                        regime=regime, cr=cr, ticker_vol=vol_map.get(ticker),
+                    )
+                    reason += " (daily fallback — no intraday data for this exchange)"
+            else:
+                profile_name, reason = self._select_single(
+                    regime=regime,
+                    cr=cr,
+                    ticker_vol=vol_map.get(ticker),
+                )
             profile = self._profiles[profile_name]
 
             # Small-capital guard: scale sizing down proportionally
@@ -333,6 +348,21 @@ class StrategySelector:
             return best_name
 
         return current
+
+    def _select_intraday(
+        self,
+        regime: RegimeState,
+        cr: "ConsensusResult",
+    ) -> tuple[StrategyProfileName, str]:
+        """Pick the best intraday profile for a US-eligible ticker."""
+        # Prefer scalper in mean-reverting / high-vol; intraday_momentum in trending
+        trending = regime.regime in ("trending_up", "trending_down")
+        if trending and "intraday_momentum" in self._profiles:
+            return "intraday_momentum", f"intraday momentum — {regime.regime} regime"
+        if "scalper" in self._profiles:
+            return "scalper", f"scalper — {regime.regime} regime"
+        # Fallback: no intraday profiles loaded, use daily
+        return self._select_single(regime=regime, cr=cr, ticker_vol=None)
 
     def _apply_capital_adjustment(
         self, profile: StrategyProfile

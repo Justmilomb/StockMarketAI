@@ -101,32 +101,34 @@ class RefreshWorker(QThread):
                 if missing:
                     try:
                         import yfinance as yf
-                        batch = yf.download(
-                            missing, period="2d", interval="1d",
-                            progress=False, timeout=15, group_by="ticker",
-                        )
-                        if batch is not None and not batch.empty:
-                            for t in missing:
-                                try:
-                                    if len(missing) == 1:
-                                        # Single ticker: columns are flat
-                                        cols = batch
-                                    else:
-                                        cols = batch[t] if t in batch.columns.get_level_values(0) else None
-                                    if cols is None or cols.empty:
-                                        continue
-                                    cols = cols.dropna()
-                                    if len(cols) < 1:
-                                        continue
-                                    cur_price = float(cols["Close"].iloc[-1])
-                                    if len(cols) >= 2:
-                                        prev_close = float(cols["Close"].iloc[-2])
-                                        day_chg = ((cur_price - prev_close) / prev_close * 100) if prev_close else 0
-                                    else:
-                                        day_chg = 0
-                                    live_data[t] = {"price": cur_price, "change_pct": round(day_chg, 2)}
-                                except Exception:
-                                    pass
+                        from data_loader import _clean_ticker
+
+                        # Map T212 tickers to yfinance symbols
+                        yf_to_t212 = {_clean_ticker(t): t for t in missing}
+                        yf_tickers = list(yf_to_t212.keys())
+
+                        # Fetch each ticker individually to avoid MultiIndex issues
+                        for yf_t, orig_t in yf_to_t212.items():
+                            try:
+                                cols = yf.download(
+                                    yf_t, period="2d", interval="1d",
+                                    progress=False, timeout=10,
+                                    multi_level_index=False,
+                                )
+                                if cols is None or cols.empty:
+                                    continue
+                                cols = cols.dropna()
+                                if len(cols) < 1 or "Close" not in cols.columns:
+                                    continue
+                                cur_price = float(cols["Close"].iloc[-1])
+                                if len(cols) >= 2:
+                                    prev_close = float(cols["Close"].iloc[-2])
+                                    day_chg = ((cur_price - prev_close) / prev_close * 100) if prev_close else 0
+                                else:
+                                    day_chg = 0
+                                live_data[orig_t] = {"price": cur_price, "change_pct": round(day_chg, 2)}
+                            except Exception:
+                                pass
                     except Exception as e:
                         logger.debug("yfinance batch fetch failed: %s", e)
 

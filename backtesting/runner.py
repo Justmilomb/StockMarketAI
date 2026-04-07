@@ -171,7 +171,6 @@ class BacktestRunner:
     def _load_data(self) -> Dict[str, pd.DataFrame]:
         """Load OHLCV data for all tickers in the config."""
         import json
-        from data_loader import fetch_universe_data
 
         tickers = list(self._config.tickers)
         if not tickers:
@@ -189,19 +188,32 @@ class BacktestRunner:
             logger.error("No tickers specified for backtest")
             return {}
 
-        result = fetch_universe_data(
-            tickers,
-            start_date=self._config.start_date,
-            end_date=self._config.end_date,
-        )
+        # Route to intraday data source when bar_interval is not daily
+        if self._config.bar_interval != "1d" and self._config.data_source == "marketstack":
+            from intraday_data import fetch_intraday_universe
+            result = fetch_intraday_universe(
+                tickers,
+                interval=self._config.bar_interval,
+                start_date=self._config.start_date,
+                end_date=self._config.end_date,
+            )
+            min_bars = 200
+        else:
+            from data_loader import fetch_universe_data
+            result = fetch_universe_data(
+                tickers,
+                start_date=self._config.start_date,
+                end_date=self._config.end_date,
+            )
+            min_bars = 60
 
         # Filter out tickers with insufficient data
         filtered: Dict[str, pd.DataFrame] = {}
         for ticker, df in result.items():
-            if len(df) >= 60:
+            if len(df) >= min_bars:
                 filtered[ticker] = df
             else:
-                logger.warning("Skipping %s — only %d bars", ticker, len(df))
+                logger.warning("Skipping %s — only %d bars (need %d)", ticker, len(df), min_bars)
 
         return filtered
 

@@ -295,6 +295,10 @@
       "n_models": 8
     }
   },
+  "marketstack": {
+    "api_key_env": "MARKETSTACK_API_KEY",
+    "base_url": "https://api.marketstack.com/v1"
+  },
   "polymarket": {
     "enabled": true,
     "api_url": "https://clob.polymarket.com",

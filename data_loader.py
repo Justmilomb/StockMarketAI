@@ -140,7 +140,7 @@ def fetch_ticker_data(
         df = pd.DataFrame()
         for _attempt in range(3):
             try:
-                df = yf.download(yf_ticker, start=start_date, end=end_date, auto_adjust=False, progress=False)
+                df = yf.download(yf_ticker, start=start_date, end=end_date, auto_adjust=False, progress=False, multi_level_index=False)
                 if not df.empty:
                     break
             except Exception as _dl_err:

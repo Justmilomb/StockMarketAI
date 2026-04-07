@@ -58,6 +58,13 @@ class BacktestConfig:
     lgbm_num_leaves: int = 31
     knn_n_neighbors: int = 20
 
+    # -- Intraday support -----------------------------------------------------
+    bar_interval: str = "1d"           # "1d", "1Min", "5Min", "15Min", "1Hour"
+    data_source: str = "yfinance"      # "yfinance" or "alpaca"
+    bars_per_trading_day: int = 1      # 1 for daily, 78 for 5Min, 390 for 1Min
+    max_holding_bars: int | None = None  # Auto-exit after N bars (intraday)
+    target_horizon_bars: int = 1       # Prediction target: close[t+N] > close[t]
+
     # -- Execution ------------------------------------------------------------
     n_processes: int | None = None    # None = all cores
     mode: Literal["fast", "full"] = "full"
@@ -107,6 +114,7 @@ class Position:
     take_profit: float
     signal_prob: float               # P(up) when entry was triggered
     strategy_profile: str = ""
+    bars_held: int = 0               # Incremented each process_day call
 
 
 @dataclass
