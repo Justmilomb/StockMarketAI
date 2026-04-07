@@ -74,7 +74,7 @@ def main() -> None:
     _setup_error_handlers()
 
     from PySide6.QtCore import Qt
-    from PySide6.QtGui import QColor, QFont, QPainter, QPixmap
+    from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPixmap
     from PySide6.QtWidgets import QApplication, QSplashScreen
     from desktop.app import MainWindow
     from desktop.theme import BLOOMBERG_DARK_QSS
@@ -82,6 +82,37 @@ def main() -> None:
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
     app.setStyleSheet(BLOOMBERG_DARK_QSS)
+
+    # App icon — embedded in the EXE for frozen builds, loaded from file for dev
+    if getattr(sys, "frozen", False):
+        icon_path = Path(sys._MEIPASS) / "desktop" / "assets" / "icon.ico"
+    else:
+        icon_path = Path(__file__).parent / "assets" / "icon.ico"
+    if icon_path.exists():
+        app.setWindowIcon(QIcon(str(icon_path)))
+
+    # ── License gate ─────────────────────────────────────────────────
+    from desktop.license import validate, _read_stored_key, _read_server_url
+    from desktop.dialogs.license import LicenseDialog
+
+    server_url = _read_server_url()
+    stored_key = _read_stored_key()
+
+    if stored_key:
+        # try silent validation of stored key
+        result = validate(server_url=server_url, key=stored_key)
+        if not result.get("valid"):
+            # stored key is bad — prompt for a new one
+            dialog = LicenseDialog(server_url=server_url)
+            if not dialog.run():
+                sys.exit(0)
+    else:
+        # no stored key — must enter one
+        dialog = LicenseDialog(server_url=server_url)
+        if not dialog.run():
+            sys.exit(0)
+
+    logger.info("License validated — launching app")
 
     # ── Splash screen ────────────────────────────────────────────────
     pixmap = QPixmap(600, 340)

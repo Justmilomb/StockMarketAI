@@ -1,5 +1,5 @@
 @echo off
-title StockMarketAI
+title Blank
 cd /d "%~dp0"
-dist\trading.exe
+dist\blank.exe
 pause

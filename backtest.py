@@ -104,7 +104,7 @@ def _print_fold_breakdown(result: "BacktestResult") -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Walk-forward backtest for StockMarketAI",
+        description="Walk-forward backtest for Blank",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(

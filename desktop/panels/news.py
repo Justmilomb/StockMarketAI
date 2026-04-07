@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 from PySide6.QtWidgets import QGroupBox, QTextEdit, QVBoxLayout
 
+
 class NewsPanel(QGroupBox):
     def __init__(self, state: Any) -> None:
         super().__init__("NEWS")
@@ -11,12 +12,35 @@ class NewsPanel(QGroupBox):
         self._text = QTextEdit()
         self._text.setReadOnly(True)
         layout.addWidget(self._text)
+        self._news_available = self._check_dependencies()
         self.refresh_view(state)
+
+    def _check_dependencies(self) -> bool:
+        """Check if feedparser is installed."""
+        try:
+            import feedparser  # noqa: F401
+            return True
+        except ImportError:
+            return False
 
     def refresh_view(self, state: Any) -> None:
         sentiment = state.news_sentiment or {}
+
+        if not self._news_available:
+            self._text.setHtml(
+                '<p style="color:#ff0000; font-weight:bold;">NEWS UNAVAILABLE</p>'
+                '<p style="color:#888888;">feedparser not installed.</p>'
+                '<p style="color:#555555;">Run: pip install feedparser</p>'
+            )
+            return
+
         if not sentiment:
-            self._text.setHtml('<p style="color:#888888;">No news data yet.</p>')
+            self._text.setHtml(
+                '<p style="color:#ffb000;">Waiting for news data...</p>'
+                '<p style="color:#555555;">Press N to refresh news manually.</p>'
+                '<p style="color:#555555;">News fetches headlines via RSS and '
+                'analyses sentiment with AI. This can take a minute.</p>'
+            )
             return
 
         html_parts = []

@@ -10,8 +10,18 @@ Output: dist/blank.exe
 import sys
 import importlib
 from pathlib import Path
+from PyInstaller.utils.hooks import collect_submodules
 
 PROJECT_ROOT = str(Path(SPECPATH))
+
+# Collect all submodules for packages that use lazy loading
+_scipy_imports = collect_submodules('scipy')
+_numpy_imports = collect_submodules('numpy')
+_sklearn_imports = collect_submodules('sklearn')
+_statsmodels_imports = collect_submodules('statsmodels')
+_patsy_imports = collect_submodules('patsy')
+_pyarrow_imports = collect_submodules('pyarrow')
+_opengl_imports = collect_submodules('OpenGL')
 
 # ── Locate native DLLs for xgboost and lightgbm ────────────────────
 _native_binaries = []
@@ -38,42 +48,73 @@ a = Analysis(
     binaries=_native_binaries,
     datas=[
         (str(Path(PROJECT_ROOT) / 'config.json'), '.'),
+        (str(Path(PROJECT_ROOT) / 'desktop' / 'assets' / 'icon.ico'), 'desktop/assets'),
         # xgboost and lightgbm need their VERSION files at runtime
         (str(Path(importlib.import_module('xgboost').__file__).parent / 'VERSION'), 'xgboost'),
         (str(Path(importlib.import_module('lightgbm').__file__).parent / 'VERSION.txt'), 'lightgbm'),
     ],
     hiddenimports=[
+        # Bulk-collected submodules (resolves all lazy-loading warnings)
+        *_scipy_imports,
+        *_numpy_imports,
+        *_sklearn_imports,
+        *_statsmodels_imports,
+        *_patsy_imports,
+        *_pyarrow_imports,
+        *_opengl_imports,
         # PySide6
         'PySide6.QtCore',
         'PySide6.QtGui',
         'PySide6.QtWidgets',
-        # pyqtgraph
+        'PySide6.QtSvg',
+        'PySide6.QtOpenGL',
+        'PySide6.QtOpenGLWidgets',
+        # pyqtgraph (including OpenGL support)
         'pyqtgraph',
         'pyqtgraph.graphicsItems',
         'pyqtgraph.graphicsItems.PlotItem',
-        # Data science
-        'numpy',
-        'numpy.testing',
+        'pyqtgraph.opengl',
+        # pandas
         'pandas',
-        'sklearn',
-        'sklearn.ensemble',
-        'sklearn.linear_model',
-        'sklearn.svm',
-        'sklearn.neighbors',
-        'scipy',
-        'scipy.stats',
-        'scipy.sparse',
-        'scipy._lib',
-        'scipy._lib.array_api_compat',
-        'scipy._lib.array_api_compat.numpy',
-        'statsmodels',
-        'statsmodels.tsa',
+        'pandas.plotting',
+        'pandas.io.formats.style',
+        # joblib + ML boosting
         'joblib',
-        # ML boosting (optional)
         'xgboost',
         'xgboost.core',
         'xgboost.tracker',
         'lightgbm',
+        # Installed optional deps
+        'jinja2',
+        'markupsafe',
+        'openpyxl',
+        'openpyxl.cell',
+        'openpyxl.descriptors',
+        'openpyxl.styles',
+        'openpyxl.workbook',
+        'lxml',
+        'lxml.etree',
+        'lxml.html',
+        'html5lib',
+        'html5lib.constants',
+        'html5lib.treebuilders',
+        'bottleneck',
+        'numexpr',
+        'psutil',
+        'yaml',
+        'simplejson',
+        'orjson',
+        'brotli',
+        'lz4',
+        'lz4.frame',
+        'xlrd',
+        'xlsxwriter',
+        'h5py',
+        'chardet',
+        # dateutil / six
+        'dateutil.tz.tzfile',
+        'six.moves',
+        'six.moves.range',
         # Data
         'yfinance',
         'feedparser',
@@ -128,14 +169,40 @@ a = Analysis(
     hooksconfig={},
     runtime_hooks=[],
     excludes=[
-        # Exclude torch to save ~500MB (deep learning is optional)
-        'torch',
-        'torchvision',
-        'torchaudio',
-        # Exclude Textual (not needed for desktop)
+        # Deep learning (not used, saves ~500MB+)
+        'torch', 'torchvision', 'torchaudio',
+        'jax', 'jax.numpy', 'jax.nn', 'jax.experimental',
+        # CUDA / GPU (not used)
+        'cuda', 'cudf', 'cupy', 'cupyx', 'nvidia',
+        'cuda.bindings',
+        # Distributed computing (not used)
+        'dask', 'distributed', 'numba',
+        # TUI (not needed for desktop)
         'textual',
-        # Exclude test frameworks (keep unittest — numpy.testing needs it)
+        # Test frameworks (keep unittest — numpy.testing needs it)
         'pytest',
+        # Database drivers not used
+        'psycopg', 'psycopg2', 'psycopg2cffi', 'pymysql', 'sqlalchemy',
+        # Misc not needed
+        'IPython', 'sphinx', 'numpydoc', 'traitlets',
+        'matplotlib', 'tornado', 'werkzeug',
+        'Cython', 'cython',
+        'odf', 'polars', 'pyamg', 'sksparse', 'cvxopt',
+        'graphviz', 'viztracer', 'uarray', 'ndonnx',
+        'array_api_strict', 'sparse', 'colorcet',
+        'datatable', 'python_calamine', 'pyxlsb',
+        'tables', 'fsspec', 'botocore', 'adbc_driver_manager',
+        # Polymarket CLOB (optional, not pip-installable)
+        'py_clob_client',
+        # Not applicable on Windows
+        'AppKit', 'Foundation', 'android', 'java', 'jnius',
+        'pyodide', 'pyodide_js', 'js',
+        # Networking extras not used
+        'h2', 'eventlet', 'gevent', 'python_socks', 'socks',
+        'OpenSSL', 'cryptography',
+        # Other optional deps not used
+        'genshi', 'markdownify', 'readability',
+        'ccxt', 'django', 'macholib', 'yapf',
     ],
     noarchive=False,
 )
@@ -161,5 +228,6 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    # icon=str(Path(PROJECT_ROOT) / 'desktop' / 'assets' / 'icon.ico'),
+    icon=str(Path(PROJECT_ROOT) / 'desktop' / 'assets' / 'icon.ico'),
+    version=str(Path(PROJECT_ROOT) / 'version_info.py'),
 )

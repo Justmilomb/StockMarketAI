@@ -1,5 +1,6 @@
-"""Help dialog — keybinding reference."""
+"""Help dialog — keybinding reference (non-modal, stays on top)."""
 from __future__ import annotations
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QDialog, QPushButton, QTextEdit, QVBoxLayout
 
 HELP_TEXT = """
@@ -38,11 +39,19 @@ class HelpDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Help")
         self.setMinimumSize(500, 400)
+        # Non-modal: user can interact with the main window while help is open
+        self.setWindowFlags(
+            Qt.WindowType.Window
+            | Qt.WindowType.WindowStaysOnTopHint
+            | Qt.WindowType.WindowCloseButtonHint
+        )
+        self.setModal(False)
+
         layout = QVBoxLayout(self)
         text = QTextEdit()
         text.setReadOnly(True)
         text.setHtml(HELP_TEXT)
         layout.addWidget(text)
         btn = QPushButton("Close")
-        btn.clicked.connect(self.accept)
+        btn.clicked.connect(self.close)
         layout.addWidget(btn)

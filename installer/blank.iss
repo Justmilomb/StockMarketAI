@@ -8,7 +8,9 @@
 AppName=Blank
 AppVersion=1.0.0
 AppPublisher=Certified Random
-AppCopyright=Copyright (C) 2025 Certified Random
+AppCopyright=Copyright (C) 2026 Certified Random
+SetupIconFile={#MyAppRoot}\desktop\assets\icon.ico
+UninstallDisplayIcon={app}\blank.exe
 DefaultDirName={autopf}\Blank
 DefaultGroupName=Blank
 OutputDir={#MyAppRoot}\dist
@@ -23,16 +25,17 @@ DisableWelcomePage=no
 DisableDirPage=yes
 DisableReadyPage=yes
 
-PrivilegesRequired=admin
+PrivilegesRequired=lowest
 
 [Files]
 Source: "dist\blank.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "config.json"; DestDir: "{app}"; Flags: ignoreversion onlyifdoesntexist
+Source: ".env.example"; DestDir: "{app}"; Flags: ignoreversion onlyifdoesntexist
 
 [Icons]
 Name: "{group}\Blank"; Filename: "{app}\blank.exe"
 Name: "{group}\Uninstall Blank"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\Blank"; Filename: "{app}\blank.exe"; Tasks: desktopicon
+Name: "{autodesktop}\Blank"; Filename: "{app}\blank.exe"; IconFilename: "{app}\blank.exe"; Tasks: desktopicon
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"

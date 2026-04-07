@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>blank — ai trading terminal</title>
+    <meta name="description" content="blank is an ai-powered trading terminal for windows by certified random. machine learning signals, real-time analysis.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@200;300;400;700&display=swap" rel="stylesheet">
+    <style>
+        *, *::before, *::after {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --bg: #000000;
+            --text: #ffffff;
+            --text-mid: rgba(255, 255, 255, 0.5);
+            --text-dim: rgba(255, 255, 255, 0.2);
+            --glow: #00ff87;
+            --glow-dim: rgba(0, 255, 135, 0.06);
+            --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        html {
+            font-size: 16px;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: 'Outfit', sans-serif;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow-x: hidden;
+            cursor: crosshair;
+        }
+
+        /* animated grain overlay */
+        body::before {
+            content: '';
+            position: fixed;
+            inset: -50%;
+            z-index: 1000;
+            pointer-events: none;
+            opacity: 0.04;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 512 512' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+            background-repeat: repeat;
+            background-size: 256px 256px;
+            animation: grain 8s steps(10) infinite;
+        }
+
+        @keyframes grain {
+            0%, 100% { transform: translate(0, 0); }
+            10% { transform: translate(-5%, -10%); }
+            20% { transform: translate(-15%, 5%); }
+            30% { transform: translate(7%, -15%); }
+            40% { transform: translate(-5%, 15%); }
+            50% { transform: translate(-15%, 10%); }
+            60% { transform: translate(15%, 0%); }
+            70% { transform: translate(0%, 10%); }
+            80% { transform: translate(3%, -15%); }
+            90% { transform: translate(-10%, 10%); }
+        }
+
+        /* cursor-follow spotlight */
+        .spotlight {
+            position: fixed;
+            inset: 0;
+            z-index: 1;
+            pointer-events: none;
+            background: radial-gradient(
+                600px circle at var(--mx, 50%) var(--my, 50%),
+                rgba(255, 255, 255, 0.03),
+                transparent 70%
+            );
+            transition: opacity 0.4s ease;
+        }
+
+        /* main content */
+        main {
+            position: relative;
+            z-index: 10;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 2rem;
+            text-align: center;
+            gap: 0;
+        }
+
+        /* staggered letter reveal */
+        .title {
+            font-weight: 700;
+            font-size: clamp(5rem, 14vw, 12rem);
+            line-height: 1;
+            letter-spacing: -0.04em;
+            margin-bottom: 1.25rem;
+            overflow: hidden;
+        }
+
+        .title span {
+            display: inline-block;
+            opacity: 0;
+            transform: translateY(100%);
+            animation: letterIn 0.8s var(--ease-out) forwards;
+        }
+
+        .title span:nth-child(1) { animation-delay: 0.1s; }
+        .title span:nth-child(2) { animation-delay: 0.16s; }
+        .title span:nth-child(3) { animation-delay: 0.22s; }
+        .title span:nth-child(4) { animation-delay: 0.28s; }
+        .title span:nth-child(5) { animation-delay: 0.34s; }
+
+        @keyframes letterIn {
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* description block */
+        .desc {
+            opacity: 0;
+            animation: fadeUp 1s var(--ease-out) 0.5s forwards;
+            margin-bottom: 3rem;
+        }
+
+        .tagline {
+            font-size: clamp(0.875rem, 1.5vw, 1.0625rem);
+            font-weight: 300;
+            color: var(--text-mid);
+            letter-spacing: 0.02em;
+            line-height: 1.7;
+        }
+
+        .features {
+            margin-top: 0.75rem;
+            font-size: clamp(0.6875rem, 1vw, 0.8125rem);
+            font-weight: 200;
+            color: var(--text-dim);
+            letter-spacing: 0.06em;
+        }
+
+        .features span {
+            margin: 0 0.5em;
+        }
+
+        .dot {
+            color: var(--glow);
+            opacity: 0.5;
+        }
+
+        /* download link */
+        .download-wrap {
+            opacity: 0;
+            animation: fadeUp 1s var(--ease-out) 0.7s forwards;
+        }
+
+        .download {
+            position: relative;
+            display: inline-block;
+            font-family: 'Outfit', sans-serif;
+            font-size: 0.875rem;
+            font-weight: 400;
+            letter-spacing: 0.08em;
+            color: var(--glow);
+            text-decoration: none;
+            padding: 0.875rem 2.5rem;
+            border: 1px solid rgba(0, 255, 135, 0.25);
+            border-radius: 2px;
+            transition: all 0.4s var(--ease-out);
+            overflow: hidden;
+        }
+
+        .download::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: var(--glow);
+            transform: scaleX(0);
+            transform-origin: left;
+            transition: transform 0.4s var(--ease-out);
+            z-index: -1;
+        }
+
+        .download:hover {
+            color: #000000;
+            border-color: var(--glow);
+        }
+
+        .download:hover::before {
+            transform: scaleX(1);
+        }
+
+        @keyframes fadeUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* footer */
+        footer {
+            position: relative;
+            z-index: 10;
+            padding: 2.5rem 2rem;
+            text-align: center;
+            opacity: 0;
+            animation: fadeUp 1s var(--ease-out) 0.9s forwards;
+        }
+
+        .credit {
+            font-size: 0.6875rem;
+            font-weight: 300;
+            color: var(--text-dim);
+            letter-spacing: 0.08em;
+        }
+
+        /* reduced motion */
+        @media (prefers-reduced-motion: reduce) {
+            body::before { animation: none; }
+            .title span { opacity: 1; transform: none; animation: none; }
+            .desc, .download-wrap, footer { opacity: 1; animation: none; }
+        }
+
+        @media (max-width: 480px) {
+            .features span { display: block; margin: 0.25em 0; }
+            .dot { display: none; }
+            .desc { margin-bottom: 2.5rem; }
+        }
+    </style>
+</head>
+<body>
+    <div class="spotlight" aria-hidden="true"></div>
+
+    <main>
+        <h1 class="title"><span>b</span><span>l</span><span>a</span><span>n</span><span>k</span></h1>
+
+        <div class="desc">
+            <p class="tagline">autonomous ai trading terminal for windows</p>
+            <p class="features">
+                <span>no work needed</span>
+                <span class="dot">·</span>
+                <span>machine learning signals</span>
+                <span class="dot">·</span>
+                <span>real-time analysis</span>
+            </p>
+        </div>
+
+        <!-- Download link — tracks via /api/download then redirects to the installer URL.
+             Set BLANK_DOWNLOAD_URL env var on the server, or replace the href below. -->
+        <div class="download-wrap">
+            <a href="#download" class="download" id="download-btn">download</a>
+        </div>
+    </main>
+
+    <footer>
+        <p class="credit">certified random</p>
+    </footer>
+
+    <script>
+        // cursor-follow spotlight
+        const spot = document.querySelector('.spotlight');
+        let mx = 0.5, my = 0.5, cx = 0.5, cy = 0.5;
+
+        document.addEventListener('mousemove', (e) => {
+            mx = e.clientX / window.innerWidth;
+            my = e.clientY / window.innerHeight;
+        });
+
+        (function tick() {
+            cx += (mx - cx) * 0.08;
+            cy += (my - cy) * 0.08;
+            spot.style.setProperty('--mx', (cx * 100) + '%');
+            spot.style.setProperty('--my', (cy * 100) + '%');
+            requestAnimationFrame(tick);
+        })();
+
+        // download tracking — fires POST /api/download then follows the link
+        document.getElementById('download-btn').addEventListener('click', function(e) {
+            var href = this.getAttribute('href');
+            if (href === '#download') return; // no real URL set yet
+            e.preventDefault();
+            fetch(window.location.origin + '/api/download', { method: 'POST' })
+                .finally(function() { window.location.href = href; });
+        });
+    </script>
+</body>
+</html>

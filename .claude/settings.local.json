@@ -54,7 +54,31 @@
       "Bash(.venv/Scripts/python -c \"import pyqtgraph; print\\(pyqtgraph.__version__\\)\")",
       "Bash(.venv/Scripts/pip install:*)",
       "Bash(.venv/Scripts/python -c \"import feedparser; print\\(feedparser.__version__\\)\")",
-      "Bash(.venv/Scripts/python -c ':*)"
+      "Bash(.venv/Scripts/python -c ':*)",
+      "Bash(.venv/Scripts/python -m PyInstaller trading.spec --clean)",
+      "Bash(.venv/Scripts/python -c \"import jinja2; print\\(jinja2.__version__\\)\")",
+      "Bash(.venv/Scripts/python -c \"import markupsafe; print\\(markupsafe.__version__\\)\")",
+      "Bash(.venv/Scripts/python -c \"import scipy.special._cdflib; print\\('ok'\\)\")",
+      "Bash(.venv/Scripts/python.exe -c \"from PIL import Image; print\\(Image.__version__\\)\")",
+      "Bash(.venv/Scripts/python.exe -c \"from PySide6.QtGui import QImage; print\\('PySide6 QImage available'\\)\")",
+      "Bash(.venv/Scripts/python.exe -c ':*)",
+      "Bash(.venv/Scripts/python.exe scripts/generate_icon.py)",
+      "Bash(find:*)",
+      "Bash(.venv/Scripts/python.exe -c \"import py_compile; py_compile.compile\\('desktop/app.py', doraise=True\\); print\\('app.py OK'\\)\")",
+      "Bash(.venv/Scripts/python.exe -c \"import py_compile; py_compile.compile\\('desktop/dialogs/help.py', doraise=True\\); print\\('help.py OK'\\)\")",
+      "Bash(.venv/Scripts/python.exe -c \"import py_compile; py_compile.compile\\('desktop/dialogs/ai_recommend.py', doraise=True\\); print\\('ai_recommend.py OK'\\)\")",
+      "Bash(.venv/Scripts/python.exe -c \"import py_compile; py_compile.compile\\('desktop/panels/news.py', doraise=True\\); print\\('news.py OK'\\)\")",
+      "Bash(start:*)",
+      "WebFetch(domain:netilradio.com)",
+      "WebFetch(domain:www.saasframe.io)",
+      "Bash(curl -s http://127.0.0.1:8000/api/admin/stats -H \"X-Admin-Key: admin\")",
+      "Bash(.venv/Scripts/python.exe -c \"import py_compile; py_compile.compile\\('desktop/app.py', doraise=True\\); print\\('OK'\\)\")",
+      "Bash(curl -s -X POST http://127.0.0.1:8000/api/admin/licenses -H 'X-Admin-Key: admin' -H 'Content-Type: application/json' -d '{\"email\":\"test@example.com\",\"name\":\"test user\"}')",
+      "Bash(curl -s -X POST http://127.0.0.1:8000/api/license/validate -H 'Content-Type: application/json' -d '{\"key\":\"BLK-C311-3F95\",\"machine_id\":\"abc123\"}')",
+      "Bash(curl -s -X POST http://127.0.0.1:8000/api/license/validate -H 'Content-Type: application/json' -d '{\"key\":\"BLK-FAKE-FAKE\"}')",
+      "Bash(curl -s -X POST http://127.0.0.1:8000/api/download)",
+      "Bash(curl -s -X POST http://127.0.0.1:8000/api/logs -H 'Content-Type: application/json' -d '{\"license_key\":\"BLK-C311-3F95\",\"entries\":[{\"level\":\"ok\",\"message\":\"pipeline complete — 8 signals, 2 actionable\"},{\"level\":\"info\",\"message\":\"ensemble: 6 models x 3 horizons\"},{\"level\":\"warn\",\"message\":\"rate limit 900/1000\"}]}')",
+      "Bash(curl -s -X POST http://127.0.0.1:8000/api/logs -H \"Content-Type: application/json\" -d \"{\\\\\"license_key\\\\\":\\\\\"BLK-C311-3F95\\\\\",\\\\\"entries\\\\\":[{\\\\\"level\\\\\":\\\\\"ok\\\\\",\\\\\"message\\\\\":\\\\\"pipeline complete\\\\\"},{\\\\\"level\\\\\":\\\\\"warn\\\\\",\\\\\"message\\\\\":\\\\\"rate limit 900/1000\\\\\"}]}\")"
     ]
   }
 }
