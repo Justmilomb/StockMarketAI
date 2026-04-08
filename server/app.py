@@ -67,8 +67,8 @@ def _init_db(conn: psycopg2.extensions.connection) -> None:
     conn.commit()
     # seed default config if empty
     with conn.cursor() as cur:
-        cur.execute("SELECT COUNT(*) FROM config")
-        if cur.fetchone()[0] == 0:
+        cur.execute("SELECT COUNT(*) AS c FROM config")
+        if cur.fetchone()["c"] == 0:
             defaults = [
                 ("kill_switch", "false"),
                 ("maintenance_mode", "false"),
