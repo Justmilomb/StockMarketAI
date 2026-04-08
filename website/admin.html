@@ -795,28 +795,24 @@
             kill_switch: 'kill switch — emergency stop',
             maintenance_mode: 'maintenance mode — pauses app',
             force_update: 'force update prompt',
-            update_url: 'update download url',
-            auto_trading: 'auto trading',
-            paper_mode: 'paper mode (safety)',
         };
-        // only show safety controls — fine-tuning values are set by autoconfig
+        // only show these keys — everything else is hidden
         const CONFIG_ORDER = [
             'kill_switch', 'maintenance_mode',
-            'force_update', 'update_url',
-            'auto_trading', 'paper_mode',
+            'force_update',
         ];
+        const CONFIG_VISIBLE = new Set(CONFIG_ORDER);
 
         async function loadConfig() {
             const config = await api('/api/admin/config');
             const grid = document.getElementById('config-grid');
 
-            // sort keys by defined order, then alphabetical for any extras
-            const keys = Object.keys(config).sort(function(a, b) {
-                var ia = CONFIG_ORDER.indexOf(a), ib = CONFIG_ORDER.indexOf(b);
-                if (ia === -1) ia = 999;
-                if (ib === -1) ib = 999;
-                return ia - ib;
-            });
+            // only show keys in CONFIG_VISIBLE, sorted by CONFIG_ORDER
+            const keys = Object.keys(config)
+                .filter(function(k) { return CONFIG_VISIBLE.has(k); })
+                .sort(function(a, b) {
+                    return CONFIG_ORDER.indexOf(a) - CONFIG_ORDER.indexOf(b);
+                });
 
             const items = keys.map(function(k) {
                 var v = config[k];
