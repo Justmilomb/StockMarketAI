@@ -5,13 +5,13 @@ import hashlib
 import logging
 import os
 import secrets
-import sqlite3
 import time
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from typing import Any, Generator, Optional
 
+import psycopg2
+import psycopg2.extras
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
@@ -21,73 +21,74 @@ logger = logging.getLogger("blank.server")
 
 # ── Config ───────────────────────────────────────────────────────────────
 
-DB_PATH = Path(os.environ.get("BLANK_DB_PATH", "server/blank.db"))
+DATABASE_URL = os.environ.get("DATABASE_URL", "")
 ADMIN_KEY = os.environ.get("BLANK_ADMIN_KEY", "admin")
-WEBSITE_DIR = Path(__file__).resolve().parent.parent / "website"
+WEBSITE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "website")
 
 # ── Database ─────────────────────────────────────────────────────────────
 
-def _init_db(conn: sqlite3.Connection) -> None:
-    conn.executescript("""
-        CREATE TABLE IF NOT EXISTS licenses (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            key TEXT UNIQUE NOT NULL,
-            email TEXT NOT NULL,
-            name TEXT DEFAULT '',
-            status TEXT DEFAULT 'active',
-            created_at TEXT DEFAULT (datetime('now')),
-            expires_at TEXT,
-            last_active TEXT,
-            machine_id TEXT
-        );
-        CREATE TABLE IF NOT EXISTS downloads (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            ip TEXT,
-            user_agent TEXT,
-            created_at TEXT DEFAULT (datetime('now'))
-        );
-        CREATE TABLE IF NOT EXISTS logs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            license_key TEXT,
-            level TEXT,
-            message TEXT,
-            created_at TEXT DEFAULT (datetime('now'))
-        );
-        CREATE TABLE IF NOT EXISTS config (
-            key TEXT PRIMARY KEY,
-            value TEXT NOT NULL,
-            updated_at TEXT DEFAULT (datetime('now'))
-        );
-        CREATE TABLE IF NOT EXISTS stats (
-            key TEXT PRIMARY KEY,
-            value INTEGER DEFAULT 0
-        );
-    """)
+def _init_db(conn: psycopg2.extensions.connection) -> None:
+    with conn.cursor() as cur:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS licenses (
+                id SERIAL PRIMARY KEY,
+                key TEXT UNIQUE NOT NULL,
+                email TEXT NOT NULL,
+                name TEXT DEFAULT '',
+                status TEXT DEFAULT 'active',
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                expires_at TIMESTAMPTZ,
+                last_active TIMESTAMPTZ,
+                machine_id TEXT
+            );
+            CREATE TABLE IF NOT EXISTS downloads (
+                id SERIAL PRIMARY KEY,
+                ip TEXT,
+                user_agent TEXT,
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            );
+            CREATE TABLE IF NOT EXISTS logs (
+                id SERIAL PRIMARY KEY,
+                license_key TEXT,
+                level TEXT,
+                message TEXT,
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            );
+            CREATE TABLE IF NOT EXISTS config (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at TIMESTAMPTZ DEFAULT NOW()
+            );
+            CREATE TABLE IF NOT EXISTS stats (
+                key TEXT PRIMARY KEY,
+                value INTEGER DEFAULT 0
+            );
+        """)
+    conn.commit()
     # seed default config if empty
-    cursor = conn.execute("SELECT COUNT(*) FROM config")
-    if cursor.fetchone()[0] == 0:
-        defaults = [
-            ("kill_switch", "false"),          # emergency stop: app exits immediately
-            ("maintenance_mode", "false"),     # pauses app, shows "back soon" message
-            ("force_update", "false"),         # shows update prompt on next launch
-        ]
-        conn.executemany(
-            "INSERT INTO config (key, value) VALUES (?, ?)", defaults,
-        )
-        conn.commit()
+    with conn.cursor() as cur:
+        cur.execute("SELECT COUNT(*) FROM config")
+        if cur.fetchone()[0] == 0:
+            defaults = [
+                ("kill_switch", "false"),
+                ("maintenance_mode", "false"),
+                ("force_update", "false"),
+            ]
+            for k, v in defaults:
+                cur.execute("INSERT INTO config (key, value) VALUES (%s, %s)", (k, v))
+    conn.commit()
 
 
 @contextmanager
-def get_db() -> Generator[sqlite3.Connection, None, None]:
-    conn = sqlite3.connect(str(DB_PATH))
-    conn.row_factory = sqlite3.Row
+def get_db() -> Generator[psycopg2.extensions.connection, None, None]:
+    conn = psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
     try:
         yield conn
     finally:
         conn.close()
 
 
-def db_dependency() -> Generator[sqlite3.Connection, None, None]:
+def db_dependency() -> Generator[psycopg2.extensions.connection, None, None]:
     with get_db() as conn:
         yield conn
 
@@ -149,23 +150,24 @@ app.add_middleware(
 
 @app.on_event("startup")
 def startup() -> None:
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     with get_db() as conn:
         _init_db(conn)
-    logger.info("blank server started — db: %s", DB_PATH)
+    logger.info("blank server started — db: postgres")
 
 
 # ── Website serving ──────────────────────────────────────────────────────
 
 @app.get("/", response_class=HTMLResponse)
 def landing_page() -> HTMLResponse:
-    html = (WEBSITE_DIR / "index.html").read_text(encoding="utf-8")
+    with open(os.path.join(WEBSITE_DIR, "index.html"), encoding="utf-8") as f:
+        html = f.read()
     return HTMLResponse(content=html)
 
 
 @app.get("/admin", response_class=HTMLResponse)
 def admin_page() -> HTMLResponse:
-    html = (WEBSITE_DIR / "admin.html").read_text(encoding="utf-8")
+    with open(os.path.join(WEBSITE_DIR, "admin.html"), encoding="utf-8") as f:
+        html = f.read()
     return HTMLResponse(content=html)
 
 
@@ -192,11 +194,11 @@ def version_info() -> dict[str, str]:
 @app.post("/api/license/validate")
 def validate_license(
     body: LicenseValidateRequest,
-    conn: sqlite3.Connection = Depends(db_dependency),
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
 ) -> dict[str, Any]:
-    row = conn.execute(
-        "SELECT * FROM licenses WHERE key = ?", (body.key,),
-    ).fetchone()
+    with conn.cursor() as cur:
+        cur.execute("SELECT * FROM licenses WHERE key = %s", (body.key,))
+        row = cur.fetchone()
 
     if not row:
         return {"valid": False, "reason": "license key not found"}
@@ -209,24 +211,27 @@ def validate_license(
 
     # check expiry date
     if row["expires_at"]:
-        expires = datetime.fromisoformat(row["expires_at"])
-        if datetime.now(timezone.utc) > expires.replace(tzinfo=timezone.utc):
-            conn.execute(
-                "UPDATE licenses SET status = 'expired' WHERE key = ?",
-                (body.key,),
-            )
+        expires = row["expires_at"]
+        if expires.tzinfo is None:
+            expires = expires.replace(tzinfo=timezone.utc)
+        if datetime.now(timezone.utc) > expires:
+            with conn.cursor() as cur:
+                cur.execute("UPDATE licenses SET status = 'expired' WHERE key = %s", (body.key,))
             conn.commit()
             return {"valid": False, "reason": "license has expired"}
 
     # update last active + machine id
-    conn.execute(
-        "UPDATE licenses SET last_active = datetime('now'), machine_id = ? WHERE key = ?",
-        (body.machine_id or row["machine_id"], body.key),
-    )
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE licenses SET last_active = NOW(), machine_id = %s WHERE key = %s",
+            (body.machine_id or row["machine_id"], body.key),
+        )
     conn.commit()
 
     # fetch remote config
-    config_rows = conn.execute("SELECT key, value FROM config").fetchall()
+    with conn.cursor() as cur:
+        cur.execute("SELECT key, value FROM config")
+        config_rows = cur.fetchall()
     remote_config = {r["key"]: r["value"] for r in config_rows}
 
     return {
@@ -234,7 +239,7 @@ def validate_license(
         "status": row["status"],
         "email": row["email"],
         "name": row["name"],
-        "expires_at": row["expires_at"],
+        "expires_at": row["expires_at"].isoformat() if row["expires_at"] else None,
         "config": remote_config,
     }
 
@@ -244,13 +249,12 @@ def validate_license(
 @app.post("/api/download")
 def track_download(
     request: Request,
-    conn: sqlite3.Connection = Depends(db_dependency),
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
 ) -> dict[str, str]:
     ip = request.client.host if request.client else "unknown"
     ua = request.headers.get("user-agent", "unknown")
-    conn.execute(
-        "INSERT INTO downloads (ip, user_agent) VALUES (?, ?)", (ip, ua),
-    )
+    with conn.cursor() as cur:
+        cur.execute("INSERT INTO downloads (ip, user_agent) VALUES (%s, %s)", (ip, ua))
     conn.commit()
     return {"status": "tracked"}
 
@@ -260,19 +264,20 @@ def track_download(
 @app.post("/api/logs")
 def ingest_logs(
     body: LogBatch,
-    conn: sqlite3.Connection = Depends(db_dependency),
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
 ) -> dict[str, str]:
-    # verify license exists
-    row = conn.execute(
-        "SELECT id FROM licenses WHERE key = ?", (body.license_key,),
-    ).fetchone()
+    with conn.cursor() as cur:
+        cur.execute("SELECT id FROM licenses WHERE key = %s", (body.license_key,))
+        row = cur.fetchone()
     if not row:
         raise HTTPException(status_code=403, detail="invalid license key")
 
-    conn.executemany(
-        "INSERT INTO logs (license_key, level, message) VALUES (?, ?, ?)",
-        [(body.license_key, e.level, e.message) for e in body.entries],
-    )
+    with conn.cursor() as cur:
+        for e in body.entries:
+            cur.execute(
+                "INSERT INTO logs (license_key, level, message) VALUES (%s, %s, %s)",
+                (body.license_key, e.level, e.message),
+            )
     conn.commit()
     return {"status": "ok", "count": str(len(body.entries))}
 
@@ -282,40 +287,36 @@ def ingest_logs(
 @app.get("/api/admin/stats")
 def admin_stats(
     _: str = Depends(require_admin),
-    conn: sqlite3.Connection = Depends(db_dependency),
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
 ) -> dict[str, Any]:
-    total_downloads = conn.execute("SELECT COUNT(*) FROM downloads").fetchone()[0]
-    week_ago = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
-    week_downloads = conn.execute(
-        "SELECT COUNT(*) FROM downloads WHERE created_at >= ?", (week_ago,),
-    ).fetchone()[0]
+    with conn.cursor() as cur:
+        cur.execute("SELECT COUNT(*) AS c FROM downloads")
+        total_downloads = cur.fetchone()["c"]
 
-    total_licenses = conn.execute(
-        "SELECT COUNT(*) FROM licenses WHERE status = 'active'",
-    ).fetchone()[0]
-    trial_licenses = conn.execute(
-        "SELECT COUNT(*) FROM licenses WHERE status = 'trial'",
-    ).fetchone()[0]
+        week_ago = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+        cur.execute("SELECT COUNT(*) AS c FROM downloads WHERE created_at >= %s", (week_ago,))
+        week_downloads = cur.fetchone()["c"]
 
-    # active users = licenses with last_active in the last 24h
-    day_ago = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
-    active_users = conn.execute(
-        "SELECT COUNT(*) FROM licenses WHERE last_active >= ?", (day_ago,),
-    ).fetchone()[0]
+        cur.execute("SELECT COUNT(*) AS c FROM licenses WHERE status = 'active'")
+        total_licenses = cur.fetchone()["c"]
 
-    # expiring soon = within 7 days
-    soon = (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()
-    now = datetime.now(timezone.utc).isoformat()
-    expiring_soon = conn.execute(
-        "SELECT COUNT(*) FROM licenses WHERE expires_at BETWEEN ? AND ? AND status = 'active'",
-        (now, soon),
-    ).fetchone()[0]
+        cur.execute("SELECT COUNT(*) AS c FROM licenses WHERE status = 'trial'")
+        trial_licenses = cur.fetchone()["c"]
 
-    # error count last 24h
-    errors_24h = conn.execute(
-        "SELECT COUNT(*) FROM logs WHERE level = 'error' AND created_at >= ?",
-        (day_ago,),
-    ).fetchone()[0]
+        day_ago = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+        cur.execute("SELECT COUNT(*) AS c FROM licenses WHERE last_active >= %s", (day_ago,))
+        active_users = cur.fetchone()["c"]
+
+        soon = (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()
+        now = datetime.now(timezone.utc).isoformat()
+        cur.execute(
+            "SELECT COUNT(*) AS c FROM licenses WHERE expires_at BETWEEN %s AND %s AND status = 'active'",
+            (now, soon),
+        )
+        expiring_soon = cur.fetchone()["c"]
+
+        cur.execute("SELECT COUNT(*) AS c FROM logs WHERE level = 'error' AND created_at >= %s", (day_ago,))
+        errors_24h = cur.fetchone()["c"]
 
     return {
         "total_downloads": total_downloads,
@@ -332,17 +333,18 @@ def admin_stats(
 def admin_downloads(
     days: int = 14,
     _: str = Depends(require_admin),
-    conn: sqlite3.Connection = Depends(db_dependency),
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
 ) -> list[dict[str, Any]]:
     """Daily download counts for the last N days."""
     results = []
-    for i in range(days - 1, -1, -1):
-        date = (datetime.now(timezone.utc) - timedelta(days=i)).strftime("%Y-%m-%d")
-        count = conn.execute(
-            "SELECT COUNT(*) FROM downloads WHERE date(created_at) = ?",
-            (date,),
-        ).fetchone()[0]
-        results.append({"date": date, "count": count})
+    with conn.cursor() as cur:
+        for i in range(days - 1, -1, -1):
+            date = (datetime.now(timezone.utc) - timedelta(days=i)).strftime("%Y-%m-%d")
+            cur.execute(
+                "SELECT COUNT(*) AS c FROM downloads WHERE created_at::date = %s",
+                (date,),
+            )
+            results.append({"date": date, "count": cur.fetchone()["c"]})
     return results
 
 
@@ -351,12 +353,20 @@ def admin_downloads(
 @app.get("/api/admin/licenses")
 def admin_list_licenses(
     _: str = Depends(require_admin),
-    conn: sqlite3.Connection = Depends(db_dependency),
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
 ) -> list[dict[str, Any]]:
-    rows = conn.execute(
-        "SELECT * FROM licenses ORDER BY created_at DESC",
-    ).fetchall()
-    return [dict(r) for r in rows]
+    with conn.cursor() as cur:
+        cur.execute("SELECT * FROM licenses ORDER BY created_at DESC")
+        rows = cur.fetchall()
+    # serialise datetimes
+    results = []
+    for r in rows:
+        d = dict(r)
+        for k in ("created_at", "expires_at", "last_active"):
+            if d.get(k) is not None:
+                d[k] = d[k].isoformat()
+        results.append(d)
+    return results
 
 
 def _generate_license_key() -> str:
@@ -369,14 +379,15 @@ def _generate_license_key() -> str:
 def admin_create_license(
     body: LicenseCreateRequest,
     _: str = Depends(require_admin),
-    conn: sqlite3.Connection = Depends(db_dependency),
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
 ) -> dict[str, Any]:
     key = _generate_license_key()
     expires = (datetime.now(timezone.utc) + timedelta(days=body.days)).isoformat()
-    conn.execute(
-        "INSERT INTO licenses (key, email, name, status, expires_at) VALUES (?, ?, ?, 'active', ?)",
-        (key, body.email, body.name, expires),
-    )
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO licenses (key, email, name, status, expires_at) VALUES (%s, %s, %s, 'active', %s)",
+            (key, body.email, body.name, expires),
+        )
     conn.commit()
     return {"key": key, "email": body.email, "expires_at": expires}
 
@@ -386,24 +397,24 @@ def admin_update_license(
     license_key: str,
     body: LicenseUpdateRequest,
     _: str = Depends(require_admin),
-    conn: sqlite3.Connection = Depends(db_dependency),
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
 ) -> dict[str, str]:
-    row = conn.execute(
-        "SELECT id FROM licenses WHERE key = ?", (license_key,),
-    ).fetchone()
+    with conn.cursor() as cur:
+        cur.execute("SELECT id FROM licenses WHERE key = %s", (license_key,))
+        row = cur.fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="license not found")
 
-    if body.status:
-        conn.execute("UPDATE licenses SET status = ? WHERE key = ?", (body.status, license_key))
-    if body.email:
-        conn.execute("UPDATE licenses SET email = ? WHERE key = ?", (body.email, license_key))
-    if body.name:
-        conn.execute("UPDATE licenses SET name = ? WHERE key = ?", (body.name, license_key))
-    if body.days:
-        expires = (datetime.now(timezone.utc) + timedelta(days=body.days)).isoformat()
-        conn.execute("UPDATE licenses SET expires_at = ? WHERE key = ?", (expires, license_key))
-
+    with conn.cursor() as cur:
+        if body.status:
+            cur.execute("UPDATE licenses SET status = %s WHERE key = %s", (body.status, license_key))
+        if body.email:
+            cur.execute("UPDATE licenses SET email = %s WHERE key = %s", (body.email, license_key))
+        if body.name:
+            cur.execute("UPDATE licenses SET name = %s WHERE key = %s", (body.name, license_key))
+        if body.days:
+            expires = (datetime.now(timezone.utc) + timedelta(days=body.days)).isoformat()
+            cur.execute("UPDATE licenses SET expires_at = %s WHERE key = %s", (expires, license_key))
     conn.commit()
     return {"status": "updated"}
 
@@ -412,11 +423,10 @@ def admin_update_license(
 def admin_revoke_license(
     license_key: str,
     _: str = Depends(require_admin),
-    conn: sqlite3.Connection = Depends(db_dependency),
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
 ) -> dict[str, str]:
-    conn.execute(
-        "UPDATE licenses SET status = 'revoked' WHERE key = ?", (license_key,),
-    )
+    with conn.cursor() as cur:
+        cur.execute("UPDATE licenses SET status = 'revoked' WHERE key = %s", (license_key,))
     conn.commit()
     return {"status": "revoked"}
 
@@ -426,9 +436,11 @@ def admin_revoke_license(
 @app.get("/api/admin/config")
 def admin_get_config(
     _: str = Depends(require_admin),
-    conn: sqlite3.Connection = Depends(db_dependency),
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
 ) -> dict[str, str]:
-    rows = conn.execute("SELECT key, value FROM config").fetchall()
+    with conn.cursor() as cur:
+        cur.execute("SELECT key, value FROM config")
+        rows = cur.fetchall()
     return {r["key"]: r["value"] for r in rows}
 
 
@@ -436,13 +448,14 @@ def admin_get_config(
 def admin_update_config(
     body: ConfigUpdateRequest,
     _: str = Depends(require_admin),
-    conn: sqlite3.Connection = Depends(db_dependency),
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
 ) -> dict[str, str]:
-    conn.execute(
-        "INSERT INTO config (key, value, updated_at) VALUES (?, ?, datetime('now')) "
-        "ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
-        (body.key, body.value),
-    )
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO config (key, value, updated_at) VALUES (%s, %s, NOW()) "
+            "ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()",
+            (body.key, body.value),
+        )
     conn.commit()
     return {"status": "updated"}
 
@@ -453,12 +466,18 @@ def admin_update_config(
 def admin_get_logs(
     limit: int = 50,
     _: str = Depends(require_admin),
-    conn: sqlite3.Connection = Depends(db_dependency),
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
 ) -> list[dict[str, Any]]:
-    rows = conn.execute(
-        "SELECT * FROM logs ORDER BY created_at DESC LIMIT ?", (limit,),
-    ).fetchall()
-    return [dict(r) for r in rows]
+    with conn.cursor() as cur:
+        cur.execute("SELECT * FROM logs ORDER BY created_at DESC LIMIT %s", (limit,))
+        rows = cur.fetchall()
+    results = []
+    for r in rows:
+        d = dict(r)
+        if d.get("created_at") is not None:
+            d["created_at"] = d["created_at"].isoformat()
+        results.append(d)
+    return results
 
 
 # ── Run ──────────────────────────────────────────────────────────────────
