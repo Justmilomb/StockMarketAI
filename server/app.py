@@ -22,6 +22,8 @@ logger = logging.getLogger("blank.server")
 # ── Config ───────────────────────────────────────────────────────────────
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 ADMIN_KEY = os.environ.get("BLANK_ADMIN_KEY", "admin")
 WEBSITE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "website")
 
@@ -81,7 +83,7 @@ def _init_db(conn: psycopg2.extensions.connection) -> None:
 
 @contextmanager
 def get_db() -> Generator[psycopg2.extensions.connection, None, None]:
-    conn = psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
+    conn = psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor, connect_timeout=5)
     try:
         yield conn
     finally:
@@ -150,9 +152,13 @@ app.add_middleware(
 
 @app.on_event("startup")
 def startup() -> None:
-    with get_db() as conn:
-        _init_db(conn)
-    logger.info("blank server started — db: postgres")
+    try:
+        with get_db() as conn:
+            _init_db(conn)
+        logger.info("blank server started — db: postgres")
+    except Exception as e:
+        logger.error("failed to initialise database: %s", e)
+        raise
 
 
 # ── Website serving ──────────────────────────────────────────────────────
@@ -293,7 +299,7 @@ def admin_stats(
         cur.execute("SELECT COUNT(*) AS c FROM downloads")
         total_downloads = cur.fetchone()["c"]
 
-        week_ago = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+        week_ago = datetime.now(timezone.utc) - timedelta(days=7)
         cur.execute("SELECT COUNT(*) AS c FROM downloads WHERE created_at >= %s", (week_ago,))
         week_downloads = cur.fetchone()["c"]
 
@@ -303,12 +309,12 @@ def admin_stats(
         cur.execute("SELECT COUNT(*) AS c FROM licenses WHERE status = 'trial'")
         trial_licenses = cur.fetchone()["c"]
 
-        day_ago = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+        day_ago = datetime.now(timezone.utc) - timedelta(days=1)
         cur.execute("SELECT COUNT(*) AS c FROM licenses WHERE last_active >= %s", (day_ago,))
         active_users = cur.fetchone()["c"]
 
-        soon = (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()
-        now = datetime.now(timezone.utc).isoformat()
+        soon = datetime.now(timezone.utc) + timedelta(days=7)
+        now = datetime.now(timezone.utc)
         cur.execute(
             "SELECT COUNT(*) AS c FROM licenses WHERE expires_at BETWEEN %s AND %s AND status = 'active'",
             (now, soon),
@@ -339,12 +345,12 @@ def admin_downloads(
     results = []
     with conn.cursor() as cur:
         for i in range(days - 1, -1, -1):
-            date = (datetime.now(timezone.utc) - timedelta(days=i)).strftime("%Y-%m-%d")
+            date_obj = (datetime.now(timezone.utc) - timedelta(days=i)).date()
             cur.execute(
                 "SELECT COUNT(*) AS c FROM downloads WHERE created_at::date = %s",
-                (date,),
+                (date_obj,),
             )
-            results.append({"date": date, "count": cur.fetchone()["c"]})
+            results.append({"date": date_obj.isoformat(), "count": cur.fetchone()["c"]})
     return results
 
 
@@ -382,14 +388,14 @@ def admin_create_license(
     conn: psycopg2.extensions.connection = Depends(db_dependency),
 ) -> dict[str, Any]:
     key = _generate_license_key()
-    expires = (datetime.now(timezone.utc) + timedelta(days=body.days)).isoformat()
+    expires = datetime.now(timezone.utc) + timedelta(days=body.days)
     with conn.cursor() as cur:
         cur.execute(
             "INSERT INTO licenses (key, email, name, status, expires_at) VALUES (%s, %s, %s, 'active', %s)",
             (key, body.email, body.name, expires),
         )
     conn.commit()
-    return {"key": key, "email": body.email, "expires_at": expires}
+    return {"key": key, "email": body.email, "expires_at": expires.isoformat()}
 
 
 @app.put("/api/admin/licenses/{license_key}")
@@ -413,7 +419,7 @@ def admin_update_license(
         if body.name:
             cur.execute("UPDATE licenses SET name = %s WHERE key = %s", (body.name, license_key))
         if body.days:
-            expires = (datetime.now(timezone.utc) + timedelta(days=body.days)).isoformat()
+            expires = datetime.now(timezone.utc) + timedelta(days=body.days)
             cur.execute("UPDATE licenses SET expires_at = %s WHERE key = %s", (expires, license_key))
     conn.commit()
     return {"status": "updated"}
