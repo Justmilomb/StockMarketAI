@@ -12,8 +12,10 @@ import numpy as np
 import pandas as pd
 import pytest
 
-# Ensure project root is on sys.path
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+# Ensure project root + core are on sys.path
+_project_root = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(_project_root))
+sys.path.insert(0, str(_project_root / "core"))
 
 
 @pytest.fixture

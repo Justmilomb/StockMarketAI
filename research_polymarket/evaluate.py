@@ -28,6 +28,7 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
+sys.path.insert(0, str(PROJECT_ROOT / "core"))
 
 from research_polymarket.data import fetch_resolved_markets
 from research_polymarket.evaluator import PolymarketMetrics, evaluate_edge_strategy

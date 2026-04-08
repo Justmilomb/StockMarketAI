@@ -798,17 +798,12 @@
             update_url: 'update download url',
             auto_trading: 'auto trading',
             paper_mode: 'paper mode (safety)',
-            max_position_pct: 'max position size %',
-            confidence_threshold: 'min confidence to trade',
-            trailing_stop_pct: 'trailing stop %',
-            refresh_interval_s: 'refresh interval (seconds)',
         };
-        // order config keys so dangerous ones are first
+        // only show safety controls — fine-tuning values are set by autoconfig
         const CONFIG_ORDER = [
             'kill_switch', 'maintenance_mode',
             'force_update', 'update_url',
             'auto_trading', 'paper_mode',
-            'max_position_pct', 'confidence_threshold', 'trailing_stop_pct', 'refresh_interval_s',
         ];
 
         async function loadConfig() {

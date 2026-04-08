@@ -16,7 +16,11 @@ import json
 import logging
 import sys
 import warnings
+from pathlib import Path
 from typing import List
+
+# Ensure core modules are importable
+sys.path.insert(0, str(Path(__file__).resolve().parent / "core"))
 
 # Suppress sklearn internal parallelism warnings + deprecations
 warnings.filterwarnings("ignore", category=UserWarning, module=r"sklearn\..*")

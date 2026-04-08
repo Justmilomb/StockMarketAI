@@ -25,6 +25,7 @@ import pandas as pd
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
+sys.path.insert(0, str(PROJECT_ROOT / "core"))
 
 from polymarket.features import build_event_features
 from polymarket.model import EdgeDetector

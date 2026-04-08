@@ -1,133 +1,59 @@
-## 📉 Stock Market AI – Minimal Autonomous Agent
+# Blank — AI Trading Terminal
 
-This repo now contains a **minimal, end-to-end trading agent** that:
+AI-powered stock trading terminal by Certified Random. Two editions:
 
-- Downloads historical daily stock data with `yfinance`
-- Builds technical-indicator features
-- Trains a classifier to predict whether **tomorrow’s close will be higher than today’s**
-- Generates daily **buy/hold signals** across a configurable universe of tickers
-- Sends intended orders to a **pluggable broker layer** (currently a logging broker)
+- **Bloomberg** — full-featured panel layout with charts, chat, orders, and multi-asset support (stocks, crypto, polymarket)
+- **Simple** — clean card-based UI matching the website aesthetic
 
-> **Warning:** This is for learning and experimentation only.  
-> Do **not** trade real money based on this without fully understanding and testing it.
+Combines a 12-model ML ensemble, ARIMA/ETS statistical baselines, 5 Claude analyst personas, and a consensus engine to generate buy/sell/hold signals with probability scores.
 
----
+## Quick Start
 
-## 🧩 Project structure
+### Download (Windows)
+1. Download `BlankBloombergSetup.exe` or `BlankSimpleSetup.exe` from the latest release
+2. Run the installer
+3. Enter your license key on first launch
+4. Follow the setup wizard (Claude CLI + Trading 212)
 
-- `data_loader.py` – downloads and caches OHLCV data for a list of tickers using `yfinance`.
-- `features.py` – builds technical features (returns, moving averages, volatility, RSI) and a binary label: *will tomorrow's close be higher than today's?*
-- `model.py` – trains a `RandomForestClassifier` with a **time-based** train/validation split and saves/loads the model with `joblib`.
-- `strategy.py` – converts prediction probabilities into ranked **buy/hold** signals based on configurable thresholds.
-- `broker.py` – defines a `Broker` interface and a `LogBroker` that logs orders to `logs/orders.jsonl` instead of placing real trades.
-- `daily_agent.py` – orchestrator script that runs the full pipeline using `config.json`.
-- `ai.py` – thin wrapper that just calls `daily_agent.main()` for backwards compatibility.
-- `config.json` – configuration for tickers, date range, strategy thresholds, and capital assumptions.
-- `requirements.txt` – Python dependencies.
-
----
-
-## 🚀 Quick Start (Windows)
-
-The easiest way to get started is to use the provided batch scripts:
-
-1. **First time setup:** Run `setup.bat`. This creates a virtual environment and installs all dependencies.
-2. **Run the app:** Run `run.bat`. This activates the environment and starts the terminal.
-
----
-
-## 🛠 Manual Setup
-
-1. **Create a virtual environment (recommended)**
-
-   ```bash
-   cd StockMarketAI
-   python -m venv .venv
-   .venv\Scripts\activate  # on Windows
-   # source .venv/bin/activate  # on macOS / Linux
-   ```
-
-2. **Install dependencies**
-
-   ```bash
-   pip install -r requirements.txt
-   ```
-
----
-
-## ⚙️ Configuration
-
-The agent is configured via `config.json`:
-
-- `tickers`: list of symbols to evaluate each day.
-- `start_date`, `end_date`: historical period to download for training.
-- `data_dir`: folder where downloaded CSVs are cached.
-- `model_path`: where the trained classifier is stored.
-- `strategy`:
-  - `threshold_buy`: minimum probability that tomorrow will be up to emit a **buy**.
-  - `threshold_sell`: reserved for more advanced strategies (not yet used).
-  - `max_positions`: maximum number of simultaneous buy signals.
-  - `position_size_fraction`: fraction of notional capital per position.
-- `capital`: notional account size, used to size positions conceptually.
-
-You can edit `config.json` to change tickers, thresholds, and risk preferences.
-
----
-
-## 🧠 How the agent works
-
-1. **Data & features**
-   - Downloads OHLCV data for all configured tickers.
-   - Builds technical features such as short/medium-term returns, volatility, moving averages, and RSI.
-   - Creates a binary label: `1` if tomorrow’s close is higher than today’s, else `0`.
-
-2. **Model training**
-   - Builds a combined dataset across all tickers.
-   - Uses the `date` column to perform a time-based train/validation split.
-   - Trains a `RandomForestClassifier` and prints validation metrics.
-   - Saves the trained model to `models/rf_tomorrow_up.joblib`.
-
-3. **Daily signals**
-   - For each ticker, computes the **most recent** feature row.
-   - Uses the trained model to estimate `P(up tomorrow)` for each ticker.
-   - Ranks tickers by that probability and emits **buy** signals for those above `threshold_buy` (up to `max_positions`).
-
-4. **Broker integration**
-   - Uses `LogBroker`, which implements the `Broker` interface and simply logs orders.
-   - Each order is appended as a JSON line to `logs/orders.jsonl`.
-   - This makes it easy to later replace `LogBroker` with a real broker that talks to a trading API.
-
----
-
-## ▶️ Running the agent
-
-From the project root:
-
-```bash
-python daily_agent.py
+### Build from Source
+```
+setup.bat                              # Create venv + install deps
+build.bat                              # Build both editions + installers
 ```
 
-Or, using the legacy entry point:
+Output: `dist/BlankBloombergSetup.exe` and `dist/BlankSimpleSetup.exe`
 
-```bash
-python ai.py
+## Project Structure
+
+```
+core/           29 ML/AI/broker modules (on sys.path)
+desktop/        PySide6 app (Bloomberg + Simple editions)
+terminal/       Textual TUI (dev-only)
+server/         FastAPI license server
+website/        Landing page + admin panel
+backtesting/    Walk-forward validation engine
+installer/      PyInstaller specs + Inno Setup scripts
 ```
 
-What happens:
+See `docs/DIRECTORY_STRUCTURE.md` for the full annotated tree.
 
-- If no model file exists yet, it will train one and save it.
-- It will print validation metrics (once per training).
-- It will print today’s ranked signals and log any **buy** orders to `logs/orders.jsonl`.
+## Configuration
 
----
+All runtime config lives in `config.json`:
+- `watchlists` — ticker lists per asset class
+- `strategy` — buy/sell thresholds, position sizing
+- `broker` — Trading 212 API config, paper mode toggle
+- `claude` — model selections for AI analysis
 
-## 🔌 Plugging in a real broker (future work)
+API keys go in `.env` (see `.env.example`).
 
-The `Broker` abstraction in `broker.py` is designed so you can later:
+## Requirements
 
-- Implement a `CustomBroker(Broker)` that talks to your preferred trading API (Alpaca, IBKR, etc.).
-- Wire in API keys using environment variables or a separate, private config file.
-- Swap `LogBroker` for `CustomBroker` in `daily_agent.py` without changing any of the ML or strategy code.
+- Python 3.12+
+- Claude CLI (`npm install -g @anthropic-ai/claude-code`)
+- Trading 212 account (optional, for live trading)
+- Windows 10+ (for desktop app)
 
-Until that’s implemented and thoroughly tested, this project should be treated as a **paper-trading / signal-generation demo only**.
+## License
 
+See `LICENSE`.

@@ -1,20 +1,20 @@
-; Blank installer — Inno Setup script
-; Build: ISCC.exe installer\blank.iss
-; Requires: dist\blank.exe (from pyinstaller trading.spec --clean)
+; Blank Simple installer — Inno Setup script
+; Build: ISCC.exe installer\simple.iss
+; Requires: dist\blank-simple.exe (from pyinstaller installer\simple.spec --clean)
 
 #define MyAppRoot "E:\Coding\StockMarketAI"
 
 [Setup]
-AppName=Blank
+AppName=Blank Simple
 AppVersion=1.0.0
 AppPublisher=Certified Random
 AppCopyright=Copyright (C) 2026 Certified Random
 SetupIconFile={#MyAppRoot}\desktop\assets\icon.ico
-UninstallDisplayIcon={app}\blank.exe
-DefaultDirName={autopf}\Blank
-DefaultGroupName=Blank
+UninstallDisplayIcon={app}\blank-simple.exe
+DefaultDirName={autopf}\Blank Simple
+DefaultGroupName=Blank Simple
 OutputDir={#MyAppRoot}\dist
-OutputBaseFilename=BlankSetup
+OutputBaseFilename=BlankSimpleSetup
 SourceDir={#MyAppRoot}
 Compression=lzma2
 SolidCompression=yes
@@ -28,20 +28,20 @@ DisableReadyPage=yes
 PrivilegesRequired=lowest
 
 [Files]
-Source: "dist\blank.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "dist\blank-simple.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "config.json"; DestDir: "{app}"; Flags: ignoreversion onlyifdoesntexist
 Source: ".env.example"; DestDir: "{app}"; Flags: ignoreversion onlyifdoesntexist
 
 [Icons]
-Name: "{group}\Blank"; Filename: "{app}\blank.exe"
-Name: "{group}\Uninstall Blank"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\Blank"; Filename: "{app}\blank.exe"; IconFilename: "{app}\blank.exe"; Tasks: desktopicon
+Name: "{group}\Blank Simple"; Filename: "{app}\blank-simple.exe"
+Name: "{group}\Uninstall Blank Simple"; Filename: "{uninstallexe}"
+Name: "{autodesktop}\Blank Simple"; Filename: "{app}\blank-simple.exe"; IconFilename: "{app}\blank-simple.exe"; Tasks: desktopicon
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"
 
 [Run]
-Filename: "{app}\blank.exe"; Description: "Launch Blank"; Flags: nowait postinstall skipifsilent unchecked
+Filename: "{app}\blank-simple.exe"; Description: "Launch Blank Simple"; Flags: nowait postinstall skipifsilent unchecked
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}\data"

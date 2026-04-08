@@ -652,6 +652,9 @@ class MainWindow(QMainWindow):
             self.watchlist_panel.refresh_view(self.state)
             self.positions_panel.refresh_view(self.state)
             self.orders_panel.refresh_view(self.state)
+            # Sync latest news from the background agent
+            if self.news_agent and self.news_agent.news_data:
+                self.state.news_sentiment = self.news_agent.news_data
             self.news_panel.refresh_view(self.state)
 
         self._update_header()
@@ -781,6 +784,8 @@ class MainWindow(QMainWindow):
     def action_suggest_ticker(self) -> None:
         if not self._require_stocks():
             return
+        if not self._require_ai("Ticker suggestion"):
+            return
         if getattr(self, "_suggesting", False):
             self.statusBar().showMessage("AI is already suggesting...", 2000)
             return
@@ -805,6 +810,8 @@ class MainWindow(QMainWindow):
     @Slot()
     def action_generate_insights(self) -> None:
         if not self._require_stocks():
+            return
+        if not self._require_ai("Portfolio insights"):
             return
         if getattr(self, "_generating_insights", False):
             self.statusBar().showMessage("AI is already generating insights...", 2000)
@@ -1162,6 +1169,8 @@ class MainWindow(QMainWindow):
 
     @Slot()
     def action_ai_recommend(self) -> None:
+        if not self._require_ai("AI recommendations"):
+            return
         from desktop.dialogs.ai_recommend import AiRecommendDialog
         dlg = AiRecommendDialog(self)
         self._recommend_dialog = dlg  # prevent GC
@@ -1226,6 +1235,8 @@ class MainWindow(QMainWindow):
 
     @Slot()
     def action_ai_optimise(self) -> None:
+        if not self._require_ai("AI optimization"):
+            return
         self._add_chat_response("[AI OPTIMIZER] Analyzing recent performance to tune algorithm weights...")
         self.statusBar().showMessage("AI optimise running...", 30000)
         self._run_background(self._do_ai_optimise, self._on_optimise_result)
@@ -1495,7 +1506,7 @@ class MainWindow(QMainWindow):
 
     def _daily_stock_discovery(self) -> None:
         """Ask AI for 5 new volatile ticker suggestions."""
-        if not self._claude_client:
+        if not self._claude_client or not getattr(self._claude_client, "available", False):
             return
         current = self._get_active_tickers()
 
@@ -1548,6 +1559,16 @@ class MainWindow(QMainWindow):
         if self.state.active_asset_class == "stocks":
             return True
         self.statusBar().showMessage("This action is only available in Stocks mode", 3000)
+        return False
+
+    def _require_ai(self, action_name: str = "This feature") -> bool:
+        """Return True if Claude CLI is available. Show message if not."""
+        if self._claude_client and getattr(self._claude_client, "available", False):
+            return True
+        self.statusBar().showMessage(
+            f"{action_name} requires Claude CLI — install from docs.anthropic.com/en/docs/claude-cli",
+            5000,
+        )
         return False
 
     def _save_config(self) -> None:

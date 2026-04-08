@@ -95,7 +95,7 @@ class SetupWizard(QDialog):
     def __init__(self, parent: object = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Blank — Setup")
-        self.setFixedSize(480, 440)
+        self.setFixedSize(480, 520)
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
         self.setStyleSheet(_DIALOG_STYLE)
 
@@ -203,11 +203,16 @@ class SetupWizard(QDialog):
         layout.addSpacing(8)
 
         info = QLabel(
-            "AI features (signals, news sentiment, chat) require the\n"
-            "Claude CLI to be installed and authenticated.\n\n"
-            "1. Install Claude CLI from the link below\n"
-            "2. Run: claude login\n"
-            "3. Come back and click Re-check",
+            "AI features (signals, news sentiment, chat) require\n"
+            "the Claude CLI to be installed and authenticated.\n\n"
+            "STEP 1: Install Node.js from nodejs.org (if needed)\n"
+            "STEP 2: Open a terminal and run:\n"
+            "           npm install -g @anthropic-ai/claude-code\n"
+            "STEP 3: Run: claude login\n"
+            "STEP 4: Follow the browser prompt to sign in\n"
+            "STEP 5: Come back here and click RE-CHECK\n\n"
+            "Uses YOUR existing Claude subscription.\n"
+            "No additional API keys needed.",
         )
         info.setStyleSheet(
             "color: #888888; font-size: 12px; "
@@ -262,8 +267,14 @@ class SetupWizard(QDialog):
         layout.addSpacing(8)
 
         info = QLabel(
-            "Enter your Trading 212 API keys for live trading.\n"
-            "Leave blank to use paper mode (no real trades).",
+            "HOW TO GET YOUR TRADING 212 API KEY:\n\n"
+            "1. Open Trading 212 (app or web)\n"
+            "2. Go to Settings (gear icon)\n"
+            "3. Scroll to the 'API' section\n"
+            "4. Click 'Generate API Key'\n"
+            "5. Copy the key and paste below\n\n"
+            "Leave blank for paper mode (no real trades).\n"
+            "You can always add keys later.",
         )
         info.setStyleSheet(
             "color: #888888; font-size: 12px; "

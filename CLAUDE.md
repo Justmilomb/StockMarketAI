@@ -40,70 +40,46 @@ AI-driven stock trading terminal combining scikit-learn ML predictions with Clau
 ## 4 — Architecture Quick Reference
 
 ```
-ai.py / terminal/app.py / backtest.py / desktop/main.py / autoconfig/run.py  (entry points)
+backtest.py / desktop/main_bloomberg.py / desktop/main_simple.py  (entry points)
   │
-  ├─ AiService              (ML ensemble + statistical + Claude orchestration)
+  ├─ core/                   (all ML/AI/broker modules — on sys.path)
+  │   ├─ AiService           (ML ensemble + statistical + Claude orchestration)
   │   ├─ data_loader         (yfinance OHLCV + CSV cache)
-  │   ├─ features            (10 basic features — legacy)
+  │   ├─ features            (base technical indicators)
   │   ├─ features_advanced   (31 V2 features, 6 analyst groups)
-  │   ├─ model               (legacy RandomForest train/predict)
-  │   ├─ ensemble            (6 diverse ML models — quant desk)
+  │   ├─ ensemble            (12 ML models — quant desk)
   │   ├─ timeframe           (1d/5d/20d multi-horizon ensembles)
   │   ├─ regime              (market regime detector — macro strategist)
-  │   ├─ forecaster_statistical (ARIMA/ETS baselines — statsmodels)
+  │   ├─ forecaster_statistical (ARIMA/ETS baselines)
   │   ├─ consensus           (investment committee — signal aggregation)
   │   ├─ claude_client       (Claude CLI: signals, news, chat)
-  │   ├─ claude_personas     (3 Claude analyst personas)
+  │   ├─ claude_personas     (5 Claude analyst personas)
   │   ├─ risk_manager        (portfolio risk desk — Kelly + ATR sizing)
-  │   └─ strategy            (probability → buy/sell/hold)
+  │   ├─ strategy            (probability → buy/sell/hold)
+  │   ├─ BrokerService       (broker-agnostic facade)
+  │   ├─ AutoEngine          (signal → risk-managed order execution)
+  │   ├─ NewsAgent           (background RSS + batch Claude sentiment)
+  │   ├─ database            (SQLite persistence)
+  │   └─ PipelineTracker     (thread-safe progress tracking)
   │
-  ├─ BrokerService           (broker-agnostic facade)
-  │   ├─ LogBroker           (dev: logs to JSONL)
-  │   └─ Trading212Broker    (live: REST API v0, trading212.py)
+  ├─ backtesting/            (walk-forward validation engine)
   │
-  ├─ AutoEngine              (signal → risk-managed order execution)
+  ├─ desktop/                (PySide6 desktop app — two editions)
+  │   ├─ main.py             (shared bootstrap: license, wizard, launch(mode))
+  │   ├─ main_bloomberg.py   (Bloomberg edition entry point)
+  │   ├─ main_simple.py      (Simple edition entry point)
+  │   ├─ app.py              (MainWindow — Bloomberg-dark panels)
+  │   ├─ simple/app.py       (SimpleWindow — card-based minimal UI)
+  │   ├─ panels/             (Bloomberg UI panels)
+  │   └─ dialogs/            (modal dialogs incl. setup wizard, license)
   │
-  ├─ NewsAgent               (background RSS + batch Claude sentiment)
+  ├─ terminal/               (Textual TUI — dev-only)
   │
-  ├─ HistoryManager          (SQLite persistence — database.py)
-  │   ├─ snapshots           (signals, positions, PnL per refresh)
-  │   ├─ config_changes      (AI self-tuning audit trail)
-  │   ├─ watchlist_log       (AI additions/removals)
-  │   └─ chat_history        (persists across sessions)
+  ├─ server/                 (FastAPI license server + admin API)
   │
-  ├─ PipelineTracker          (thread-safe progress tracking)
+  ├─ website/                (landing page + admin panel HTML)
   │
-  ├─ backtesting/             (walk-forward validation engine)
-  │   ├─ types                (BacktestConfig, TradeRecord, PerformanceMetrics)
-  │   ├─ data_prep            (feature pre-computation, walk-forward splits)
-  │   ├─ simulator            (trade execution: stops, slippage, sizing)
-  │   ├─ engine               (per-fold: train → predict → simulate)
-  │   ├─ metrics              (Sharpe, Sortino, Calmar, drawdown, attribution)
-  │   └─ runner               (parallel fold executor, all CPU cores)
-  │
-  ├─ terminal/
-  │   ├─ app.py              (TradingTerminalApp — TUI + AI autonomous loops)
-  │   ├─ state.py            (AppState + regime/consensus/ensemble metadata)
-  │   ├─ views.py            (panels + Consensus/Confidence columns)
-  │   ├─ pipeline_view.py    (dual-mode: progress bars + model dashboard)
-  │   ├─ history_views.py    (history/pies/instruments modals)
-  │   ├─ charts.py           (sparkline price charts)
-  │   └─ terminal.css        (Bloomberg-dark theme, 3×4 grid)
-  │
-  ├─ desktop/                (PySide6 Bloomberg-dark desktop app)
-  │   ├─ main.py             (entry point — QApplication bootstrap)
-  │   ├─ app.py              (main window, panel wiring)
-  │   ├─ state.py            (shared AppState for desktop)
-  │   ├─ theme.py            (Bloomberg-dark Qt stylesheet)
-  │   ├─ workers.py          (background QThread workers)
-  │   ├─ panels/             (individual UI panels)
-  │   └─ dialogs/            (modal dialogs)
-  │
-  └─ autoconfig/             (autonomous parameter optimisation)
-      ├─ run.py              (entry point — experiment loop)
-      ├─ experiment.py       (single experiment: backtest + score)
-      ├─ universe.py         (ticker universe definitions)
-      └─ strategy_profiles.py (candidate config profiles)
+  └─ installer/              (PyInstaller specs + Inno Setup scripts)
 ```
 
 ---
@@ -112,7 +88,8 @@ ai.py / terminal/app.py / backtest.py / desktop/main.py / autoconfig/run.py  (en
 
 - `terminal/app.py` — main TUI wiring, lifecycle, action handlers
 - `desktop/app.py` — main desktop window wiring, lifecycle, action handlers
-- `ai_service.py` — orchestrates ML ensemble + statistical + Claude pipeline
+- `desktop/main.py` — shared app bootstrap (license, wizard, launch)
+- `core/ai_service.py` — orchestrates ML ensemble + statistical + Claude pipeline
 - `config.json` — all runtime configuration
 - `requirements.txt` — dependency manifest
 
@@ -189,15 +166,15 @@ CONSTRAINTS:
 
 - **Phase 1:** Core ML pipeline (data → features → model → signals → broker) — **done**
 - **Phase 2:** TUI terminal + Claude integration + news agent + Trading 212 — **done**
-- **Phase 2.5:** Self-learning AI loops, SQLite persistence, chat history, T212 price fallback — **done**
-- **Phase 2.75:** ML ensemble (6 models × 3 horizons, regime detection, Claude personas, consensus engine, risk management) — **done**
-- **Phase 2.85:** ARIMA/ETS statistical baseline + pipeline visualization — **done**
-- **Phase 3.0:** Backtesting engine (walk-forward validation, trade simulation, Sharpe/Sortino/Calmar metrics, parallel folds, CLI) — **done**
+- **Phase 2.5–2.85:** 1000-analyst ensemble, regime detection, ARIMA/ETS baselines, pipeline visualisation — **done**
+- **Phase 2.9:** MiroFish multi-agent simulation (1000 agents × 16 MC sims) — **done**
+- **Phase 3.0:** Backtesting engine (walk-forward, parallel folds, Sharpe/Sortino/Calmar) — **done**
 - **Phase 3.1:** Multi-asset expansion (stocks, crypto, polymarket) — **done**
-- **Phase 3.15:** Autoconfig — autonomous parameter optimisation via Claude CLI, GCP VM deployment, 23+ experiments — **done**
+- **Phase 3.15:** Autoconfig — autonomous parameter optimisation, 23+ experiments — **done**
 - **Phase 3.2:** PySide6 desktop app (Bloomberg-dark GUI, build to exe) — **done**
-- **Phase 3.3:** Testing, pytest coverage, integration tests — **in progress**
-- **Phase 4:** Production hardening, monitoring, deployment automation — **planned**
+- **Phase 3.5:** Commercialisation — license server, setup wizard, admin panel, code signing — **done**
+- **Phase 3.6:** Simple app + root reorganisation — core/ package, two installers — **done**
+- **Phase 4:** Production hardening, test coverage, monitoring — **in progress**
 
 ---
 

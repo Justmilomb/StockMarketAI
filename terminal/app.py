@@ -20,7 +20,9 @@ from typing import Any, Dict, List, Optional
 import pandas as pd
 
 # Ensure the parent directory is in sys.path when running as a script
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+_project_root = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(_project_root))
+sys.path.insert(0, str(_project_root / "core"))
 
 from ai_service import AiService
 from auto_engine import AutoEngine

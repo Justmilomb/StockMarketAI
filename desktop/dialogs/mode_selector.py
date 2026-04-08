@@ -15,10 +15,10 @@ from PySide6.QtWidgets import (
 class ModeSelector(QDialog):
     """Sharp terminal dialog with 3 mode buttons."""
 
-    def __init__(self, parent: object = None) -> None:
+    def __init__(self, parent: object = None, show_simple: bool = True) -> None:
         super().__init__(parent)
         self.setWindowTitle("Blank — Select Mode")
-        self.setFixedSize(400, 380)
+        self.setFixedSize(400, 440 if show_simple else 380)
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
         self.setStyleSheet(
             "QDialog { background-color: #000000; border: 1px solid #444444; }"
@@ -85,6 +85,12 @@ class ModeSelector(QDialog):
         poly_btn.setStyleSheet(btn_style.format(color="#00bfff"))
         poly_btn.clicked.connect(lambda: self._select("polymarket"))
         layout.addWidget(poly_btn)
+
+        if show_simple:
+            simple_btn = QPushButton("SIMPLE")
+            simple_btn.setStyleSheet(btn_style.format(color="#00ff87"))
+            simple_btn.clicked.connect(lambda: self._select("simple"))
+            layout.addWidget(simple_btn)
 
         crypto_btn = QPushButton("CRYPTO  --  COMING SOON")
         crypto_btn.setStyleSheet(btn_disabled_style)

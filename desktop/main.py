@@ -17,6 +17,7 @@ multiprocessing.freeze_support()
 if getattr(sys, "frozen", False):
     BUNDLE_DIR = Path(sys._MEIPASS)
     sys.path.insert(0, str(BUNDLE_DIR))
+    sys.path.insert(0, str(BUNDLE_DIR / "core"))
     # CWD = next to the exe, where user's config.json lives
     EXE_DIR = Path(sys.executable).parent
     os.chdir(EXE_DIR)
@@ -24,6 +25,7 @@ if getattr(sys, "frozen", False):
 else:
     PROJECT_ROOT = Path(__file__).resolve().parent.parent
     sys.path.insert(0, str(PROJECT_ROOT))
+    sys.path.insert(0, str(PROJECT_ROOT / "core"))
     os.chdir(PROJECT_ROOT)
     CONFIG_PATH = PROJECT_ROOT / "config.json"
 
@@ -130,7 +132,13 @@ def _apply_remote_config(remote_cfg: dict[str, str]) -> None:
         logger.info("Remote config applied to local config.json")
 
 
-def main() -> None:
+def launch(mode: str | None = None) -> None:
+    """Launch the Blank desktop app.
+
+    Args:
+        mode: 'simple' for Simple edition, 'bloomberg' for Bloomberg edition
+              (shows stocks/polymarket selector), None for full mode selector.
+    """
     _load_dotenv(Path(os.getcwd()))
 
     logging.basicConfig(
@@ -142,12 +150,17 @@ def main() -> None:
     from PySide6.QtCore import Qt
     from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPixmap
     from PySide6.QtWidgets import QApplication, QSplashScreen
-    from desktop.app import MainWindow
     from desktop.theme import BLOOMBERG_DARK_QSS
 
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
-    app.setStyleSheet(BLOOMBERG_DARK_QSS)
+
+    # Apply initial theme based on mode
+    if mode == "simple":
+        from desktop.simple.theme import SIMPLE_QSS
+        app.setStyleSheet(SIMPLE_QSS)
+    else:
+        app.setStyleSheet(BLOOMBERG_DARK_QSS)
 
     # App icon — embedded in the EXE for frozen builds, loaded from file for dev
     if getattr(sys, "frozen", False):
@@ -165,17 +178,13 @@ def main() -> None:
     stored_key = _read_stored_key()
 
     if stored_key:
-        # try silent validation of stored key
         result = validate(server_url=server_url, key=stored_key)
         if not result.get("valid"):
-            # stored key is bad — prompt for a new one
             dialog = LicenseDialog(server_url=server_url)
             if not dialog.run():
                 sys.exit(0)
-            # re-validate to get config
             result = validate(server_url=server_url)
     else:
-        # no stored key — must enter one
         dialog = LicenseDialog(server_url=server_url)
         if not dialog.run():
             sys.exit(0)
@@ -188,7 +197,7 @@ def main() -> None:
 
     if SetupWizard.should_show():
         wizard = SetupWizard()
-        wizard.run()  # non-blocking if skipped
+        wizard.run()
 
     # ── Remote config enforcement ────────────────────────────────────
     from PySide6.QtWidgets import QMessageBox
@@ -229,7 +238,6 @@ def main() -> None:
             webbrowser.open(update_url)
         sys.exit(0)
 
-    # Apply remote overrides to local config
     _apply_remote_config(remote_cfg)
 
     # ── Splash screen ────────────────────────────────────────────────
@@ -237,24 +245,20 @@ def main() -> None:
     pixmap.fill(QColor("#000000"))
     painter = QPainter(pixmap)
 
-    # App name
     painter.setFont(QFont("Consolas", 48, QFont.Bold))
     painter.setPen(QColor("#ffd700"))
     painter.drawText(pixmap.rect(), Qt.AlignCenter, "BLANK")
 
-    # Gold accent line under title
     painter.setPen(QColor("#ff8c00"))
     cx = pixmap.width() // 2
     cy = pixmap.height() // 2 + 32
     painter.drawLine(cx - 80, cy, cx + 80, cy)
 
-    # Subtitle
     painter.setFont(QFont("Consolas", 12))
     painter.setPen(QColor("#ff8c00"))
     subtitle_rect = pixmap.rect().adjusted(0, 80, 0, 80)
     painter.drawText(subtitle_rect, Qt.AlignCenter, "CERTIFIED RANDOM")
 
-    # Loading text
     painter.setFont(QFont("Consolas", 10))
     painter.setPen(QColor("#555555"))
     painter.drawText(
@@ -268,19 +272,61 @@ def main() -> None:
     splash.show()
     app.processEvents()
 
-    # ── Mode selector ────────────────────────────────────────────────
+    # ── Simple mode — skip selector, launch directly ─────────────────
+    if mode == "simple":
+        from desktop.simple.app import SimpleWindow
+
+        splash.showMessage(
+            "Initialising services...", Qt.AlignBottom | Qt.AlignHCenter, QColor("#888888"),
+        )
+        app.processEvents()
+
+        window = SimpleWindow(config_path=CONFIG_PATH)
+        window.showMaximized()
+        splash.finish(window)
+        sys.exit(app.exec())
+
+    # ── Bloomberg mode — optional sub-selector for stocks/polymarket ──
     from desktop.dialogs.mode_selector import ModeSelector
+    from desktop.app import MainWindow
 
-    # Hide splash so it doesn't overlap the mode selector
-    splash.close()
-    app.processEvents()
+    if mode == "bloomberg":
+        # Bloomberg edition: show stocks/polymarket selector (no simple button)
+        splash.close()
+        app.processEvents()
 
-    selector = ModeSelector()
-    selector_result = selector.run()
-    if selector_result is None:
-        sys.exit(0)
+        selector = ModeSelector(show_simple=False)
+        selector_result = selector.run()
+        if selector_result is None:
+            sys.exit(0)
+    else:
+        # Dev mode: show full selector including simple
+        splash.close()
+        app.processEvents()
 
-    # Apply mode-specific colour overlay
+        selector = ModeSelector(show_simple=True)
+        selector_result = selector.run()
+        if selector_result is None:
+            sys.exit(0)
+
+        # Handle simple selection from full selector
+        if selector_result == "simple":
+            from desktop.simple.app import SimpleWindow
+            from desktop.simple.theme import SIMPLE_QSS
+
+            app.setStyleSheet(SIMPLE_QSS)
+            splash.show()
+            splash.showMessage(
+                "Initialising services...", Qt.AlignBottom | Qt.AlignHCenter, QColor("#888888"),
+            )
+            app.processEvents()
+
+            window = SimpleWindow(config_path=CONFIG_PATH)
+            window.showMaximized()
+            splash.finish(window)
+            sys.exit(app.exec())
+
+    # ── Apply mode-specific colour overlay ────────────────────────────
     if selector_result == "polymarket":
         from desktop.theme import MODE_OVERLAY_POLYMARKET
         app.setStyleSheet(BLOOMBERG_DARK_QSS + MODE_OVERLAY_POLYMARKET)
@@ -288,7 +334,6 @@ def main() -> None:
         from desktop.theme import MODE_OVERLAY_STOCKS
         app.setStyleSheet(BLOOMBERG_DARK_QSS + MODE_OVERLAY_STOCKS)
 
-    # ── Re-show splash while loading ─────────────────────────────────
     splash.show()
     splash.showMessage(
         "Initialising services...", Qt.AlignBottom | Qt.AlignHCenter, QColor("#888888"),
@@ -298,8 +343,13 @@ def main() -> None:
     window = MainWindow(config_path=CONFIG_PATH, initial_asset=selector_result)
     window.showMaximized()
     splash.finish(window)
-    exit_code = app.exec()
-    sys.exit(exit_code)
+    sys.exit(app.exec())
+
+
+def main() -> None:
+    """Default entry point — shows full mode selector."""
+    launch(mode=None)
+
 
 if __name__ == "__main__":
     main()

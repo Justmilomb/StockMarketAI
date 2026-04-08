@@ -1,36 +1,45 @@
 @echo off
-REM Build blank.exe — PySide6 desktop app + installer
+REM Build Blank Bloomberg + Simple editions
 call .venv\Scripts\activate.bat
 
-REM === Step 1: PyInstaller ===
-echo Building blank.exe...
-pyinstaller trading.spec --clean
-if not exist dist\blank.exe (
+REM === Bloomberg edition ===
+echo [1/2] Building blank-bloomberg.exe...
+pyinstaller installer\bloomberg.spec --clean
+if not exist dist\blank-bloomberg.exe (
     echo   FAILED — check errors above
     exit /b 1
 )
-echo   Done: dist\blank.exe
+echo   Done: dist\blank-bloomberg.exe
 
-REM === Step 2: Code signing (when certificate is available) ===
+REM === Simple edition ===
+echo [2/2] Building blank-simple.exe...
+pyinstaller installer\simple.spec --clean
+if not exist dist\blank-simple.exe (
+    echo   FAILED — check errors above
+    exit /b 1
+)
+echo   Done: dist\blank-simple.exe
+
+REM === Code signing (when certificate is available) ===
 if defined BLANK_CERT_PATH (
-    echo Signing dist\blank.exe...
-    signtool sign /f "%BLANK_CERT_PATH%" /p "%BLANK_CERT_PASS%" /tr http://timestamp.digicert.com /td sha256 /fd sha256 dist\blank.exe
-    if errorlevel 1 (
-        echo   WARNING: Code signing failed
-    ) else (
-        echo   Signed successfully
-    )
+    echo Signing executables...
+    signtool sign /f "%BLANK_CERT_PATH%" /p "%BLANK_CERT_PASS%" /tr http://timestamp.digicert.com /td sha256 /fd sha256 dist\blank-bloomberg.exe
+    signtool sign /f "%BLANK_CERT_PATH%" /p "%BLANK_CERT_PASS%" /tr http://timestamp.digicert.com /td sha256 /fd sha256 dist\blank-simple.exe
+    echo   Signed
 ) else (
     echo   Skipping code signing (BLANK_CERT_PATH not set)
 )
 
-REM === Step 3: Inno Setup installer ===
+REM === Inno Setup installers ===
 if exist "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" (
-    echo Building BlankSetup.exe...
-    "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\blank.iss
+    echo Building BlankBloombergSetup.exe...
+    "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\bloomberg.iss
+    echo Building BlankSimpleSetup.exe...
+    "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\simple.iss
     if defined BLANK_CERT_PATH (
-        echo Signing dist\BlankSetup.exe...
-        signtool sign /f "%BLANK_CERT_PATH%" /p "%BLANK_CERT_PASS%" /tr http://timestamp.digicert.com /td sha256 /fd sha256 dist\BlankSetup.exe
+        echo Signing installers...
+        signtool sign /f "%BLANK_CERT_PATH%" /p "%BLANK_CERT_PASS%" /tr http://timestamp.digicert.com /td sha256 /fd sha256 dist\BlankBloombergSetup.exe
+        signtool sign /f "%BLANK_CERT_PATH%" /p "%BLANK_CERT_PASS%" /tr http://timestamp.digicert.com /td sha256 /fd sha256 dist\BlankSimpleSetup.exe
     )
 ) else (
     echo   Inno Setup not found — skipping installer build
