@@ -61,6 +61,7 @@ class ClaudeClient:
         if config is None:
             config = ClaudeConfig()
         self.config = config
+        self._available = True
 
         # Verify the claude CLI is available
         try:
@@ -73,12 +74,19 @@ class ClaudeClient:
                 **_SUBPROCESS_FLAGS,
             )
         except FileNotFoundError:
+            self._available = False
             logger.warning(
                 "claude CLI not found on PATH. "
                 "Install it from https://docs.anthropic.com/en/docs/claude-cli"
             )
         except Exception as e:
+            self._available = False
             logger.warning("Could not verify claude CLI availability: %s", e)
+
+    @property
+    def available(self) -> bool:
+        """Whether the Claude CLI is installed and reachable."""
+        return self._available
 
     def _get_model_for_task(self, task_type: str) -> str:
         """Select the appropriate Claude model based on task complexity."""
@@ -101,6 +109,8 @@ class ClaudeClient:
         task_type: 'complex' (opus), 'medium' (sonnet), or 'simple' (haiku)
         Falls back to an empty string on any subprocess error.
         """
+        if not self._available:
+            return ""
         full_prompt = f"{self.SYSTEM_INSTRUCTION}\n\n{prompt}" if use_system else prompt
         model = self._get_model_for_task(task_type)
 

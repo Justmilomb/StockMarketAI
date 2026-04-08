@@ -22,7 +22,7 @@ from desktop import __version__
 logger = logging.getLogger(__name__)
 
 # Point this at a raw JSON file you control (GitHub releases, S3, your server)
-UPDATE_URL = ""
+UPDATE_URL = "https://blank-api.onrender.com/api/version"
 
 
 def check_for_update() -> Optional[dict]:

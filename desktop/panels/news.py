@@ -13,6 +13,7 @@ class NewsPanel(QGroupBox):
         self._text.setReadOnly(True)
         layout.addWidget(self._text)
         self._news_available = self._check_dependencies()
+        self._ai_available = True
         self.refresh_view(state)
 
     def _check_dependencies(self) -> bool:
@@ -22,6 +23,10 @@ class NewsPanel(QGroupBox):
             return True
         except ImportError:
             return False
+
+    def set_ai_available(self, available: bool) -> None:
+        """Update whether the AI backend (Claude CLI) is reachable."""
+        self._ai_available = available
 
     def refresh_view(self, state: Any) -> None:
         sentiment = state.news_sentiment or {}
@@ -35,12 +40,20 @@ class NewsPanel(QGroupBox):
             return
 
         if not sentiment:
-            self._text.setHtml(
-                '<p style="color:#ffb000;">Waiting for news data...</p>'
-                '<p style="color:#555555;">Press N to refresh news manually.</p>'
-                '<p style="color:#555555;">News fetches headlines via RSS and '
-                'analyses sentiment with AI. This can take a minute.</p>'
-            )
+            if not self._ai_available:
+                self._text.setHtml(
+                    '<p style="color:#ff5555; font-weight:bold;">AI UNAVAILABLE</p>'
+                    '<p style="color:#888888;">Install Claude CLI to enable news '
+                    'sentiment analysis.</p>'
+                    '<p style="color:#555555;">https://docs.anthropic.com/en/docs/claude-cli</p>'
+                )
+            else:
+                self._text.setHtml(
+                    '<p style="color:#ffb000;">Waiting for news data...</p>'
+                    '<p style="color:#555555;">Press N to refresh news manually.</p>'
+                    '<p style="color:#555555;">News fetches headlines via RSS and '
+                    'analyses sentiment with AI. This can take a minute.</p>'
+                )
             return
 
         html_parts = []

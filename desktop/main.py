@@ -183,6 +183,13 @@ def main() -> None:
 
     logger.info("License validated — launching app")
 
+    # ── First-run setup wizard ───────────────────────────────────────
+    from desktop.dialogs.setup_wizard import SetupWizard
+
+    if SetupWizard.should_show():
+        wizard = SetupWizard()
+        wizard.run()  # non-blocking if skipped
+
     # ── Remote config enforcement ────────────────────────────────────
     from PySide6.QtWidgets import QMessageBox
 
@@ -272,6 +279,14 @@ def main() -> None:
     selector_result = selector.run()
     if selector_result is None:
         sys.exit(0)
+
+    # Apply mode-specific colour overlay
+    if selector_result == "polymarket":
+        from desktop.theme import MODE_OVERLAY_POLYMARKET
+        app.setStyleSheet(BLOOMBERG_DARK_QSS + MODE_OVERLAY_POLYMARKET)
+    else:
+        from desktop.theme import MODE_OVERLAY_STOCKS
+        app.setStyleSheet(BLOOMBERG_DARK_QSS + MODE_OVERLAY_STOCKS)
 
     # ── Re-show splash while loading ─────────────────────────────────
     splash.show()

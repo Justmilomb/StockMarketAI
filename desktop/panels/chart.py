@@ -10,7 +10,7 @@ from PySide6.QtWidgets import QGroupBox, QLabel, QVBoxLayout
 logger = logging.getLogger(__name__)
 
 # Fallback periods if the first one returns no data
-_PERIODS = ["3mo", "6mo", "1mo", "1y"]
+_PERIODS = ["1y", "6mo", "3mo", "1mo"]
 
 
 class ChartPanel(QGroupBox):
@@ -231,6 +231,10 @@ class ChartPanel(QGroupBox):
                     pen=pg.mkPen(None),
                 )
                 self._volume_plot.addItem(bar)
+
+        # ── Auto-fit to visible data range (no blank space) ──────
+        self._price_plot.setXRange(0, n - 1, padding=0.02)
+        self._price_plot.setYRange(float(lows.min()), float(highs.max()), padding=0.05)
 
     def selected_ticker(self) -> str:
         return self._current_ticker

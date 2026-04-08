@@ -437,3 +437,24 @@ VERDICT_COLORS = {
     "ORANGE": "#ff8c00",
     "AMBER": "#ffd700",
 }
+
+# ── Mode-specific QSS overlays ─────────────────────────────────────────
+# Appended to BLOOMBERG_DARK_QSS when switching asset class
+
+MODE_OVERLAY_STOCKS = """
+QDockWidget::title { border-bottom: 2px solid #ffd700; }
+QStatusBar { border-top: 1px solid #ffd700; }
+QGroupBox::title { color: #ff8c00; }
+"""
+
+MODE_OVERLAY_POLYMARKET = """
+QDockWidget::title { border-bottom: 2px solid #00bfff; color: #00bfff; }
+QStatusBar { border-top: 1px solid #00bfff; }
+QGroupBox::title { color: #00bfff; }
+QHeaderView::section { color: #00bfff; }
+"""
+
+MODE_COLORS = {
+    "stocks": {"accent": "#ffd700", "header": "#ff8c00"},
+    "polymarket": {"accent": "#00bfff", "header": "#00bfff"},
+}

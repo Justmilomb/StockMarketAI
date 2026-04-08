@@ -125,7 +125,20 @@ class NewsAgent:
                     )
 
         # Phase 2: Batch sentiment analysis to reduce API calls
-        # Instead of one call per ticker, send all tickers in one prompt
+        # Skip if AI is unavailable — still show headlines without sentiment
+        ai_available = getattr(self.ai_client, "available", True) if self.ai_client else False
+        if not ai_available:
+            print("[news_agent] AI client unavailable — showing headlines only")
+            for ticker, headlines in ticker_headlines.items():
+                self._news_data[ticker] = TickerNews(
+                    ticker=ticker,
+                    sentiment=0.0,
+                    summary="AI unavailable — install Claude CLI",
+                    headlines=headlines[:5],
+                    last_updated=datetime.utcnow(),
+                )
+            return
+
         if ticker_headlines:
             self._batch_analyze_sentiment(ticker_headlines)
 

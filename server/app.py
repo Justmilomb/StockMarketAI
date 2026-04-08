@@ -183,6 +183,23 @@ def admin_page() -> HTMLResponse:
     return HTMLResponse(content=html)
 
 
+# ── Health / version (public) ────────────────────────────────────────────
+
+@app.get("/api/health")
+def health_check() -> dict[str, str]:
+    """Simple health check for app connectivity verification."""
+    return {"status": "ok", "version": "1.0.0"}
+
+
+@app.get("/api/version")
+def version_info() -> dict[str, str]:
+    """Version info for the desktop update checker."""
+    return {
+        "version": "1.0.0",
+        "download_url": "https://github.com/Justmilomb/StockMarketAI/releases/latest/download/BlankSetup.exe",
+    }
+
+
 # ── License endpoints (public) ───────────────────────────────────────────
 
 @app.post("/api/license/validate")

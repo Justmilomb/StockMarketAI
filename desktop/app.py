@@ -167,6 +167,8 @@ class MainWindow(QMainWindow):
         self.positions_panel = PositionsPanel(self.state)
         self.orders_panel = OrdersPanel(self.state)
         self.news_panel = NewsPanel(self.state)
+        ai_ok = self._claude_client is not None and getattr(self._claude_client, "available", False)
+        self.news_panel.set_ai_available(ai_ok)
 
         from desktop.panels.polymarket_markets import PolymarketPanel
         self._poly_panel = PolymarketPanel(self.state)
@@ -229,6 +231,52 @@ class MainWindow(QMainWindow):
             "  ? Help | B About | R Refresh | M Menu | A Mode | C Chat | G Chart | Q Quit",
         )
         status.addPermanentWidget(self._status_label, 1)
+
+        # AI availability indicator
+        ai_ok = self._claude_client is not None and getattr(self._claude_client, "available", False)
+        self._ai_status = QLabel("AI: OK" if ai_ok else "AI: OFF")
+        self._ai_status.setStyleSheet(
+            f"color: {'#00ff00' if ai_ok else '#ff0000'}; font-weight: bold; padding: 0 8px;",
+        )
+        status.addPermanentWidget(self._ai_status)
+
+        # Broker mode indicator
+        broker_live = getattr(self.broker_service, "is_live", False)
+        self._broker_status = QLabel("LIVE" if broker_live else "PAPER")
+        self._broker_status.setStyleSheet(
+            f"color: {'#00ff00' if broker_live else '#ffd700'}; font-weight: bold; padding: 0 8px;",
+        )
+        status.addPermanentWidget(self._broker_status)
+
+        # Server connectivity indicator
+        self._server_status = QLabel("SRV: --")
+        self._server_status.setStyleSheet("color: #888888; font-weight: bold; padding: 0 8px;")
+        status.addPermanentWidget(self._server_status)
+        self._check_server_connectivity()
+
+    def _check_server_connectivity(self) -> None:
+        """Ping the license server in the background and update status label."""
+        server_url = self.config.get("server", {}).get("url", "")
+        if not server_url:
+            self._server_status.setText("SRV: OFF")
+            self._server_status.setStyleSheet("color: #ff0000; font-weight: bold; padding: 0 8px;")
+            return
+
+        def _ping() -> bool:
+            try:
+                import requests
+                resp = requests.get(f"{server_url.rstrip('/')}/api/health", timeout=5)
+                return resp.status_code == 200
+            except Exception:
+                return False
+
+        def _on_result(ok: bool) -> None:
+            self._server_status.setText("SRV: OK" if ok else "SRV: OFF")
+            self._server_status.setStyleSheet(
+                f"color: {'#00ff00' if ok else '#ff0000'}; font-weight: bold; padding: 0 8px;",
+            )
+
+        self._run_background(_ping, _on_result)
 
     def _rebuild_view_menu(self) -> None:
         """Rebuild the View menu to only show docks for the active mode."""
@@ -632,6 +680,7 @@ class MainWindow(QMainWindow):
         mode_str = "AUTO" if self.state.mode == "full_auto_limited" else "ADVISOR"
         asset = self.state.active_asset_class
         if asset == "polymarket":
+            self.setWindowTitle("Blank Predict")
             self._header_label.setText(
                 "  BLANK PREDICT | POLYMARKET | CERTIFIED RANDOM",
             )
@@ -640,6 +689,7 @@ class MainWindow(QMainWindow):
                 "background: transparent; padding: 2px 8px;",
             )
         else:
+            self.setWindowTitle("Blank")
             self._header_label.setText(
                 f"  BLANK [{mode_str}] | STOCKS | CERTIFIED RANDOM",
             )
@@ -682,6 +732,12 @@ class MainWindow(QMainWindow):
         # Rebuild layout for the new mode
         self._apply_dock_layout()
         self._update_header()
+
+        # Apply mode-specific colour overlay
+        from desktop.theme import BLOOMBERG_DARK_QSS, MODE_OVERLAY_STOCKS, MODE_OVERLAY_POLYMARKET
+        from PySide6.QtWidgets import QApplication
+        overlay = MODE_OVERLAY_POLYMARKET if asset_class == "polymarket" else MODE_OVERLAY_STOCKS
+        QApplication.instance().setStyleSheet(BLOOMBERG_DARK_QSS + overlay)
 
         # Populate placeholders for stocks, then trigger fresh data fetch
         if asset_class == "stocks":
@@ -937,7 +993,7 @@ class MainWindow(QMainWindow):
 
         yf_ticker = _clean_ticker(ticker)
         logger.info("Chart fetch: %s → yfinance symbol '%s'", ticker, yf_ticker)
-        periods = ["3mo", "6mo", "1mo", "1y"]
+        periods = ["1y", "6mo", "3mo", "1mo"]
         last_err = ""
         for period in periods:
             try:
@@ -995,6 +1051,14 @@ class MainWindow(QMainWindow):
         volumes = result["volumes"]
 
         self.chart_panel._draw_candlestick(opens, highs, lows, closes, volumes)
+
+        # Auto-fit chart to data range (no blank space)
+        n = len(closes)
+        if self.chart_panel._has_pyqtgraph and n > 0:
+            self.chart_panel._price_plot.setXRange(0, n - 1, padding=0.02)
+            self.chart_panel._price_plot.setYRange(
+                float(lows.min()), float(highs.max()), padding=0.05,
+            )
 
         cur = closes[-1]
         prev = opens[0]
