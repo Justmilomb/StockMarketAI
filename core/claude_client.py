@@ -63,26 +63,6 @@ class ClaudeClient:
         self.config = config
         self._available = True
 
-        # Verify the claude CLI is available
-        try:
-            subprocess.run(
-                ["claude", "--version"],
-                capture_output=True,
-                text=True,
-                timeout=10,
-                encoding="utf-8",
-                **_SUBPROCESS_FLAGS,
-            )
-        except FileNotFoundError:
-            self._available = False
-            logger.warning(
-                "claude CLI not found on PATH. "
-                "Install it from https://docs.anthropic.com/en/docs/claude-cli"
-            )
-        except Exception as e:
-            self._available = False
-            logger.warning("Could not verify claude CLI availability: %s", e)
-
     @property
     def available(self) -> bool:
         """Whether the Claude CLI is installed and reachable."""
@@ -169,6 +149,53 @@ class ClaudeClient:
             text = text[start:end+1]
 
         return json.loads(text.strip())
+
+    # ── Strategy Profile Selection ────────────────────────────────────
+
+    _PROFILE_DESCRIPTIONS = {
+        "day_trader": "Short-term trades, 1-day horizon, tight stops, high conviction only",
+        "swing": "Multi-day holds (5-20 days), moderate risk, balanced approach",
+        "trend_follower": "Rides established trends, wide stops, lets winners run",
+        "conservative": "Capital preservation first, very selective, small positions",
+        "crisis_alpha": "Extreme caution, minimal exposure, only highest-conviction trades",
+    }
+
+    def select_strategy_profile(
+        self,
+        regime: str,
+        regime_confidence: float,
+        market_summary: str,
+        available_profiles: list[str] | None = None,
+    ) -> str:
+        """Ask Claude to pick the best strategy profile for current conditions.
+
+        Returns one of the profile names, or empty string on failure.
+        Falls back to caller's default if Claude is unavailable.
+        """
+        profiles = available_profiles or list(self._PROFILE_DESCRIPTIONS.keys())
+        profile_list = "\n".join(
+            f"  - {name}: {self._PROFILE_DESCRIPTIONS.get(name, 'No description')}"
+            for name in profiles
+        )
+
+        prompt = (
+            "You are the chief strategist for an AI trading desk. "
+            "Based on the current market conditions, pick the single best strategy profile to deploy.\n\n"
+            f"DETECTED REGIME: {regime} (confidence: {regime_confidence:.0%})\n\n"
+            f"MARKET CONTEXT:\n{market_summary}\n\n"
+            f"AVAILABLE PROFILES:\n{profile_list}\n\n"
+            "Respond with ONLY the profile name (e.g., 'day_trader'). Nothing else."
+        )
+
+        response = self._call(prompt, use_system=False, timeout=30, task_type="complex")
+        response = response.strip().lower().replace("'", "").replace('"', '')
+
+        if response in profiles:
+            logger.info("Claude selected profile: %s (regime=%s)", response, regime)
+            return response
+
+        logger.warning("Claude returned invalid profile '%s', falling back", response)
+        return ""
 
     # ── Signal Generation ──────────────────────────────────────────────
 

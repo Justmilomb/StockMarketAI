@@ -206,7 +206,7 @@ def launch(mode: str | None = None) -> None:
 
     if remote_cfg.get("kill_switch") == "true":
         QMessageBox.critical(
-            None, "Blank",
+            None, "blank",
             "TRADING HAS BEEN DISABLED BY THE ADMINISTRATOR.\n\n"
             "Contact support if you believe this is an error.",
         )
@@ -214,7 +214,7 @@ def launch(mode: str | None = None) -> None:
 
     if remote_cfg.get("maintenance_mode") == "true":
         QMessageBox.information(
-            None, "Blank",
+            None, "blank",
             "BLANK IS CURRENTLY UNDER MAINTENANCE.\n\n"
             "The service will be back shortly. Please try again later.",
         )
@@ -223,7 +223,7 @@ def launch(mode: str | None = None) -> None:
     if remote_cfg.get("force_update") == "true":
         update_url = remote_cfg.get("update_url", "")
         msg = QMessageBox(
-            QMessageBox.Warning, "Blank \u2014 Update Required",
+            QMessageBox.Warning, "blank -- update required",
             "A NEW VERSION OF BLANK IS AVAILABLE.\n\n"
             "You must update before continuing.",
         )
@@ -241,26 +241,28 @@ def launch(mode: str | None = None) -> None:
     _apply_remote_config(remote_cfg)
 
     # ── Splash screen ────────────────────────────────────────────────
+    from desktop.design import BG, TEXT, TEXT_DIM, TEXT_MID, GLOW, FONT_FAMILY
+
     pixmap = QPixmap(600, 340)
-    pixmap.fill(QColor("#000000"))
+    pixmap.fill(QColor(BG))
     painter = QPainter(pixmap)
 
-    painter.setFont(QFont("Consolas", 48, QFont.Bold))
-    painter.setPen(QColor("#ffd700"))
+    painter.setFont(QFont("Outfit", 48, QFont.Bold))
+    painter.setPen(QColor(TEXT))
     painter.drawText(pixmap.rect(), Qt.AlignCenter, "BLANK")
 
-    painter.setPen(QColor("#ff8c00"))
+    painter.setPen(QColor(GLOW))
     cx = pixmap.width() // 2
     cy = pixmap.height() // 2 + 32
-    painter.drawLine(cx - 80, cy, cx + 80, cy)
+    painter.drawLine(cx - 60, cy, cx + 60, cy)
 
-    painter.setFont(QFont("Consolas", 12))
-    painter.setPen(QColor("#ff8c00"))
+    painter.setFont(QFont("Outfit", 11, QFont.Light))
+    painter.setPen(QColor("#808080"))
     subtitle_rect = pixmap.rect().adjusted(0, 80, 0, 80)
     painter.drawText(subtitle_rect, Qt.AlignCenter, "CERTIFIED RANDOM")
 
-    painter.setFont(QFont("Consolas", 10))
-    painter.setPen(QColor("#555555"))
+    painter.setFont(QFont("Outfit", 10, QFont.Thin))
+    painter.setPen(QColor("#333333"))
     painter.drawText(
         pixmap.rect().adjusted(0, 0, 0, -20),
         Qt.AlignBottom | Qt.AlignHCenter,

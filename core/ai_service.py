@@ -635,6 +635,26 @@ class AiService:
             regime_mapping = dict(REGIME_DEFAULT_MAPPING)
             if regime_mapping_raw:
                 regime_mapping.update(regime_mapping_raw)
+
+            # Ask Claude to pick the profile instead of using the static mapping
+            claude = self._get_claude_client(cfg)
+            market_summary = (
+                f"Regime: {regime_state.regime} (confidence {regime_state.confidence:.0%})\n"
+                f"VIX proxy: {regime_state.vix_proxy:.2f}, Breadth: {regime_state.breadth:.2f}, "
+                f"Trend strength: {regime_state.trend_strength:.2f}\n"
+                f"Tickers in play: {len(consensus_results)}"
+            )
+            claude_pick = claude.select_strategy_profile(
+                regime=regime_state.regime,
+                regime_confidence=regime_state.confidence,
+                market_summary=market_summary,
+                available_profiles=list(profiles.keys()),
+            )
+            if claude_pick:
+                # Claude overrides: use its pick for all regime mappings
+                regime_mapping = {k: claude_pick for k in regime_mapping}
+                logger.info("Claude selected profile '%s' for regime '%s'", claude_pick, regime_state.regime)
+
             selector = StrategySelector(
                 profiles=profiles,
                 regime_mapping=regime_mapping,

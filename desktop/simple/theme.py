@@ -1,115 +1,128 @@
-"""Simple app theme — matches the website's clean, minimal aesthetic."""
+"""Simple app theme -- imports from the shared design system."""
 from __future__ import annotations
 
-# Colour palette (mirrors website/index.html CSS variables)
+from desktop.design import (
+    BG,
+    SURFACE,
+    TEXT,
+    TEXT_MID,
+    TEXT_DIM,
+    GLOW,
+    GLOW_DIM,
+    GLOW_MID,
+    GLOW_BORDER,
+    BORDER,
+    BORDER_HOVER,
+    RED,
+    AMBER,
+    FONT_FAMILY,
+)
+
+# Backward-compatible COLORS dict for widgets that reference it
 COLORS = {
-    "bg": "#000000",
-    "surface": "#0a0a0a",
-    "border": "rgba(255, 255, 255, 0.06)",
-    "border_hover": "rgba(255, 255, 255, 0.12)",
-    "text": "#ffffff",
-    "text_mid": "rgba(255, 255, 255, 0.5)",
-    "text_dim": "rgba(255, 255, 255, 0.2)",
-    "glow": "#00ff87",
-    "glow_dim": "rgba(0, 255, 135, 0.08)",
-    "red": "#ff4d4d",
-    "amber": "#ffaa00",
+    "bg": BG,
+    "surface": SURFACE,
+    "border": BORDER,
+    "border_hover": BORDER_HOVER,
+    "text": TEXT,
+    "text_mid": TEXT_MID,
+    "text_dim": TEXT_DIM,
+    "glow": GLOW,
+    "glow_dim": GLOW_DIM,
+    "red": RED,
+    "amber": AMBER,
 }
 
-SIMPLE_QSS = """
-* {
-    font-family: "Outfit", "Segoe UI", sans-serif;
-}
+SIMPLE_QSS = f"""
+* {{
+    font-family: {FONT_FAMILY};
+}}
 
-QMainWindow {
-    background-color: #000000;
-}
+QMainWindow {{
+    background-color: {BG};
+}}
 
-QWidget {
-    background-color: #000000;
-    color: #ffffff;
-}
+QWidget {{
+    background-color: {BG};
+    color: {TEXT};
+}}
 
-QLabel {
+QLabel {{
     background: transparent;
-    color: #ffffff;
-}
+    color: {TEXT};
+}}
 
-QScrollArea {
+QScrollArea {{
     border: none;
     background: transparent;
-}
+}}
 
-QScrollBar:vertical {
-    background: #000000;
+QScrollBar:vertical {{
+    background: {BG};
     width: 6px;
     border: none;
-}
+}}
 
-QScrollBar::handle:vertical {
-    background: rgba(255, 255, 255, 0.08);
+QScrollBar::handle:vertical {{
+    background: {GLOW_DIM};
     border-radius: 3px;
     min-height: 30px;
-}
+}}
 
-QScrollBar::handle:vertical:hover {
-    background: rgba(255, 255, 255, 0.15);
-}
+QScrollBar::handle:vertical:hover {{
+    background: {GLOW_MID};
+}}
 
 QScrollBar::add-line:vertical,
 QScrollBar::sub-line:vertical,
 QScrollBar::add-page:vertical,
-QScrollBar::sub-page:vertical {
+QScrollBar::sub-page:vertical {{
     background: none;
     border: none;
     height: 0px;
-}
+}}
 
-QPushButton {
+QPushButton {{
     background: transparent;
-    color: #00ff87;
-    border: 1px solid rgba(0, 255, 135, 0.25);
+    color: {GLOW};
+    border: 1px solid {GLOW_BORDER};
     border-radius: 2px;
     padding: 8px 20px;
     font-size: 13px;
     font-weight: 400;
     letter-spacing: 1px;
-}
+}}
 
-QPushButton:hover {
-    background: #00ff87;
-    color: #000000;
-}
+QPushButton:hover {{
+    background: {GLOW};
+    color: {BG};
+}}
 
-QPushButton:pressed {
-    background: rgba(0, 255, 135, 0.8);
-    color: #000000;
-}
+QPushButton:pressed {{
+    background: {GLOW};
+    color: {BG};
+}}
 
-QLineEdit {
-    background: #0a0a0a;
-    color: #ffffff;
-    border: 1px solid rgba(255, 255, 255, 0.06);
+QLineEdit {{
+    background: {SURFACE};
+    color: {TEXT};
+    border: 1px solid {BORDER};
     padding: 8px 12px;
     font-size: 14px;
-}
+}}
 
-QLineEdit:focus {
-    border-color: rgba(0, 255, 135, 0.25);
-}
+QLineEdit:focus {{
+    border-color: {GLOW_BORDER};
+}}
 
-QStatusBar {
-    background: #000000;
-    color: rgba(255, 255, 255, 0.2);
-    border-top: 1px solid rgba(255, 255, 255, 0.06);
+QStatusBar {{
+    background: {BG};
+    color: {TEXT_DIM};
+    border-top: 1px solid {BORDER};
     font-size: 12px;
     font-weight: 300;
     padding: 4px 12px;
-}
-"""
-"""
-
-Signal colour helpers.
+}}
 """
 
 
@@ -117,16 +130,16 @@ def signal_color(signal: str) -> str:
     """Return the accent colour for a signal string."""
     s = signal.upper()
     if "BUY" in s:
-        return COLORS["glow"]
+        return GLOW
     if "SELL" in s:
-        return COLORS["red"]
-    return COLORS["amber"]
+        return RED
+    return AMBER
 
 
 def change_color(pct: float) -> str:
     """Return green/red/dim for a percentage change."""
     if pct > 0.01:
-        return COLORS["glow"]
+        return GLOW
     if pct < -0.01:
-        return COLORS["red"]
-    return COLORS["text_dim"]
+        return RED
+    return TEXT_DIM

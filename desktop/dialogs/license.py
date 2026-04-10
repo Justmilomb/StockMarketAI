@@ -1,4 +1,4 @@
-"""License activation dialog — blocks the app until a valid key is entered."""
+"""License activation dialog -- blocks the app until a valid key is entered."""
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
@@ -10,58 +10,76 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
+from desktop.design import (
+    APP_NAME_UPPER,
+    BASE_QSS,
+    BG,
+    BORDER,
+    GLOW,
+    GLOW_BORDER,
+    RED,
+    SECONDARY_BTN_QSS,
+    SURFACE,
+    TEXT,
+    TEXT_DIM,
+    TEXT_MID,
+    FONT_FAMILY,
+)
 from desktop.license import save_key, validate
 
 
 class LicenseDialog(QDialog):
-    """Terminal-styled dialog that prompts for a license key and validates it."""
+    """Prompts for a license key and validates it against the server."""
 
     def __init__(self, server_url: str = "http://localhost:8000", parent: object = None) -> None:
         super().__init__(parent)
         self._server_url = server_url
-        self.setWindowTitle("Blank — License")
+        self.setWindowTitle("blank")
         self.setFixedSize(440, 300)
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
-        self.setStyleSheet(
-            "QDialog { background-color: #000000; border: 1px solid #444444; }"
-        )
+        self.setStyleSheet(BASE_QSS + f"""
+            QDialog {{ border: 1px solid {BORDER}; }}
+        """)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(28, 24, 28, 20)
-        layout.setSpacing(8)
+        layout.setContentsMargins(32, 28, 32, 24)
+        layout.setSpacing(0)
 
         # Title
-        title = QLabel("BLANK")
+        title = QLabel(APP_NAME_UPPER)
         title.setAlignment(Qt.AlignCenter)
-        title.setStyleSheet(
-            "color: #ffd700; font-size: 28px; font-weight: bold; "
-            "font-family: Consolas, monospace; border: none; letter-spacing: 4px;",
-        )
+        title.setStyleSheet(f"""
+            color: {TEXT}; font-size: 36px; font-weight: 700;
+            font-family: {FONT_FAMILY}; letter-spacing: -1px;
+        """)
         layout.addWidget(title)
 
+        layout.addSpacing(4)
+
+        # Subtitle
         subtitle = QLabel("ENTER LICENSE KEY")
         subtitle.setAlignment(Qt.AlignCenter)
-        subtitle.setStyleSheet(
-            "color: #ff8c00; font-size: 11px; "
-            "font-family: Consolas, monospace; border: none; letter-spacing: 2px;",
-        )
+        subtitle.setStyleSheet(f"""
+            color: {TEXT_MID}; font-size: 11px; font-weight: 300;
+            font-family: {FONT_FAMILY}; letter-spacing: 3px;
+        """)
         layout.addWidget(subtitle)
 
-        layout.addSpacing(16)
+        layout.addSpacing(24)
 
         # Input
         self._input = QLineEdit()
         self._input.setPlaceholderText("BLK-XXXX-XXXX")
         self._input.setAlignment(Qt.AlignCenter)
-        self._input.setStyleSheet(
-            "QLineEdit { "
-            "  background-color: #0a0a0a; color: #ffffff; "
-            "  border: 1px solid #444444; padding: 10px; "
-            "  font-size: 16px; font-family: Consolas, monospace; "
-            "  letter-spacing: 2px; "
-            "} "
-            "QLineEdit:focus { border-color: #ff8c00; }",
-        )
+        self._input.setStyleSheet(f"""
+            QLineEdit {{
+                background: {SURFACE}; color: {TEXT};
+                border: 1px solid {BORDER}; border-radius: 2px;
+                padding: 12px; font-size: 16px; font-weight: 400;
+                font-family: {FONT_FAMILY}; letter-spacing: 2px;
+            }}
+            QLineEdit:focus {{ border-color: {GLOW_BORDER}; }}
+        """)
         self._input.returnPressed.connect(self._activate)
         layout.addWidget(self._input)
 
@@ -71,38 +89,27 @@ class LicenseDialog(QDialog):
         self._status = QLabel("")
         self._status.setAlignment(Qt.AlignCenter)
         self._status.setWordWrap(True)
-        self._status.setStyleSheet(
-            "color: #ff4444; font-size: 10px; "
-            "font-family: Consolas, monospace; border: none;",
-        )
+        self._status.setFixedHeight(20)
+        self._status.setStyleSheet(f"""
+            color: {RED}; font-size: 11px; font-weight: 300;
+            font-family: {FONT_FAMILY}; letter-spacing: 1px;
+        """)
         layout.addWidget(self._status)
 
-        layout.addSpacing(4)
+        layout.addSpacing(12)
 
         # Activate button
         activate_btn = QPushButton("ACTIVATE")
-        activate_btn.setStyleSheet(
-            "QPushButton { "
-            "  background-color: #1a1a1a; color: #00ff00; "
-            "  border: 1px solid #444444; "
-            "  font-size: 13px; font-weight: bold; "
-            "  font-family: Consolas, monospace; "
-            "  padding: 10px; "
-            "} "
-            "QPushButton:hover { background-color: #2a2a2a; border-color: #00ff00; } "
-            "QPushButton:pressed { background-color: #333333; }",
-        )
+        activate_btn.setCursor(Qt.PointingHandCursor)
         activate_btn.clicked.connect(self._activate)
         layout.addWidget(activate_btn)
 
+        layout.addSpacing(8)
+
         # Quit
         quit_btn = QPushButton("QUIT")
-        quit_btn.setStyleSheet(
-            "QPushButton { background-color: transparent; color: #444444; "
-            "  border: none; font-size: 11px; padding: 4px; "
-            "  font-family: Consolas, monospace; } "
-            "QPushButton:hover { color: #ff0000; }",
-        )
+        quit_btn.setCursor(Qt.PointingHandCursor)
+        quit_btn.setStyleSheet(SECONDARY_BTN_QSS)
         quit_btn.clicked.connect(self.reject)
         layout.addWidget(quit_btn)
 
@@ -112,10 +119,10 @@ class LicenseDialog(QDialog):
             self._status.setText("ENTER A LICENSE KEY")
             return
 
-        self._status.setStyleSheet(
-            "color: #888888; font-size: 10px; "
-            "font-family: Consolas, monospace; border: none;",
-        )
+        self._status.setStyleSheet(f"""
+            color: {TEXT_MID}; font-size: 11px; font-weight: 300;
+            font-family: {FONT_FAMILY}; letter-spacing: 1px;
+        """)
         self._status.setText("VALIDATING...")
         self._status.repaint()
 
@@ -123,18 +130,18 @@ class LicenseDialog(QDialog):
 
         if result.get("valid"):
             save_key(key)
-            self._status.setStyleSheet(
-                "color: #00ff00; font-size: 10px; "
-                "font-family: Consolas, monospace; border: none;",
-            )
+            self._status.setStyleSheet(f"""
+                color: {GLOW}; font-size: 11px; font-weight: 300;
+                font-family: {FONT_FAMILY}; letter-spacing: 1px;
+            """)
             self._status.setText("LICENSE ACTIVATED")
             self.accept()
         else:
             reason = result.get("reason", "unknown error")
-            self._status.setStyleSheet(
-                "color: #ff4444; font-size: 10px; "
-                "font-family: Consolas, monospace; border: none;",
-            )
+            self._status.setStyleSheet(f"""
+                color: {RED}; font-size: 11px; font-weight: 300;
+                font-family: {FONT_FAMILY}; letter-spacing: 1px;
+            """)
             self._status.setText(reason.upper())
 
     def run(self) -> bool:

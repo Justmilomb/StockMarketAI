@@ -1,4 +1,4 @@
-"""Mode selector dialog — choose Stocks, Polymarket, or Crypto on startup."""
+"""Mode selector dialog -- choose Stocks, Polymarket, or Crypto on startup."""
 from __future__ import annotations
 
 from typing import Optional
@@ -11,103 +11,86 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
+from desktop.design import (
+    APP_NAME_UPPER,
+    BASE_QSS,
+    BORDER,
+    GLOW,
+    GLOW_BORDER,
+    SECONDARY_BTN_QSS,
+    SURFACE,
+    TEXT,
+    TEXT_DIM,
+    TEXT_MID,
+    FONT_FAMILY,
+)
+
 
 class ModeSelector(QDialog):
-    """Sharp terminal dialog with 3 mode buttons."""
+    """Minimal mode selector matching the blank website design."""
 
     def __init__(self, parent: object = None, show_simple: bool = True) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Blank — Select Mode")
+        self.setWindowTitle("blank")
         self.setFixedSize(400, 440 if show_simple else 380)
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
-        self.setStyleSheet(
-            "QDialog { background-color: #000000; border: 1px solid #444444; }"
-        )
+        self.setStyleSheet(BASE_QSS + f"""
+            QDialog {{ border: 1px solid {BORDER}; }}
+        """)
 
         self._selected: Optional[str] = None
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(24, 20, 24, 16)
+        layout.setContentsMargins(32, 28, 32, 20)
         layout.setSpacing(8)
 
         # Title
-        title = QLabel("BLANK")
+        title = QLabel(APP_NAME_UPPER)
         title.setAlignment(Qt.AlignCenter)
-        title.setStyleSheet(
-            "color: #ffd700; font-size: 32px; font-weight: bold; "
-            "font-family: Consolas, monospace; border: none; "
-            "letter-spacing: 4px;",
-        )
+        title.setStyleSheet(f"""
+            color: {TEXT}; font-size: 36px; font-weight: 700;
+            font-family: {FONT_FAMILY}; letter-spacing: -1px;
+        """)
         layout.addWidget(title)
 
         subtitle = QLabel("SELECT TRADING MODE")
         subtitle.setAlignment(Qt.AlignCenter)
-        subtitle.setStyleSheet(
-            "color: #ff8c00; font-size: 11px; "
-            "font-family: Consolas, monospace; border: none; "
-            "letter-spacing: 2px;",
-        )
+        subtitle.setStyleSheet(f"""
+            color: {TEXT_MID}; font-size: 11px; font-weight: 300;
+            font-family: {FONT_FAMILY}; letter-spacing: 3px;
+        """)
         layout.addWidget(subtitle)
 
-        layout.addSpacing(16)
+        layout.addSpacing(20)
 
-        # ── Mode buttons ─────────────────────────────────────────────
-        btn_style = (
-            "QPushButton {{ "
-            "  background-color: #1a1a1a; color: {color}; "
-            "  border: 1px solid #444444; "
-            "  font-size: 14px; font-weight: bold; "
-            "  font-family: Consolas, monospace; "
-            "  padding: 12px; min-height: 16px; "
-            "}} "
-            "QPushButton:hover {{ "
-            "  background-color: #2a2a2a; border-color: #ff8c00; "
-            "}} "
-            "QPushButton:pressed {{ background-color: #333333; }}"
-        )
-
-        btn_disabled_style = (
-            "QPushButton { "
-            "  background-color: #0a0a0a; color: #333333; "
-            "  border: 1px solid #222222; "
-            "  font-size: 14px; font-weight: bold; "
-            "  font-family: Consolas, monospace; "
-            "  padding: 12px; min-height: 16px; "
-            "}"
-        )
-
+        # Mode buttons -- all use the same green accent from BASE_QSS
         stocks_btn = QPushButton("STOCKS")
-        stocks_btn.setStyleSheet(btn_style.format(color="#00ff00"))
+        stocks_btn.setCursor(Qt.PointingHandCursor)
         stocks_btn.clicked.connect(lambda: self._select("stocks"))
         layout.addWidget(stocks_btn)
 
         poly_btn = QPushButton("POLYMARKET")
-        poly_btn.setStyleSheet(btn_style.format(color="#00bfff"))
+        poly_btn.setCursor(Qt.PointingHandCursor)
         poly_btn.clicked.connect(lambda: self._select("polymarket"))
         layout.addWidget(poly_btn)
 
         if show_simple:
             simple_btn = QPushButton("SIMPLE")
-            simple_btn.setStyleSheet(btn_style.format(color="#00ff87"))
+            simple_btn.setCursor(Qt.PointingHandCursor)
             simple_btn.clicked.connect(lambda: self._select("simple"))
             layout.addWidget(simple_btn)
 
         crypto_btn = QPushButton("CRYPTO  --  COMING SOON")
-        crypto_btn.setStyleSheet(btn_disabled_style)
         crypto_btn.setEnabled(False)
         crypto_btn.setToolTip("Crypto trading is not yet available")
         layout.addWidget(crypto_btn)
 
         layout.addSpacing(12)
 
-        # Quit button
+        # Quit
         quit_btn = QPushButton("QUIT")
-        quit_btn.setStyleSheet(
-            "QPushButton { background-color: transparent; color: #444444; "
-            "  border: none; font-size: 11px; padding: 4px; "
-            "  font-family: Consolas, monospace; } "
-            "QPushButton:hover { color: #ff0000; }",
-        )
+        quit_btn.setCursor(Qt.PointingHandCursor)
+        quit_btn.setStyleSheet(SECONDARY_BTN_QSS)
         quit_btn.clicked.connect(self.reject)
         layout.addWidget(quit_btn)
 

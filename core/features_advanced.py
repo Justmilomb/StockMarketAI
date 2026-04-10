@@ -39,6 +39,15 @@ FEATURE_GROUPS: Dict[str, FeatureGroup] = {
         columns=["ret_20d", "ret_60d", "weekly_momentum", "monthly_momentum"],
         description="Multi-timeframe returns and momentum",
     ),
+    "short_term": FeatureGroup(
+        name="short_term",
+        columns=[
+            "rsi_3d", "ret_2d", "gap_pct", "range_pct", "close_position",
+            "body_pct", "upper_shadow_pct", "lower_shadow_pct",
+            "vol_spike", "mean_reversion_5d",
+        ],
+        description="Short-term day-trading features: candlestick patterns, gaps, volume spikes",
+    ),
     "price": FeatureGroup(
         name="price",
         columns=["open", "prev_close"],
@@ -49,7 +58,7 @@ FEATURE_GROUPS: Dict[str, FeatureGroup] = {
 # Full ordered list of V2 feature columns — the union of all groups
 FEATURE_COLUMNS_V2: List[str] = [
     col
-    for group_name in ["price", "trend", "momentum", "volatility", "volume", "multi_tf"]
+    for group_name in ["price", "trend", "momentum", "volatility", "volume", "multi_tf", "short_term"]
     for col in FEATURE_GROUPS[group_name].columns
 ]
 
@@ -289,6 +298,22 @@ def engineer_features_v2(df: pd.DataFrame) -> pd.DataFrame:
 
     # Monthly momentum: 20-day return of the 30-day MA
     data["monthly_momentum"] = data["ma_30d"].pct_change(periods=20)
+
+    # --- Short-term day-trading features ---
+    data["rsi_3d"] = _compute_rsi(data["close"], window=3)
+    data["ret_2d"] = data["close"].pct_change(periods=2)
+    data["gap_pct"] = (data["open"] - data["prev_close"]) / data["prev_close"].replace(0.0, np.nan)
+
+    hl_range = (data["high"] - data["low"]).replace(0.0, np.nan)
+    data["range_pct"] = hl_range / data["close"].replace(0.0, np.nan)
+    data["close_position"] = (data["close"] - data["low"]) / hl_range
+    data["body_pct"] = (data["close"] - data["open"]).abs() / hl_range
+    data["upper_shadow_pct"] = (data["high"] - data[["open", "close"]].max(axis=1)) / hl_range
+    data["lower_shadow_pct"] = (data[["open", "close"]].min(axis=1) - data["low"]) / hl_range
+
+    vol_sma_5 = data["volume"].rolling(window=5).mean().replace(0.0, np.nan)
+    data["vol_spike"] = data["volume"] / vol_sma_5
+    data["mean_reversion_5d"] = (data["close"] - data["ma_5d"]) / data["atr_14d"].replace(0.0, np.nan)
 
     # --- Target ---
     data["target_up"] = (data["close"].shift(-1) > data["close"]).astype(int)

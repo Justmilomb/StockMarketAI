@@ -1,10 +1,22 @@
-"""About dialog — app identity and version."""
+"""About dialog -- app identity and version."""
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QDialog, QLabel, QPushButton, QVBoxLayout
 
 from desktop import __version__
+from desktop.design import (
+    APP_NAME_UPPER,
+    BASE_QSS,
+    BORDER,
+    COMPANY_UPPER,
+    GLOW,
+    SECONDARY_BTN_QSS,
+    TEXT,
+    TEXT_DIM,
+    TEXT_MID,
+    FONT_FAMILY,
+)
 
 
 class AboutDialog(QDialog):
@@ -12,44 +24,50 @@ class AboutDialog(QDialog):
 
     def __init__(self, parent: object = None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("About Blank")
-        self.setFixedSize(340, 200)
-        self.setStyleSheet(
-            "QDialog { background-color: #000000; border: 1px solid #444444; }"
-        )
+        self.setWindowTitle("blank")
+        self.setFixedSize(340, 220)
+        self.setStyleSheet(BASE_QSS + f"""
+            QDialog {{ border: 1px solid {BORDER}; }}
+        """)
 
         layout = QVBoxLayout(self)
         layout.setAlignment(Qt.AlignCenter)
         layout.setSpacing(6)
-        layout.setContentsMargins(24, 20, 24, 16)
+        layout.setContentsMargins(32, 28, 32, 20)
 
-        name_label = QLabel("BLANK")
+        name_label = QLabel(APP_NAME_UPPER)
         name_label.setAlignment(Qt.AlignCenter)
-        name_label.setStyleSheet(
-            "color: #ffd700; font-size: 28px; font-weight: bold; "
-            "font-family: Consolas, monospace; letter-spacing: 3px; border: none;",
-        )
+        name_label.setStyleSheet(f"""
+            color: {TEXT}; font-size: 36px; font-weight: 700;
+            font-family: {FONT_FAMILY}; letter-spacing: -1px;
+        """)
         layout.addWidget(name_label)
 
-        company_label = QLabel("CERTIFIED RANDOM")
+        layout.addSpacing(2)
+
+        company_label = QLabel(COMPANY_UPPER)
         company_label.setAlignment(Qt.AlignCenter)
-        company_label.setStyleSheet(
-            "color: #ff8c00; font-size: 11px; "
-            "font-family: Consolas, monospace; letter-spacing: 2px; border: none;",
-        )
+        company_label.setStyleSheet(f"""
+            color: {TEXT_MID}; font-size: 11px; font-weight: 300;
+            font-family: {FONT_FAMILY}; letter-spacing: 3px;
+        """)
         layout.addWidget(company_label)
+
+        layout.addSpacing(4)
 
         version_label = QLabel(f"v{__version__}")
         version_label.setAlignment(Qt.AlignCenter)
-        version_label.setStyleSheet(
-            "color: #555555; font-size: 10px; "
-            "font-family: Consolas, monospace; border: none;",
-        )
+        version_label.setStyleSheet(f"""
+            color: {TEXT_DIM}; font-size: 10px; font-weight: 300;
+            font-family: {FONT_FAMILY};
+        """)
         layout.addWidget(version_label)
 
-        layout.addSpacing(12)
+        layout.addSpacing(16)
 
         close_btn = QPushButton("CLOSE")
-        close_btn.setFixedWidth(80)
+        close_btn.setCursor(Qt.PointingHandCursor)
+        close_btn.setStyleSheet(SECONDARY_BTN_QSS)
+        close_btn.setFixedWidth(100)
         close_btn.clicked.connect(self.accept)
         layout.addWidget(close_btn, alignment=Qt.AlignCenter)
