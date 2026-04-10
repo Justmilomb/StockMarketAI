@@ -80,16 +80,27 @@ class WatchlistPanel(QGroupBox):
         for _, row_data in signals_df.iterrows():
             ticker = str(row_data.get("ticker", ""))
             prob = float(row_data.get("prob_up", 0.5))
-            signal = str(row_data.get("signal", "HOLD"))
+            signal = str(row_data.get("signal", "HOLD")).upper()
             ai_rec = str(row_data.get("ai_rec", ""))
 
             live = state.live_data.get(ticker, {})
             price = live.get("price", "")
             change_pct = live.get("change_pct", 0)
 
-            consensus = state.consensus_data.get(ticker, {})
-            cons_pct = consensus.get("consensus_pct", 50) if isinstance(consensus, dict) else 50
-            conf = consensus.get("confidence", 0) if isinstance(consensus, dict) else 0
+            # Read consensus from signals DataFrame (most reliable path)
+            cons_pct = float(row_data.get("consensus_pct", 50))
+            conf = float(row_data.get("consensus_confidence", 0))
+
+            # Fallback to state.consensus_data if DataFrame columns missing
+            if cons_pct == 50 and conf == 0:
+                consensus = state.consensus_data.get(ticker)
+                if consensus is not None:
+                    if isinstance(consensus, dict):
+                        cons_pct = consensus.get("consensus_pct", 50)
+                        conf = consensus.get("confidence", 0)
+                    else:
+                        cons_pct = getattr(consensus, "consensus_pct", 50)
+                        conf = getattr(consensus, "confidence", 0)
 
             news = state.news_sentiment.get(ticker, {})
             sent_score = news.get("sentiment_score", 0) if isinstance(news, dict) else 0
@@ -98,9 +109,11 @@ class WatchlistPanel(QGroupBox):
             ai_grade = state.ai_color_grades.get(ticker) if hasattr(state, "ai_color_grades") else None
             verdict = ai_grade if ai_grade else compute_verdict(prob, cons_pct)
 
-            # Strategy
+            # Strategy — read from state, fallback to DataFrame if available
             strat_data = state.strategy_assignments.get(ticker, {})
             strat_name = strat_data.get("name", "") if isinstance(strat_data, dict) else ""
+            if not strat_name:
+                strat_name = str(row_data.get("strategy", "")) if "strategy" in row_data.index else ""
 
             # Protected / daily-only tags
             is_protected = ticker in state.protected_tickers

@@ -36,7 +36,7 @@ def check_for_update() -> Optional[dict]:
 
     try:
         import requests
-        resp = requests.get(UPDATE_URL, timeout=5)
+        resp = requests.get(UPDATE_URL, timeout=30)
         resp.raise_for_status()
         data = resp.json()
 

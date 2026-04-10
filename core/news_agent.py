@@ -168,7 +168,7 @@ class NewsAgent:
         # Build a combined prompt for all tickers at once
         sections = []
         for ticker, headlines in ticker_headlines.items():
-            hl_str = "; ".join(headlines[:5])
+            hl_str = "; ".join(headlines[:3])
             sections.append(f"{ticker}: {hl_str}")
 
         combined = "\n".join(sections)
@@ -181,44 +181,56 @@ class NewsAgent:
             '{"AAPL": {"sentiment": 0.5, "summary": "..."}, "MSFT": {"sentiment": -0.2, "summary": "..."}, ...}'
         )
 
+        scored_tickers: set = set()
         try:
-            text = self.ai_client._call(prompt)
+            text = self.ai_client._call(prompt, task_type="simple")
             if not text:
-                return
-
-            obj = self.ai_client._parse_json(text)
-            if not isinstance(obj, dict):
-                return
-
-            for ticker, headlines in ticker_headlines.items():
-                data = obj.get(ticker, {})
-                if not isinstance(data, dict):
-                    continue
-                sentiment = max(-1.0, min(1.0, float(data.get("sentiment", 0.0))))
-                summary = str(data.get("summary", "No summary"))
-                self._news_data[ticker] = TickerNews(
-                    ticker=ticker,
-                    sentiment=sentiment,
-                    summary=summary,
-                    headlines=headlines[:5],
-                    last_updated=datetime.utcnow(),
-                )
-        except Exception as e:
-            print(f"[news_agent] Batch sentiment error: {e}")
-            # Fallback: try individual analysis for tickers we missed
-            for ticker, headlines in ticker_headlines.items():
-                if ticker not in self._news_data:
-                    try:
-                        result = self.ai_client.analyze_news(ticker, headlines)
+                logger.warning("[news_agent] Claude returned empty for batch sentiment")
+            else:
+                obj = self.ai_client._parse_json(text)
+                if isinstance(obj, dict):
+                    for ticker, headlines in ticker_headlines.items():
+                        data = obj.get(ticker, {})
+                        if not isinstance(data, dict):
+                            continue
+                        sentiment = max(-1.0, min(1.0, float(data.get("sentiment", 0.0))))
+                        summary = str(data.get("summary", "No summary"))
                         self._news_data[ticker] = TickerNews(
                             ticker=ticker,
-                            sentiment=result.get("sentiment", 0.0),
-                            summary=result.get("summary", ""),
+                            sentiment=sentiment,
+                            summary=summary,
                             headlines=headlines[:5],
                             last_updated=datetime.utcnow(),
                         )
-                    except Exception as exc:
-                        logger.debug("Sentiment parse failed for %s: %s", ticker, exc)
+                        scored_tickers.add(ticker)
+                else:
+                    logger.warning("[news_agent] Batch sentiment response was not JSON dict")
+        except Exception as e:
+            logger.warning("[news_agent] Batch sentiment error: %s", e)
+
+        # Fallback: try individual calls for tickers the batch missed
+        missed = set(ticker_headlines.keys()) - scored_tickers
+        for ticker in missed:
+            headlines = ticker_headlines[ticker]
+            try:
+                result = self.ai_client.analyze_news(ticker, headlines)
+                self._news_data[ticker] = TickerNews(
+                    ticker=ticker,
+                    sentiment=result.get("sentiment", 0.0),
+                    summary=result.get("summary", "sentiment pending"),
+                    headlines=headlines[:5],
+                    last_updated=datetime.utcnow(),
+                )
+            except Exception as exc:
+                logger.debug("Individual sentiment failed for %s: %s", ticker, exc)
+                # Keep headlines, mark as unscored
+                self._news_data[ticker] = TickerNews(
+                    ticker=ticker,
+                    sentiment=0.0,
+                    summary="sentiment analysis failed",
+                    headlines=headlines[:5],
+                    last_updated=datetime.utcnow(),
+                )
 
     def _analyze_sentiment(self, ticker: str, headlines: List[str]) -> Dict[str, Any]:
         if self.ai_client is None:

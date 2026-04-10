@@ -32,9 +32,9 @@ class BackgroundTask(QThread):
 class RefreshWorker(QThread):
     """Dedicated worker for the main refresh loop.
 
-    Fetches broker data (positions, account, orders, live prices)
-    and optionally runs the full AI signal pipeline.
-    Asset-class aware — stocks use Trading 212, polymarket uses Gamma API.
+    When skip_broker=True, skips broker data fetch (phases 1-4) and goes
+    straight to news + AI signals.  Broker data should be fetched
+    separately first so the UI populates before the slow pipeline starts.
     """
     finished_signal = Signal(object)  # Dict with all results
     error_signal = Signal(str)
@@ -48,6 +48,7 @@ class RefreshWorker(QThread):
         config: Dict[str, Any],
         state: Any,
         run_signals: bool = False,
+        skip_broker: bool = False,
     ) -> None:
         super().__init__()
         self._ai = ai_service
@@ -56,6 +57,7 @@ class RefreshWorker(QThread):
         self._config = config
         self._state = state
         self._run_signals = run_signals
+        self._skip_broker = skip_broker
 
     def run(self) -> None:
         asset_class = self._state.active_asset_class
@@ -70,85 +72,83 @@ class RefreshWorker(QThread):
         errors: List[str] = []
         t0 = time.monotonic()
 
-        # ── Phase 1: Broker positions ────────────────────────────────
-        self.progress_signal.emit("Fetching positions...")
-        try:
-            result["positions"] = self._broker.get_positions()
-        except Exception as e:
-            result["positions"] = []
-            errors.append(f"Positions: {e}")
+        if not self._skip_broker:
+            # ── Phase 1: Broker positions ────────────────────────────
+            self.progress_signal.emit("Fetching positions...")
+            try:
+                result["positions"] = self._broker.get_positions()
+            except Exception as e:
+                result["positions"] = []
+                errors.append(f"Positions: {e}")
 
-        # ── Phase 2: Account info ────────────────────────────────────
-        self.progress_signal.emit("Fetching account info...")
-        try:
-            result["account_info"] = self._broker.get_account_info()
-        except Exception as e:
-            result["account_info"] = {}
-            errors.append(f"Account: {e}")
+            # ── Phase 2: Account info ────────────────────────────────
+            self.progress_signal.emit("Fetching account info...")
+            try:
+                result["account_info"] = self._broker.get_account_info()
+            except Exception as e:
+                result["account_info"] = {}
+                errors.append(f"Account: {e}")
 
-        # ── Phase 3: Pending orders ──────────────────────────────────
-        self.progress_signal.emit("Fetching orders...")
-        try:
-            result["recent_orders"] = self._broker.get_pending_orders()
-        except Exception as e:
-            result["recent_orders"] = []
-            errors.append(f"Orders: {e}")
+            # ── Phase 3: Pending orders ──────────────────────────────
+            self.progress_signal.emit("Fetching orders...")
+            try:
+                result["recent_orders"] = self._broker.get_pending_orders()
+            except Exception as e:
+                result["recent_orders"] = []
+                errors.append(f"Orders: {e}")
 
-        # ── Phase 4: Live prices ─────────────────────────────────────
-        self.progress_signal.emit("Fetching live prices...")
-        try:
-            live_data: Dict[str, Any] = {}
-            watchlist_name = self._state.active_watchlist
-            tickers = self._config.get("watchlists", {}).get(watchlist_name, [])
+            # ── Phase 4: Live prices ─────────────────────────────────
+            self.progress_signal.emit("Fetching live prices...")
+            try:
+                live_data: Dict[str, Any] = {}
+                watchlist_name = self._state.active_watchlist
+                tickers = self._config.get("watchlists", {}).get(watchlist_name, [])
 
-            # Extract current prices from broker positions
-            for pos in result.get("positions", []):
-                t = pos.get("ticker", "")
-                cur = pos.get("current_price", 0)
-                avg = pos.get("avg_price", 0)
-                if t and cur:
-                    change_pct = ((cur - avg) / avg * 100) if avg else 0
-                    live_data[t] = {"price": cur, "change_pct": change_pct}
+                for pos in result.get("positions", []):
+                    t = pos.get("ticker", "")
+                    cur = pos.get("current_price", 0)
+                    avg = pos.get("avg_price", 0)
+                    if t and cur:
+                        change_pct = ((cur - avg) / avg * 100) if avg else 0
+                        live_data[t] = {"price": cur, "change_pct": change_pct}
 
-            # Batch fetch remaining tickers from yfinance
-            missing = [t for t in tickers if t not in live_data]
-            if missing:
-                self.progress_signal.emit(f"Fetching prices for {len(missing)} tickers...")
-                try:
-                    import yfinance as yf
-                    from data_loader import _clean_ticker
+                missing = [t for t in tickers if t not in live_data]
+                if missing:
+                    self.progress_signal.emit(f"Fetching prices for {len(missing)} tickers...")
+                    try:
+                        import yfinance as yf
+                        from data_loader import _clean_ticker
 
-                    yf_to_t212 = {_clean_ticker(t): t for t in missing}
+                        yf_to_t212 = {_clean_ticker(t): t for t in missing}
+                        for yf_t, orig_t in yf_to_t212.items():
+                            try:
+                                cols = yf.download(
+                                    yf_t, period="2d", interval="1d",
+                                    progress=False, timeout=10,
+                                    multi_level_index=False,
+                                )
+                                if cols is None or cols.empty:
+                                    continue
+                                cols = cols.dropna()
+                                if len(cols) < 1 or "Close" not in cols.columns:
+                                    continue
+                                cur_price = float(cols["Close"].iloc[-1])
+                                if len(cols) >= 2:
+                                    prev_close = float(cols["Close"].iloc[-2])
+                                    day_chg = ((cur_price - prev_close) / prev_close * 100) if prev_close else 0
+                                else:
+                                    day_chg = 0
+                                live_data[orig_t] = {"price": cur_price, "change_pct": round(day_chg, 2)}
+                            except Exception:
+                                pass
+                    except Exception as e:
+                        logger.debug("yfinance batch fetch failed: %s", e)
+                        errors.append(f"Prices: {e}")
 
-                    for yf_t, orig_t in yf_to_t212.items():
-                        try:
-                            cols = yf.download(
-                                yf_t, period="2d", interval="1d",
-                                progress=False, timeout=10,
-                                multi_level_index=False,
-                            )
-                            if cols is None or cols.empty:
-                                continue
-                            cols = cols.dropna()
-                            if len(cols) < 1 or "Close" not in cols.columns:
-                                continue
-                            cur_price = float(cols["Close"].iloc[-1])
-                            if len(cols) >= 2:
-                                prev_close = float(cols["Close"].iloc[-2])
-                                day_chg = ((cur_price - prev_close) / prev_close * 100) if prev_close else 0
-                            else:
-                                day_chg = 0
-                            live_data[orig_t] = {"price": cur_price, "change_pct": round(day_chg, 2)}
-                        except Exception:
-                            pass
-                except Exception as e:
-                    logger.debug("yfinance batch fetch failed: %s", e)
-                    errors.append(f"Prices: {e}")
-
-            result["live_data"] = live_data
-        except Exception as e:
-            result["live_data"] = {}
-            errors.append(f"Live data: {e}")
+                result["live_data"] = live_data
+            except Exception as e:
+                result["live_data"] = {}
+                errors.append(f"Live data: {e}")
 
         # ── Phase 5: News sentiment ──────────────────────────────────
         if self._news:
@@ -170,16 +170,19 @@ class RefreshWorker(QThread):
                     except Exception:
                         pass
 
-                signals_df, metadata = self._ai.get_latest_signals()
+                signals_df, _meta_df = self._ai.get_latest_signals()
                 result["signals"] = signals_df
 
-                if metadata:
-                    result["consensus_data"] = metadata.get("consensus_data", {})
-                    regime = metadata.get("regime_state")
-                    if regime:
-                        result["current_regime"] = getattr(regime, "regime", "unknown")
-                        result["regime_confidence"] = getattr(regime, "confidence", 0.0)
-                    result["ensemble_model_count"] = metadata.get("model_count", 0)
+                last_consensus = getattr(self._ai, "_last_consensus", None)
+                if last_consensus:
+                    result["consensus_data"] = last_consensus
+
+                regime_state = getattr(self._ai, "_last_regime", None)
+                if regime_state:
+                    result["current_regime"] = getattr(regime_state, "regime", "unknown")
+                    result["regime_confidence"] = getattr(regime_state, "confidence", 0.0)
+
+                result["ensemble_model_count"] = self._ai.get_ensemble_model_count()
 
                 strategy_assigns = getattr(self._ai, "_last_strategy_assignments", {})
                 if strategy_assigns:

@@ -16,7 +16,6 @@ class PipelinePanel(QGroupBox):
     def __init__(self, tracker: Any) -> None:
         super().__init__("PIPELINE MONITOR")
         self._tracker = tracker
-        self.setMaximumHeight(220)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(6, 16, 6, 4)
@@ -41,18 +40,16 @@ class PipelinePanel(QGroupBox):
         self._dashboard.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self._dashboard.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self._dashboard.verticalHeader().setVisible(False)
-        self._dashboard.setMaximumHeight(100)
 
         # Status log — persistent, always visible
         self._status_log = QLabel("Waiting for first refresh...")
         self._status_log.setStyleSheet("color: #888888; font-size: 10px;")
         self._status_log.setWordWrap(True)
-        self._status_log.setMaximumHeight(60)
 
-        layout.addWidget(self._progress_container)
+        layout.addWidget(self._progress_container, 1)
         layout.addWidget(self._overall_bar)
         layout.addWidget(self._overall_label)
-        layout.addWidget(self._dashboard)
+        layout.addWidget(self._dashboard, 1)
         layout.addWidget(self._status_log)
 
         # Start in dashboard mode

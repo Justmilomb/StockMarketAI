@@ -123,10 +123,14 @@ class LicenseDialog(QDialog):
             color: {TEXT_MID}; font-size: 11px; font-weight: 300;
             font-family: {FONT_FAMILY}; letter-spacing: 1px;
         """)
-        self._status.setText("VALIDATING...")
+        self._status.setText("CONNECTING...")
         self._status.repaint()
 
-        result = validate(server_url=self._server_url, key=key)
+        def _on_status(msg: str) -> None:
+            self._status.setText(msg)
+            self._status.repaint()
+
+        result = validate(server_url=self._server_url, key=key, status_callback=_on_status)
 
         if result.get("valid"):
             save_key(key)

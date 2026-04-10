@@ -52,32 +52,54 @@ def save_key(key: str) -> None:
     LICENSE_FILE.write_text(key.strip(), encoding="utf-8")
 
 
-def validate(server_url: Optional[str] = None, key: Optional[str] = None) -> dict[str, Any]:
+def validate(
+    server_url: Optional[str] = None,
+    key: Optional[str] = None,
+    status_callback: Optional[Any] = None,
+) -> dict[str, Any]:
     """Validate a license key against the server.
 
     Returns dict with 'valid' bool, plus 'reason' on failure
     or 'config', 'email', 'name' on success.
+
+    Retries up to 3 times with increasing timeouts to handle
+    Render free-tier cold starts (30-60s).
     """
     server_url = server_url or _read_server_url()
     key = key or _read_stored_key()
     if not key:
         return {"valid": False, "reason": "no license key found"}
 
-    try:
-        resp = requests.post(
-            f"{server_url.rstrip('/')}/api/license/validate",
-            json={"key": key, "machine_id": _machine_id()},
-            timeout=10,
-        )
-        if resp.status_code == 200:
-            return resp.json()
-        return {"valid": False, "reason": f"server returned {resp.status_code}"}
-    except requests.ConnectionError:
-        return {"valid": False, "reason": "cannot reach license server"}
-    except requests.Timeout:
-        return {"valid": False, "reason": "license server timeout"}
-    except Exception as exc:
-        return {"valid": False, "reason": str(exc)}
+    url = f"{server_url.rstrip('/')}/api/license/validate"
+    payload = {"key": key, "machine_id": _machine_id()}
+    timeouts = [20, 40, 60]
+
+    for attempt, timeout in enumerate(timeouts):
+        if status_callback:
+            if attempt == 0:
+                status_callback("CONNECTING...")
+            else:
+                status_callback(f"WAKING SERVER... (ATTEMPT {attempt + 1}/3)")
+
+        try:
+            resp = requests.post(url, json=payload, timeout=timeout)
+            if resp.status_code == 200:
+                return resp.json()
+            return {"valid": False, "reason": f"server returned {resp.status_code}"}
+        except requests.ConnectionError:
+            if attempt < len(timeouts) - 1:
+                logger.info("Connection failed (attempt %d), retrying...", attempt + 1)
+                continue
+            return {"valid": False, "reason": "cannot reach license server"}
+        except requests.Timeout:
+            if attempt < len(timeouts) - 1:
+                logger.info("Timeout after %ds (attempt %d), retrying...", timeout, attempt + 1)
+                continue
+            return {"valid": False, "reason": "license server timeout"}
+        except Exception as exc:
+            return {"valid": False, "reason": str(exc)}
+
+    return {"valid": False, "reason": "license server timeout"}
 
 
 def send_logs(
@@ -94,7 +116,7 @@ def send_logs(
         resp = requests.post(
             f"{server_url.rstrip('/')}/api/logs",
             json={"license_key": key, "entries": entries},
-            timeout=5,
+            timeout=30,
         )
         return resp.status_code == 200
     except Exception:

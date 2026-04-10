@@ -719,6 +719,14 @@ class AiService:
         signals_df["consensus_pct"] = consensus_pcts
         signals_df["consensus_confidence"] = confidences
 
+        # Attach strategy assignments to DataFrame
+        strat_names: List[str] = []
+        for _, row in signals_df.iterrows():
+            t = str(row["ticker"])
+            sa = strategy_assignments.get(t, {})
+            strat_names.append(sa.get("name", "") if isinstance(sa, dict) else "")
+        signals_df["strategy"] = strat_names
+
         # Store consensus and regime state for other components
         self._last_consensus = consensus_results
         self._last_regime = regime_state
@@ -959,12 +967,23 @@ class AiService:
             "claude_personas": {
                 "display_name": "Claude Personas",
                 "count": 3,
-                "weight": 0,
-                "status": "live",
+                "weight": 0.20,
+                "status": "live (consensus + p_ai)",
             },
-            "_regime": regime_state.regime,
-            "_regime_confidence": regime_state.confidence * 100,
-            "_consensus_bull_pct": bull_pct,
+            "regime": {
+                "display_name": f"Regime: {regime_state.regime}",
+                "count": "",
+                "weight": "",
+                "avg_prob": regime_state.confidence,
+                "status": f"{regime_state.confidence * 100:.0f}% conf",
+            },
+            "consensus": {
+                "display_name": "Consensus",
+                "count": "",
+                "weight": "",
+                "avg_prob": bull_pct / 100,
+                "status": f"{bull_pct:.0f}% bull",
+            },
         }
         self.tracker.update_dashboard_stats(family_stats)
 

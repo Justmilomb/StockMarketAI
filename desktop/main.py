@@ -170,11 +170,24 @@ def launch(mode: str | None = None) -> None:
     if icon_path.exists():
         app.setWindowIcon(QIcon(str(icon_path)))
 
-    # ── License gate ─────────────────────────────────────────────────
+    # ── Wake up Render server (fire-and-forget while user sees UI) ──
     from desktop.license import validate, _read_stored_key, _read_server_url
-    from desktop.dialogs.license import LicenseDialog
 
     server_url = _read_server_url()
+
+    def _wake_server() -> None:
+        try:
+            import requests
+            requests.get(f"{server_url.rstrip('/')}/api/health", timeout=60)
+        except Exception:
+            pass
+
+    wake_thread = threading.Thread(target=_wake_server, daemon=True)
+    wake_thread.start()
+
+    # ── License gate ─────────────────────────────────────────────────
+    from desktop.dialogs.license import LicenseDialog
+
     stored_key = _read_stored_key()
 
     if stored_key:

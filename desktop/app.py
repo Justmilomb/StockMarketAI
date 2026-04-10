@@ -93,8 +93,11 @@ class MainWindow(QMainWindow):
             news_interval = self.config.get("news", {}).get(
                 "refresh_interval_minutes", 5,
             )
+            # News agent gets its own ClaudeClient so sentiment analysis
+            # doesn't queue behind the signal pipeline's Claude calls
+            news_claude = ClaudeClient(ccfg)
             self.news_agent = NewsAgent(
-                self._claude_client, refresh_interval_minutes=news_interval,
+                news_claude, refresh_interval_minutes=news_interval,
             )
         except Exception as e:
             import logging
@@ -108,6 +111,7 @@ class MainWindow(QMainWindow):
         self._pipeline_start_time: float = 0.0
         self._signal_cache_seconds: float = 120.0
         self._pipeline_timeout_seconds: float = 600.0
+        self._pending_need_signals: bool = False
 
         # Active worker references (prevent GC)
         self._refresh_worker: Optional[RefreshWorker] = None
@@ -265,7 +269,7 @@ class MainWindow(QMainWindow):
         def _ping() -> bool:
             try:
                 import requests
-                resp = requests.get(f"{server_url.rstrip('/')}/api/health", timeout=5)
+                resp = requests.get(f"{server_url.rstrip('/')}/api/health", timeout=30)
                 return resp.status_code == 200
             except Exception:
                 return False
@@ -510,12 +514,17 @@ class MainWindow(QMainWindow):
 
     @Slot()
     def action_refresh_data(self, force_signals: bool = False) -> None:
-        """Kick off a background data refresh."""
+        """Two-phase refresh: broker data first, then AI pipeline.
+
+        Phase 1 fetches Trading 212 positions/account/orders/prices and
+        updates the UI immediately.  Phase 2 starts the heavy AI signal
+        pipeline only after broker data is visible.
+        """
         if self._refresh_worker is not None and self._refresh_worker.isRunning():
             return  # Already running
 
         now = time.time()
-        need_signals = force_signals or (
+        self._pending_need_signals = force_signals or (
             now - self._last_signal_run > self._signal_cache_seconds
         )
 
@@ -525,8 +534,114 @@ class MainWindow(QMainWindow):
         ):
             self._pipeline_running = False
 
-        if need_signals and self._pipeline_running:
-            need_signals = False
+        if self._pending_need_signals and self._pipeline_running:
+            self._pending_need_signals = False
+
+        # Phase 1: Fetch broker data (fast — 2-5 seconds)
+        self.statusBar().showMessage("Fetching Trading 212 data...", 30000)
+        self._run_background(self._fetch_broker_data, self._on_broker_phase_done)
+
+    def _fetch_broker_data(self) -> Dict[str, Any]:
+        """Background: fetch broker positions, account, orders, and prices."""
+        result: Dict[str, Any] = {}
+        errors: List[str] = []
+
+        try:
+            result["positions"] = self.broker_service.get_positions()
+        except Exception as e:
+            result["positions"] = []
+            errors.append(f"Positions: {e}")
+
+        try:
+            result["account_info"] = self.broker_service.get_account_info()
+        except Exception as e:
+            result["account_info"] = {}
+            errors.append(f"Account: {e}")
+
+        try:
+            result["recent_orders"] = self.broker_service.get_pending_orders()
+        except Exception as e:
+            result["recent_orders"] = []
+            errors.append(f"Orders: {e}")
+
+        # Extract live prices from broker positions
+        live_data: Dict[str, Any] = {}
+        for pos in result.get("positions", []):
+            t = pos.get("ticker", "")
+            cur = pos.get("current_price", 0)
+            avg = pos.get("avg_price", 0)
+            if t and cur:
+                change_pct = ((cur - avg) / avg * 100) if avg else 0
+                live_data[t] = {"price": cur, "change_pct": change_pct}
+
+        # Fetch remaining watchlist tickers from yfinance
+        watchlist_name = getattr(self.state, "active_watchlist", "Default")
+        tickers = self.config.get("watchlists", {}).get(watchlist_name, [])
+        missing = [t for t in tickers if t not in live_data]
+        if missing:
+            try:
+                import yfinance as yf
+                from data_loader import _clean_ticker
+
+                yf_map = {_clean_ticker(t): t for t in missing}
+                for yf_t, orig_t in yf_map.items():
+                    try:
+                        cols = yf.download(
+                            yf_t, period="2d", interval="1d",
+                            progress=False, timeout=10,
+                            multi_level_index=False,
+                        )
+                        if cols is None or cols.empty:
+                            continue
+                        cols = cols.dropna()
+                        if len(cols) < 1 or "Close" not in cols.columns:
+                            continue
+                        cur_price = float(cols["Close"].iloc[-1])
+                        if len(cols) >= 2:
+                            prev_close = float(cols["Close"].iloc[-2])
+                            day_chg = ((cur_price - prev_close) / prev_close * 100) if prev_close else 0
+                        else:
+                            day_chg = 0
+                        live_data[orig_t] = {"price": cur_price, "change_pct": round(day_chg, 2)}
+                    except Exception:
+                        pass
+            except Exception as e:
+                errors.append(f"Prices: {e}")
+
+        result["live_data"] = live_data
+        result["_errors"] = errors
+        return result
+
+    @Slot(object)
+    def _on_broker_phase_done(self, result: Dict[str, Any]) -> None:
+        """Phase 1 complete — update panels, then start AI pipeline."""
+        errors = result.pop("_errors", [])
+
+        if result.get("positions") is not None:
+            self.state.positions = result["positions"]
+        if result.get("account_info"):
+            self.state.account_info = result["account_info"]
+        if result.get("live_data"):
+            self.state.live_data.update(result["live_data"])
+        if result.get("recent_orders") is not None:
+            self.state.recent_orders = result["recent_orders"]
+
+        self._calculate_pnl()
+        self._refresh_all_panels()
+
+        if errors:
+            self.statusBar().showMessage(
+                f"Broker loaded ({len(errors)} error(s)) — starting pipeline...", 10000,
+            )
+        else:
+            self.statusBar().showMessage("Broker data loaded — starting pipeline...", 10000)
+
+        # Phase 2: Start AI signal pipeline
+        self._start_signal_pipeline()
+
+    def _start_signal_pipeline(self) -> None:
+        """Phase 2: run the AI signal pipeline in the background."""
+        need_signals = self._pending_need_signals
 
         self._refresh_worker = RefreshWorker(
             ai_service=self.ai_service,
@@ -535,6 +650,7 @@ class MainWindow(QMainWindow):
             config=self.config,
             state=self.state,
             run_signals=need_signals,
+            skip_broker=True,
         )
         self._refresh_worker.finished_signal.connect(self._on_refresh_done)
         self._refresh_worker.error_signal.connect(self._on_refresh_error)
@@ -542,7 +658,7 @@ class MainWindow(QMainWindow):
 
         if need_signals:
             self._pipeline_running = True
-            self._pipeline_start_time = now
+            self._pipeline_start_time = time.time()
 
         self._refresh_worker.start()
 
@@ -626,15 +742,19 @@ class MainWindow(QMainWindow):
             self.pipeline_panel.set_refresh_result(0, [error_msg])
 
     def _calculate_pnl(self) -> None:
-        """Calculate unrealised PnL from positions and live data."""
+        """Sum broker-reported unrealised PnL from positions.
+
+        Uses the broker's own fxPpl field rather than recalculating
+        from mixed price sources (which breaks for UK stocks where broker
+        reports GBX but yfinance returns GBP).
+        """
         upnl = 0.0
         for pos in self.state.positions:
-            ticker = pos.get("ticker", "")
-            qty = float(pos.get("quantity", 0))
-            avg_px = float(pos.get("averagePrice", pos.get("avg_price", 0)))
-            live = self.state.live_data.get(ticker, {})
-            cur_px = float(live.get("price", avg_px))
-            upnl += (cur_px - avg_px) * qty
+            val = pos.get("unrealised_pnl") or pos.get("ppl") or 0.0
+            try:
+                upnl += float(val)
+            except (TypeError, ValueError):
+                pass
         self.state.unrealised_pnl = upnl
 
     def _refresh_all_panels(self) -> None:
@@ -873,16 +993,10 @@ class MainWindow(QMainWindow):
             self._add_chat_response("Claude client not available.")
             return
 
-        # Snapshot context for background thread
-        msg_lower = message.lower()
-        is_color_grade = any(
-            p in msg_lower
-            for p in ["colour grade", "color grade", "grade portfolio", "grade stocks", "grade my", "grade the"]
-        )
         self.statusBar().showMessage("AI thinking...", 10000)
         self._run_background(
             lambda: self._do_chat(message),
-            lambda response: self._on_chat_result(response, is_color_grade),
+            lambda response: self._on_chat_result(response, False, False),
         )
 
     def _do_chat(self, message: str) -> str:
@@ -908,12 +1022,23 @@ class MainWindow(QMainWindow):
             live_data=self.state.live_data,
         )
 
-    def _on_chat_result(self, response: str, is_color_grade: bool) -> None:
-        """Main thread: add response, parse color grades if applicable."""
+    def _on_chat_result(self, response: str, is_color_grade: bool, is_trade_request: bool = False) -> None:
+        """Main thread: add response, parse color grades / trade instructions."""
         self.statusBar().showMessage("", 0)
         self._add_chat_response(response)
-        if is_color_grade and response:
+        # Always try parsing — cheap regex scans, finding nothing is harmless.
+        # This handles typos in the user's message that still trigger Claude's formatting.
+        if response:
             self._parse_color_grades(response)
+            instructions = self._parse_trade_instructions(response)
+            if instructions:
+                self.statusBar().showMessage(
+                    f"Executing {len(instructions)} trade(s)...", 10000,
+                )
+                self._run_background(
+                    lambda instr=instructions: self._execute_trades_background(instr),
+                    self._on_trade_instructions_result,
+                )
 
     def _parse_color_grades(self, response: str) -> None:
         """Parse AI response for per-ticker colour grades (GREEN/RED/ORANGE).
@@ -936,6 +1061,11 @@ class MainWindow(QMainWindow):
             re.compile(
                 rf'\|\s*\*{{0,2}}({_T})\*{{0,2}}\s*\|[^|]*?(GREEN|RED|ORANGE)',
                 re.IGNORECASE,
+            ),
+            # Loose: TICKER followed by emoji then GRADE anywhere on same line
+            re.compile(
+                rf'(?:^|\|)\s*\*{{0,2}}({_T})\*{{0,2}}\s+.*?(GREEN|RED|ORANGE)',
+                re.IGNORECASE | re.MULTILINE,
             ),
         ]
         for pattern in patterns:
@@ -964,9 +1094,235 @@ class MainWindow(QMainWindow):
                 grades = mapped
 
         if grades:
+            logger.info("Parsed colour grades: %s", grades)
             self.state.ai_color_grades = grades
             if self.watchlist_panel:
                 self.watchlist_panel.refresh_view(self.state)
+        else:
+            logger.debug("No colour grades found in response")
+
+    # ── Trade Execution from Chat ──────────────────────────────────
+
+    def _parse_trade_instructions(self, response: str) -> list[dict[str, Any]]:
+        """Parse TRADE_INSTRUCTIONS block from Claude's response."""
+        import re
+        marker_start = "TRADE_INSTRUCTIONS_START"
+        marker_end = "TRADE_INSTRUCTIONS_END"
+
+        start_idx = response.find(marker_start)
+        end_idx = response.find(marker_end)
+        if start_idx == -1 or end_idx == -1 or end_idx <= start_idx:
+            return []
+
+        block = response[start_idx + len(marker_start):end_idx].strip()
+        instructions: list[dict[str, Any]] = []
+        pattern = re.compile(
+            r'TICKER:\s*(\S+)\s*\|\s*ACTION:\s*(BUY|SELL)\s*\|\s*FRACTION:\s*([\d.]+)',
+            re.IGNORECASE,
+        )
+        for line in block.splitlines():
+            m = pattern.match(line.strip())
+            if m:
+                instructions.append({
+                    "ticker": m.group(1).upper(),
+                    "action": m.group(2).upper(),
+                    "fraction": min(float(m.group(3)), 1.0),
+                })
+        return instructions
+
+    def _resolve_broker_ticker(self, short_ticker: str) -> str:
+        """Map user-friendly ticker (TSLA) to broker ticker (TSLA_US_EQ)."""
+        upper = short_ticker.upper()
+        for pos in (self.state.positions or []):
+            t = str(pos.get("ticker", ""))
+            if t.upper() == upper or t.upper().startswith(upper + "_"):
+                return t
+        if self.state.signals is not None and not self.state.signals.empty:
+            for t in self.state.signals["ticker"].tolist():
+                if t.upper() == upper or t.upper().startswith(upper + "_"):
+                    return t
+        return short_ticker
+
+    def _execute_trades_background(self, instructions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Background: validate, size, and submit trade instructions."""
+        from risk_manager import RiskManager
+
+        results: list[dict[str, Any]] = []
+        protected_upper = {t.upper() for t in self.state.protected_tickers}
+
+        # Daily loss limit check (same as AutoEngine)
+        upnl = getattr(self.state, "unrealised_pnl", 0.0)
+        capital = float(self.config.get("capital", 100_000))
+        max_daily_loss = float(self.config.get("risk", {}).get("max_daily_loss", 0.03))
+        if upnl < -(capital * max_daily_loss):
+            return [{"ticker": "ALL", "side": "N/A", "status": "BLOCKED",
+                      "reason": f"Daily loss limit hit (PnL: {upnl:.2f})"}]
+
+        # Fetch FRESH positions from broker — state.positions may be stale
+        try:
+            fresh_positions = self.broker_service.get_positions()
+        except Exception:
+            fresh_positions = self.state.positions or []
+
+        held_map: dict[str, dict[str, Any]] = {}
+        for pos in fresh_positions:
+            t = str(pos.get("ticker", "")).upper()
+            if t:
+                held_map[t] = pos
+
+        risk_cfg = self.config.get("risk", {})
+        rm = RiskManager(risk_cfg)
+
+        for instr in instructions:
+            ticker = self._resolve_broker_ticker(instr["ticker"])
+            action = instr["action"]
+            fraction = instr["fraction"]
+
+            if ticker.upper() in protected_upper:
+                results.append({"ticker": ticker, "side": action,
+                                "status": "BLOCKED", "reason": "Protected ticker"})
+                continue
+
+            if action == "SELL":
+                held = held_map.get(ticker.upper())
+                if held is None:
+                    results.append({"ticker": ticker, "side": "SELL",
+                                    "status": "SKIPPED", "reason": "No open position"})
+                    continue
+                qty = float(held.get("quantity", 0))
+                if qty <= 0:
+                    results.append({"ticker": ticker, "side": "SELL",
+                                    "status": "SKIPPED", "reason": "Zero quantity"})
+                    continue
+                import math
+                if fraction >= 1.0:
+                    sell_qty = qty
+                else:
+                    sell_qty = math.floor(qty * fraction * 100) / 100
+
+                # Try sell with decreasing precision — instruments vary
+                result = None
+                for decimals in [8, 5, 3, 2, 1, 0]:
+                    truncated = math.floor(sell_qty * 10**decimals) / 10**decimals
+                    if truncated <= 0:
+                        continue
+                    result = self.broker_service.submit_order(
+                        ticker=ticker, side="sell",
+                        quantity=truncated, order_type="market",
+                    )
+                    if result.get("status") != "FAILED" or "precision" not in str(result.get("error", "")):
+                        break
+                if result:
+                    result["requested_fraction"] = fraction
+                    results.append(result)
+                else:
+                    results.append({"ticker": ticker, "side": "SELL",
+                                    "status": "FAILED", "error": "Could not determine quantity precision"})
+
+            elif action == "BUY":
+                price_info = self.state.live_data.get(ticker, {})
+                price = float(price_info.get("price", price_info.get("last", 0)))
+                if price <= 0:
+                    results.append({"ticker": ticker, "side": "BUY",
+                                    "status": "SKIPPED", "reason": "No price available"})
+                    continue
+
+                features_data = getattr(self.ai_service, "_last_features_df", None)
+                atr = RiskManager._resolve_atr(ticker, features_data, price)
+
+                prob = 0.5
+                if self.state.signals is not None and not self.state.signals.empty:
+                    row = self.state.signals[self.state.signals["ticker"] == ticker]
+                    if not row.empty:
+                        prob = float(row.iloc[0].get("prob_up", 0.5))
+
+                cons = self.state.consensus_data.get(ticker)
+                conf = getattr(cons, "confidence", 0.5) if cons else 0.5
+
+                try:
+                    assessment = rm.assess_position(
+                        ticker=ticker, probability=prob,
+                        confidence=conf, price=price, atr=atr,
+                        positions=self.state.positions or [],
+                        account=self.state.account_info,
+                        consensus=cons if hasattr(cons, "confidence") else None,
+                    )
+                except Exception as exc:
+                    results.append({"ticker": ticker, "side": "BUY",
+                                    "status": "FAILED", "error": f"Risk assessment: {exc}"})
+                    continue
+
+                if assessment.position_size_shares <= 0:
+                    results.append({"ticker": ticker, "side": "BUY",
+                                    "status": "SKIPPED", "reason": "Risk manager sized to 0"})
+                    continue
+
+                allowed, reason = rm.check_portfolio_risk(
+                    positions=self.state.positions or [],
+                    account=self.state.account_info,
+                    new_ticker=ticker,
+                    new_size_dollars=assessment.position_size_dollars,
+                )
+                if not allowed:
+                    results.append({"ticker": ticker, "side": "BUY",
+                                    "status": "BLOCKED", "reason": reason})
+                    continue
+
+                try:
+                    result = self.broker_service.submit_order(
+                        ticker=ticker, side="buy",
+                        quantity=assessment.position_size_shares,
+                        order_type="market",
+                    )
+                    result["sized_dollars"] = assessment.position_size_dollars
+                    result["stop_loss"] = assessment.stop_loss
+                    result["take_profit"] = assessment.take_profit
+                    results.append(result)
+                except Exception as exc:
+                    results.append({"ticker": ticker, "side": "BUY",
+                                    "status": "FAILED", "error": str(exc)})
+
+        return results
+
+    def _on_trade_instructions_result(self, results: list[dict[str, Any]]) -> None:
+        """Report execution results back into chat and refresh state."""
+        self.state.recent_orders.extend(
+            r for r in results if r.get("status") not in ("BLOCKED", "SKIPPED")
+        )
+
+        lines = ["**Trade Execution Report:**", ""]
+        for r in results:
+            ticker = r.get("ticker", "?")
+            side = r.get("side", "?").upper()
+            status = r.get("status", "UNKNOWN").upper()
+            qty = r.get("quantity", "")
+            reason = r.get("reason", "")
+            error = r.get("error", "")
+
+            if status in ("SUBMITTED", "LOGGED", "FILLED", "ACCEPTED"):
+                lines.append(f"- **{side} {ticker}**: FILLED qty={qty}")
+                if r.get("sized_dollars"):
+                    lines.append(
+                        f"  Size: £{r['sized_dollars']:.2f}, "
+                        f"Stop: {r.get('stop_loss', 0):.2f}, "
+                        f"Target: {r.get('take_profit', 0):.2f}"
+                    )
+            elif status == "BLOCKED":
+                lines.append(f"- **{side} {ticker}**: BLOCKED — {reason}")
+            elif status == "SKIPPED":
+                lines.append(f"- **{side} {ticker}**: SKIPPED — {reason}")
+            elif status == "FAILED":
+                lines.append(f"- **{side} {ticker}**: FAILED — {error or reason}")
+            else:
+                lines.append(f"- **{side} {ticker}**: {status}")
+
+        self._add_chat_response("\n".join(lines))
+        if self.orders_panel:
+            self.orders_panel.refresh_view(self.state)
+        self.statusBar().showMessage(
+            f"Executed {len(results)} trade instruction(s)", 5000,
+        )
+        self.action_refresh_data()
 
     @Slot()
     def action_show_chart(self) -> None:

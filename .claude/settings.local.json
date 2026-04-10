@@ -86,7 +86,8 @@
       "Bash(rm -f trading.exe)",
       "Bash(mkdir:*)",
       "Bash(.venv/Scripts/python -m pytest tests/ --co -q)",
-      "Bash(rm:*)"
+      "Bash(rm:*)",
+      "WebFetch(domain:blan-api.onrender.com)"
     ]
   }
 }

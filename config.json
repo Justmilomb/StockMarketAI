@@ -10,10 +10,13 @@
       "VUKGl_EQ",
       "RRl_EQ",
       "TSLA_US_EQ",
-      "BBYl_EQ"
+      "BBYl_EQ",
+      "NVDA"
     ]
   },
-  "protected_tickers": [],
+  "protected_tickers": [
+    "CCCX_US_EQ"
+  ],
   "active_watchlist": "Trading 212",
   "cpu_cores": 12,
   "max_parallel_folds": 6,
@@ -95,7 +98,7 @@
     "profiles": {
       "day_trader": {
         "strategy": {
-          "threshold_buy": 0.60,
+          "threshold_buy": 0.6,
           "threshold_sell": 0.42,
           "max_positions": 12,
           "position_size_fraction": 0.15
@@ -116,7 +119,7 @@
       "swing": {
         "strategy": {
           "threshold_buy": 0.55,
-          "threshold_sell": 0.40,
+          "threshold_sell": 0.4,
           "max_positions": 10,
           "position_size_fraction": 0.18
         },
@@ -138,7 +141,7 @@
           "threshold_buy": 0.52,
           "threshold_sell": 0.45,
           "max_positions": 15,
-          "position_size_fraction": 0.20
+          "position_size_fraction": 0.2
         },
         "risk": {
           "atr_stop_multiplier": 2.5,
@@ -176,9 +179,9 @@
       "crisis_alpha": {
         "strategy": {
           "threshold_buy": 0.72,
-          "threshold_sell": 0.30,
+          "threshold_sell": 0.3,
           "max_positions": 3,
-          "position_size_fraction": 0.10
+          "position_size_fraction": 0.1
         },
         "risk": {
           "atr_stop_multiplier": 1.0,
@@ -325,7 +328,9 @@
       "max_open_positions": 15
     },
     "max_markets": 20,
-    "categories": ["crypto"],
+    "categories": [
+      "crypto"
+    ],
     "model": {
       "calibration_method": "platt_scaling",
       "use_claude": true

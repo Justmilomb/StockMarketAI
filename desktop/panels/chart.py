@@ -50,7 +50,6 @@ class ChartPanel(QGroupBox):
             self._volume_plot.getAxis("bottom").setPen("#333333")
             self._volume_plot.getAxis("left").setPen("#333333")
             self._volume_plot.setLabel("left", "Vol", color="#888888")
-            self._volume_plot.setMaximumHeight(100)
             layout.addWidget(self._volume_plot, 1)
 
             # Link X axes

@@ -42,10 +42,13 @@ class PositionsPanel(QGroupBox):
         for row, pos in enumerate(positions):
             ticker = pos.get("ticker", "")
             qty = float(pos.get("quantity", 0))
-            avg_px = float(pos.get("averagePrice", pos.get("avg_price", 0)))
-            live = state.live_data.get(ticker, {})
-            cur_px = float(live.get("price", avg_px))
-            pnl = (cur_px - avg_px) * qty
+            avg_px = float(pos.get("avg_price", pos.get("averagePrice", 0)))
+            cur_px = float(pos.get("current_price", avg_px))
+            pnl_val = pos.get("unrealised_pnl") or pos.get("ppl") or 0.0
+            try:
+                pnl = float(pnl_val)
+            except (TypeError, ValueError):
+                pnl = 0.0
 
             # Position notes (patient chart)
             note = notes.get(ticker, {})

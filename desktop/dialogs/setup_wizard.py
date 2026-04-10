@@ -166,10 +166,6 @@ class SetupWizard(QDialog):
         self._lbl_claude.setStyleSheet(self._check_label_style(True))
         layout.addWidget(self._lbl_claude)
 
-        self._lbl_env = QLabel("[ -- ] Environment file (.env)")
-        self._lbl_env.setStyleSheet(self._check_label_style(True))
-        layout.addWidget(self._lbl_env)
-
         self._lbl_feedparser = QLabel("[ -- ] feedparser (news)")
         self._lbl_feedparser.setStyleSheet(self._check_label_style(True))
         layout.addWidget(self._lbl_feedparser)
@@ -369,36 +365,25 @@ class SetupWizard(QDialog):
         self._lbl_claude.setText(f"[ {'OK' if self._claude_ok else 'MISSING'} ] Claude CLI")
         self._lbl_claude.setStyleSheet(self._check_label_style(self._claude_ok))
 
-        self._lbl_env.setText(f"[ {'OK' if self._env_ok else 'MISSING'} ] Environment file (.env)")
-        self._lbl_env.setStyleSheet(self._check_label_style(self._env_ok))
-
         self._lbl_feedparser.setText(f"[ {'OK' if fp_ok else 'MISSING'} ] feedparser (news)")
         self._lbl_feedparser.setStyleSheet(self._check_label_style(fp_ok))
 
     def _on_check_continue(self) -> None:
         """Navigate forward from the check page."""
         if not self._claude_ok:
-            self._stack.setCurrentIndex(1)
-        elif not self._env_ok:
-            self._stack.setCurrentIndex(2)
+            self._stack.setCurrentIndex(1)  # Claude setup page
         else:
-            self._go_done()
+            self._stack.setCurrentIndex(2)  # Broker keys page
 
     def _recheck_claude(self) -> None:
         """Re-check Claude CLI from the Claude page."""
         self._claude_ok = _check_claude_cli()
         if self._claude_ok:
-            if not self._env_ok:
-                self._stack.setCurrentIndex(2)
-            else:
-                self._go_done()
+            self._stack.setCurrentIndex(2)  # Broker keys page
 
     def _on_claude_skip(self) -> None:
         """User chose to skip Claude CLI setup."""
-        if not self._env_ok:
-            self._stack.setCurrentIndex(2)
-        else:
-            self._go_done()
+        self._stack.setCurrentIndex(2)  # Broker keys page
 
     def _save_env(self) -> None:
         """Write .env file with broker keys."""

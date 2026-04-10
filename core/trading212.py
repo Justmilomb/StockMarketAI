@@ -77,8 +77,8 @@ class Trading212Broker(Broker):
                     "quantity": p.get("quantity", 0),
                     "avg_price": p.get("averagePrice", 0.0),
                     "current_price": p.get("currentPrice", 0.0),
-                    "unrealised_pnl": p.get("ppl", 0.0),
-                    "market_value": p.get("fxPpl", 0.0),
+                    "ppl": p.get("ppl"),
+                    "unrealised_pnl": p.get("fxPpl") if p.get("fxPpl") is not None else p.get("ppl", 0.0),
                     "pie_quantity": p.get("pieQuantity", 0.0),
                     "initial_fill_date": p.get("initialFillDate", ""),
                 }
