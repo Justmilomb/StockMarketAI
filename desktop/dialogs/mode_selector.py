@@ -29,10 +29,10 @@ from desktop.design import (
 class ModeSelector(QDialog):
     """Minimal mode selector matching the blank website design."""
 
-    def __init__(self, parent: object = None, show_simple: bool = True) -> None:
+    def __init__(self, parent: object = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("blank")
-        self.setFixedSize(400, 440 if show_simple else 380)
+        self.setFixedSize(400, 380)
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
         self.setStyleSheet(BASE_QSS + f"""
             QDialog {{ border: 1px solid {BORDER}; }}
@@ -73,12 +73,6 @@ class ModeSelector(QDialog):
         poly_btn.setCursor(Qt.PointingHandCursor)
         poly_btn.clicked.connect(lambda: self._select("polymarket"))
         layout.addWidget(poly_btn)
-
-        if show_simple:
-            simple_btn = QPushButton("SIMPLE")
-            simple_btn.setCursor(Qt.PointingHandCursor)
-            simple_btn.clicked.connect(lambda: self._select("simple"))
-            layout.addWidget(simple_btn)
 
         crypto_btn = QPushButton("CRYPTO  --  COMING SOON")
         crypto_btn.setEnabled(False)

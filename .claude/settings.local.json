@@ -87,7 +87,9 @@
       "Bash(mkdir:*)",
       "Bash(.venv/Scripts/python -m pytest tests/ --co -q)",
       "Bash(rm:*)",
-      "WebFetch(domain:blan-api.onrender.com)"
+      "WebFetch(domain:blan-api.onrender.com)",
+      "Bash(awk '{print $NF}')",
+      "Bash(xargs -I {} basename {})"
     ]
   }
 }

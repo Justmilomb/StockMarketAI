@@ -1,4 +1,4 @@
-"""Entry point for Blank Bloomberg edition."""
+"""Entry point for blank desktop application."""
 from __future__ import annotations
 
 import multiprocessing

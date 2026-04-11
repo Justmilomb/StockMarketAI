@@ -45,7 +45,11 @@
     "model_simple": "claude-haiku-4-5-20251001"
   },
   "news": {
-    "refresh_interval_minutes": 5
+    "refresh_interval_minutes": 5,
+    "scrapers_enabled": true,
+    "yahoo_scrape_enabled": true,
+    "finviz_enabled": true,
+    "reddit_enabled": true
   },
   "broker": {
     "type": "trading212",

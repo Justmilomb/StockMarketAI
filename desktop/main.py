@@ -1,4 +1,4 @@
-"""Entry point for the Blank desktop application."""
+"""Entry point for the blank desktop application."""
 from __future__ import annotations
 
 import logging
@@ -136,8 +136,8 @@ def launch(mode: str | None = None) -> None:
     """Launch the Blank desktop app.
 
     Args:
-        mode: 'simple' for Simple edition, 'bloomberg' for Bloomberg edition
-              (shows stocks/polymarket selector), None for full mode selector.
+        mode: 'bloomberg' for Bloomberg edition (shows stocks/polymarket
+              selector), None for full mode selector.
     """
     _load_dotenv(Path(os.getcwd()))
 
@@ -155,12 +155,7 @@ def launch(mode: str | None = None) -> None:
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
 
-    # Apply initial theme based on mode
-    if mode == "simple":
-        from desktop.simple.theme import SIMPLE_QSS
-        app.setStyleSheet(SIMPLE_QSS)
-    else:
-        app.setStyleSheet(BLOOMBERG_DARK_QSS)
+    app.setStyleSheet(BLOOMBERG_DARK_QSS)
 
     # App icon — embedded in the EXE for frozen builds, loaded from file for dev
     if getattr(sys, "frozen", False):
@@ -220,7 +215,7 @@ def launch(mode: str | None = None) -> None:
     if remote_cfg.get("kill_switch") == "true":
         QMessageBox.critical(
             None, "blank",
-            "TRADING HAS BEEN DISABLED BY THE ADMINISTRATOR.\n\n"
+            "trading has been disabled by the administrator.\n\n"
             "Contact support if you believe this is an error.",
         )
         sys.exit(1)
@@ -228,7 +223,7 @@ def launch(mode: str | None = None) -> None:
     if remote_cfg.get("maintenance_mode") == "true":
         QMessageBox.information(
             None, "blank",
-            "BLANK IS CURRENTLY UNDER MAINTENANCE.\n\n"
+            "blank is currently under maintenance.\n\n"
             "The service will be back shortly. Please try again later.",
         )
         sys.exit(0)
@@ -236,8 +231,8 @@ def launch(mode: str | None = None) -> None:
     if remote_cfg.get("force_update") == "true":
         update_url = remote_cfg.get("update_url", "")
         msg = QMessageBox(
-            QMessageBox.Warning, "blank -- update required",
-            "A NEW VERSION OF BLANK IS AVAILABLE.\n\n"
+            QMessageBox.Warning, "blank — update required",
+            "a new version of blank is available.\n\n"
             "You must update before continuing.",
         )
         if update_url:
@@ -262,7 +257,7 @@ def launch(mode: str | None = None) -> None:
 
     painter.setFont(QFont("Outfit", 48, QFont.Bold))
     painter.setPen(QColor(TEXT))
-    painter.drawText(pixmap.rect(), Qt.AlignCenter, "BLANK")
+    painter.drawText(pixmap.rect(), Qt.AlignCenter, "blank")
 
     painter.setPen(QColor(GLOW))
     cx = pixmap.width() // 2
@@ -287,59 +282,17 @@ def launch(mode: str | None = None) -> None:
     splash.show()
     app.processEvents()
 
-    # ── Simple mode — skip selector, launch directly ─────────────────
-    if mode == "simple":
-        from desktop.simple.app import SimpleWindow
-
-        splash.showMessage(
-            "Initialising services...", Qt.AlignBottom | Qt.AlignHCenter, QColor("#888888"),
-        )
-        app.processEvents()
-
-        window = SimpleWindow(config_path=CONFIG_PATH)
-        window.showMaximized()
-        splash.finish(window)
-        sys.exit(app.exec())
-
-    # ── Bloomberg mode — optional sub-selector for stocks/polymarket ──
+    # ── Asset selector (stocks / polymarket) ────────────────────────────
     from desktop.dialogs.mode_selector import ModeSelector
     from desktop.app import MainWindow
 
-    if mode == "bloomberg":
-        # Bloomberg edition: show stocks/polymarket selector (no simple button)
-        splash.close()
-        app.processEvents()
+    splash.close()
+    app.processEvents()
 
-        selector = ModeSelector(show_simple=False)
-        selector_result = selector.run()
-        if selector_result is None:
-            sys.exit(0)
-    else:
-        # Dev mode: show full selector including simple
-        splash.close()
-        app.processEvents()
-
-        selector = ModeSelector(show_simple=True)
-        selector_result = selector.run()
-        if selector_result is None:
-            sys.exit(0)
-
-        # Handle simple selection from full selector
-        if selector_result == "simple":
-            from desktop.simple.app import SimpleWindow
-            from desktop.simple.theme import SIMPLE_QSS
-
-            app.setStyleSheet(SIMPLE_QSS)
-            splash.show()
-            splash.showMessage(
-                "Initialising services...", Qt.AlignBottom | Qt.AlignHCenter, QColor("#888888"),
-            )
-            app.processEvents()
-
-            window = SimpleWindow(config_path=CONFIG_PATH)
-            window.showMaximized()
-            splash.finish(window)
-            sys.exit(app.exec())
+    selector = ModeSelector()
+    selector_result = selector.run()
+    if selector_result is None:
+        sys.exit(0)
 
     # ── Apply mode-specific colour overlay ────────────────────────────
     if selector_result == "polymarket":
@@ -362,8 +315,8 @@ def launch(mode: str | None = None) -> None:
 
 
 def main() -> None:
-    """Default entry point — shows full mode selector."""
-    launch(mode=None)
+    """Default entry point."""
+    launch()
 
 
 if __name__ == "__main__":

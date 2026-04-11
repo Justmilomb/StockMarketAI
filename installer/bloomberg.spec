@@ -1,10 +1,10 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller spec for Blank Bloomberg edition.
+"""PyInstaller spec for blank desktop application.
 
 Build:
     pyinstaller installer/bloomberg.spec --clean
 
-Output: dist/blank-bloomberg.exe
+Output: dist/blank.exe
 """
 
 import sys
@@ -108,7 +108,7 @@ pyz = PYZ(a.pure)
 
 exe = EXE(
     pyz, a.scripts, a.binaries, a.datas, [],
-    name='blank-bloomberg',
+    name='blank',
     debug=False, bootloader_ignore_signals=False, strip=False,
     upx=True, upx_exclude=[], runtime_tmpdir=None, console=False,
     disable_windowed_traceback=False, argv_emulation=False,

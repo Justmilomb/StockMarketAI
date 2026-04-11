@@ -122,7 +122,10 @@ class TradingTerminalApp(App):  # type: ignore[misc]
             self.ai_service._accuracy_tracker = AccuracyTracker(self.history_manager)
 
             news_interval = self.config.get("news", {}).get("refresh_interval_minutes", 5)
-            self.news_agent = NewsAgent(self._claude_client, refresh_interval_minutes=news_interval)
+            self.news_agent = NewsAgent(
+                self._claude_client, refresh_interval_minutes=news_interval,
+                config=self.config,
+            )
         except Exception as e:
             print(f"[app] Could not init Claude/news: {e}")
 
@@ -378,10 +381,38 @@ class TradingTerminalApp(App):  # type: ignore[misc]
             all_tickers = self._get_active_tickers()
             held = [p.get("ticker", "") for p in self.state.positions]
 
+            # Gather market intelligence from scrapers
+            buzz: dict = {}
+            if self.news_agent:
+                try:
+                    buzz = self.news_agent.get_market_buzz()
+                except Exception:
+                    pass
+
+            intel_parts: list[str] = []
+            trending = buzz.get("trending", [])
+            if trending:
+                intel_parts.append(f"Trending on Reddit: {', '.join(trending[:10])}")
+            top_posts = buzz.get("top_posts", [])
+            if top_posts:
+                intel_parts.append(f"Hot posts: {'; '.join(top_posts[:5])}")
+            if self.news_agent and self.news_agent.news_data:
+                catalysts = []
+                for t, nd in self.news_agent.news_data.items():
+                    if nd.get("catalysts"):
+                        catalysts.append(f"{t}: {nd['catalysts'][0]}")
+                if catalysts:
+                    intel_parts.append(f"Recent catalysts: {'; '.join(catalysts[:5])}")
+            intel_block = "\n".join(intel_parts)
+
             prompt = (
                 "You are a day trading stock screener for an active intraday terminal.\n\n"
                 f"Current watchlist: {all_tickers}\n"
                 f"Currently held positions: {held}\n\n"
+            )
+            if intel_block:
+                prompt += f"Market intelligence:\n{intel_block}\n\n"
+            prompt += (
                 "Suggest 3-5 NEW stock tickers (not already on the watchlist) "
                 "ideal for DAY TRADING right now. Prioritise:\n"
                 "- High intraday volatility (large daily ranges, frequent 2%+ moves)\n"
@@ -389,6 +420,7 @@ class TradingTerminalApp(App):  # type: ignore[misc]
                 "- Stocks with upcoming catalysts (earnings, FDA, sector rotation)\n"
                 "- Gap-play candidates (recent gaps up/down that may fill)\n"
                 "- Small/mid-cap names with momentum and liquidity\n"
+                "- Consider the trending tickers and catalysts above as candidates\n"
                 "- Avoid illiquid penny stocks below $5\n\n"
                 "Think beyond FAANG. Include lesser-known volatile names from "
                 "biotech, cannabis, EV, SPAC, or meme sectors if they have volume.\n\n"

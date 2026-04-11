@@ -8,7 +8,7 @@ from __future__ import annotations
 # ── Brand ─────────────────────────────────────────────────────────────
 
 APP_NAME = "blank"
-APP_NAME_UPPER = "BLANK"
+APP_NAME_UPPER = "blank"
 COMPANY = "certified random"
 COMPANY_UPPER = "CERTIFIED RANDOM"
 

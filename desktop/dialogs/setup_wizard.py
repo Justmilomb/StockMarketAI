@@ -342,7 +342,7 @@ class SetupWizard(QDialog):
 
         layout.addStretch()
 
-        launch = QPushButton("LAUNCH BLANK")
+        launch = QPushButton("launch blank")
         launch.setCursor(Qt.PointingHandCursor)
         launch.clicked.connect(self._finish)
         layout.addWidget(launch)

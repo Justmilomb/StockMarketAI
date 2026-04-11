@@ -1,4 +1,4 @@
-"""Blank admin server — FastAPI backend for license validation, telemetry, config, and logs."""
+"""blank admin server — FastAPI backend for license validation, telemetry, config, and logs."""
 from __future__ import annotations
 
 import hashlib

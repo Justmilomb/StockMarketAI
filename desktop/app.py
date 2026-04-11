@@ -98,6 +98,7 @@ class MainWindow(QMainWindow):
             news_claude = ClaudeClient(ccfg)
             self.news_agent = NewsAgent(
                 news_claude, refresh_interval_minutes=news_interval,
+                config=self.config,
             )
         except Exception as e:
             import logging
@@ -131,7 +132,7 @@ class MainWindow(QMainWindow):
 
     def _build_ui(self) -> None:
         """Create dockable panel layout with Bloomberg-style arrangement."""
-        self.setWindowTitle("Blank")
+        self.setWindowTitle("blank")
         self.setMinimumSize(1280, 720)
         self.setDockNestingEnabled(True)
 
@@ -152,7 +153,7 @@ class MainWindow(QMainWindow):
         mode_str = "AUTO" if self.state.mode == "full_auto_limited" else "ADVISOR"
         asset_str = self.state.active_asset_class.upper()
         self._header_label = QLabel(
-            f" BLANK [{mode_str}] | {asset_str} | CERTIFIED RANDOM ",
+            f" blank [{mode_str}] | {asset_str} | CERTIFIED RANDOM ",
         )
         self._header_label.setStyleSheet(
             "color: #ff8c00; font-weight: bold; font-size: 11px; "
@@ -839,18 +840,18 @@ class MainWindow(QMainWindow):
         mode_str = "AUTO" if self.state.mode == "full_auto_limited" else "ADVISOR"
         asset = self.state.active_asset_class
         if asset == "polymarket":
-            self.setWindowTitle("Blank Predict")
+            self.setWindowTitle("blank predict")
             self._header_label.setText(
-                "  BLANK PREDICT | POLYMARKET | CERTIFIED RANDOM",
+                "  blank predict | POLYMARKET | CERTIFIED RANDOM",
             )
             self._header_label.setStyleSheet(
                 "color: #00bfff; font-weight: bold; font-size: 11px; "
                 "background: transparent; padding: 2px 8px;",
             )
         else:
-            self.setWindowTitle("Blank")
+            self.setWindowTitle("blank")
             self._header_label.setText(
-                f"  BLANK [{mode_str}] | STOCKS | CERTIFIED RANDOM",
+                f"  blank [{mode_str}] | STOCKS | CERTIFIED RANDOM",
             )
             self._header_label.setStyleSheet(
                 "color: #ff8c00; font-weight: bold; font-size: 11px; "
@@ -2187,20 +2188,51 @@ class MainWindow(QMainWindow):
         count = min(slots, 3)
         regime = self.state.current_regime
 
+        # Gather market intelligence from scrapers
+        buzz: Dict[str, Any] = {}
+        if self.news_agent:
+            try:
+                buzz = self.news_agent.get_market_buzz()
+            except Exception:
+                pass
+
         def do_discover() -> List[str]:
             if "down" in regime or "bear" in regime:
                 style = "Favour defensive/low-beta stocks with steady earnings"
             else:
                 style = "Favour high-momentum volatile stocks with recent catalysts"
 
+            # Build market intelligence context
+            intel_parts: List[str] = []
+            trending = buzz.get("trending", [])
+            if trending:
+                intel_parts.append(f"Trending on Reddit: {', '.join(trending[:10])}")
+            top_posts = buzz.get("top_posts", [])
+            if top_posts:
+                intel_parts.append(f"Hot posts: {'; '.join(top_posts[:5])}")
+            # Include news sentiment for current holdings
+            if self.news_agent and self.news_agent.news_data:
+                catalysts = []
+                for t, nd in self.news_agent.news_data.items():
+                    if nd.get("catalysts"):
+                        catalysts.append(f"{t}: {nd['catalysts'][0]}")
+                if catalysts:
+                    intel_parts.append(f"Recent catalysts: {'; '.join(catalysts[:5])}")
+            intel_block = "\n".join(intel_parts)
+
             prompt = (
                 "You are a stock screener for short-term trading. "
                 f"Current watchlist: {', '.join(current[:20])}\n"
                 f"Market regime: {regime}\n\n"
+            )
+            if intel_block:
+                prompt += f"Market intelligence:\n{intel_block}\n\n"
+            prompt += (
                 f"Find {count} new US stocks NOT in the watchlist.\n"
                 f"- {style}\n"
                 "- High average daily volume (>1M shares)\n"
                 "- Diversify across sectors vs current holdings\n"
+                "- Consider the trending tickers and catalysts above as candidates\n"
                 "- Must be real, actively traded tickers available on Trading 212\n"
                 "- Use Trading 212 ticker format with suffix (e.g. AAPL_US_EQ)\n\n"
                 'Respond strictly as JSON: {"tickers": ["TICKER1", ...]}'

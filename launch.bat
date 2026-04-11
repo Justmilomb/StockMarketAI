@@ -1,10 +1,8 @@
 @echo off
-title Blank
+title blank
 cd /d "%~dp0"
-if exist dist\blank-bloomberg.exe (
-    dist\blank-bloomberg.exe
-) else if exist dist\blank-simple.exe (
-    dist\blank-simple.exe
+if exist dist\blank.exe (
+    dist\blank.exe
 ) else (
     echo No built executable found. Run build.bat first.
 )
