@@ -27,12 +27,21 @@ class OrdersPanel(QGroupBox):
         for row, order in enumerate(orders):
             side = order.get("side", "")
             side_color = "#00ff00" if side.upper() == "BUY" else "#ff0000"
+            status = order.get("status", "")
+            status_upper = status.upper()
+            if status_upper == "FILLED":
+                status_color = "#00ff00"
+            elif status_upper in ("CANCELLED", "REJECTED", "FAILED"):
+                status_color = "#ff0000"
+            else:
+                status_color = "#ffd700"
+            order_type = order.get("order_type", order.get("type", ""))
             items = [
                 _item(order.get("ticker", ""), "#00bfff"),
                 _item(side, side_color),
                 _item(str(order.get("quantity", "")), "#ffd700"),
-                _item(order.get("type", ""), "#ffd700"),
-                _item(order.get("status", ""), "#888888"),
+                _item(order_type, "#ffd700"),
+                _item(status, status_color),
             ]
             for col, item in enumerate(items):
                 self.table.setItem(row, col, item)

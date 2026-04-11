@@ -166,8 +166,16 @@ class PipelinePanel(QGroupBox):
         for row, (key, fam) in enumerate(families.items()):
             name = fam.get("display_name", key) if isinstance(fam, dict) else str(key)
             count = str(fam.get("count", 0)) if isinstance(fam, dict) else ""
-            weight = f"{fam.get('weight', 0):.0%}" if isinstance(fam, dict) else ""
-            avg_prob = f"{fam.get('avg_prob', 0):.3f}" if isinstance(fam, dict) else ""
+            raw_weight = fam.get("weight", 0) if isinstance(fam, dict) else ""
+            try:
+                weight = f"{float(raw_weight):.0%}" if raw_weight != "" else ""
+            except (TypeError, ValueError):
+                weight = str(raw_weight)
+            raw_prob = fam.get("avg_prob", 0) if isinstance(fam, dict) else ""
+            try:
+                avg_prob = f"{float(raw_prob):.3f}" if raw_prob != "" else ""
+            except (TypeError, ValueError):
+                avg_prob = str(raw_prob)
             status = fam.get("status", "") if isinstance(fam, dict) else ""
 
             items = [

@@ -668,3 +668,72 @@ class ClaudeClient:
             return self._call(prompt, task_type="complex")
         except Exception as e:
             return f"Error generating analysis: {e}"
+
+    def grade_portfolio(
+        self,
+        positions: List[Dict[str, Any]],
+        signals_df: Any,
+        consensus_data: Dict[str, Any] | None = None,
+        news_data: Dict[str, Any] | None = None,
+        regime: str = "unknown",
+        live_data: Dict[str, Dict[str, float]] | None = None,
+    ) -> str:
+        """Colour-grade every watchlist ticker as GREEN/RED/ORANGE.
+
+        Returns raw text that the caller should parse for per-ticker grades.
+        Uses the simple model (Haiku) for speed since this runs every pipeline.
+        """
+        cons_d = consensus_data or {}
+        live = live_data or {}
+        news = news_data or {}
+
+        ticker_lines: list[str] = []
+        if signals_df is not None and hasattr(signals_df, "iterrows"):
+            for _, row in signals_df.head(30).iterrows():
+                ticker = row.get("ticker", "?")
+                signal = row.get("signal", "?")
+                prob_up = float(row.get("prob_up", 0.5))
+
+                cons = cons_d.get(ticker)
+                if cons:
+                    cpct = cons.get("consensus_pct", 0) if isinstance(cons, dict) else getattr(cons, "consensus_pct", 0)
+                else:
+                    cpct = 50.0
+
+                lv = live.get(ticker, {})
+                day_pct = lv.get("change_pct", 0.0)
+
+                nd = news.get(ticker)
+                sent = 0.0
+                if nd:
+                    sent = nd.sentiment if hasattr(nd, "sentiment") else nd.get("sentiment", 0)
+
+                # Is this ticker held?
+                held = any(p.get("ticker") == ticker for p in positions)
+
+                ticker_lines.append(
+                    f"{ticker}: signal={signal}, prob={prob_up:.2f}, consensus={cpct:.0f}%, "
+                    f"day={day_pct:+.1f}%, sentiment={sent:+.2f}, held={'YES' if held else 'NO'}"
+                )
+
+        if not ticker_lines:
+            return ""
+
+        tickers_block = "\n".join(ticker_lines)
+
+        prompt = (
+            f"Market regime: {regime}\n\n"
+            f"Tickers:\n{tickers_block}\n\n"
+            "Assign GREEN, RED, or ORANGE to EACH ticker above.\n"
+            "GREEN = bullish across multiple indicators, hold/buy.\n"
+            "RED = bearish across multiple indicators, sell/avoid.\n"
+            "ORANGE = mixed signals, uncertain.\n\n"
+            "Reply with ONLY the grades, one per line: TICKER: GRADE\n"
+            "No explanations, no headers, no markdown."
+        )
+
+        try:
+            return self._call(prompt, task_type="simple", timeout=30)
+        except Exception as e:
+            logger.debug("Colour grade call failed: %s", e)
+            return ""

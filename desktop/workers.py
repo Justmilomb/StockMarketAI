@@ -89,13 +89,30 @@ class RefreshWorker(QThread):
                 result["account_info"] = {}
                 errors.append(f"Account: {e}")
 
-            # ── Phase 3: Pending orders ──────────────────────────────
+            # ── Phase 3: Orders (pending + recent history) ─────────
             self.progress_signal.emit("Fetching orders...")
             try:
-                result["recent_orders"] = self._broker.get_pending_orders()
+                pending = self._broker.get_pending_orders()
             except Exception as e:
-                result["recent_orders"] = []
+                pending = []
                 errors.append(f"Orders: {e}")
+            try:
+                history = self._broker.get_order_history(limit=20)
+                history_orders = history.get("items", [])
+            except Exception:
+                history_orders = []
+            seen_ids: set[str] = set()
+            merged: list[dict] = []
+            for o in pending:
+                oid = o.get("id", "")
+                if oid:
+                    seen_ids.add(oid)
+                merged.append(o)
+            for o in history_orders:
+                oid = o.get("id", "")
+                if oid and oid not in seen_ids:
+                    merged.append(o)
+            result["recent_orders"] = merged
 
             # ── Phase 4: Live prices ─────────────────────────────────
             self.progress_signal.emit("Fetching live prices...")

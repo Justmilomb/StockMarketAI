@@ -106,6 +106,7 @@ class MainWindow(QMainWindow):
         self.state.broker_is_live = self.broker_service.is_live
 
         # Pipeline / signal cache state
+        self._last_rotation_time: float = 0.0
         self._last_signal_run: float = 0.0
         self._pipeline_running: bool = False
         self._pipeline_start_time: float = 0.0
@@ -412,7 +413,11 @@ class MainWindow(QMainWindow):
 
         self._discovery_timer = QTimer(self)
         self._discovery_timer.timeout.connect(self._daily_stock_discovery)
-        self._discovery_timer.start(7_200_000)  # 2 hr
+        self._discovery_timer.start(3_600_000)  # 1 hr
+
+        self._rotation_timer = QTimer(self)
+        self._rotation_timer.timeout.connect(self._rotate_losers)
+        self._rotation_timer.start(1_800_000)  # 30 min
 
         # Pipeline progress poll (250ms)
         self._pipeline_poll_timer = QTimer(self)
@@ -559,10 +564,32 @@ class MainWindow(QMainWindow):
             errors.append(f"Account: {e}")
 
         try:
-            result["recent_orders"] = self.broker_service.get_pending_orders()
+            pending = self.broker_service.get_pending_orders()
         except Exception as e:
-            result["recent_orders"] = []
+            pending = []
             errors.append(f"Orders: {e}")
+
+        # Merge with recent order history so filled orders show their
+        # final status instead of vanishing when they leave the pending
+        # endpoint.  Pending orders take priority (keyed by id).
+        try:
+            history = self.broker_service.get_order_history(limit=20)
+            history_orders = history.get("items", [])
+        except Exception:
+            history_orders = []
+
+        seen_ids: set[str] = set()
+        merged: list[dict] = []
+        for o in pending:
+            oid = o.get("id", "")
+            if oid:
+                seen_ids.add(oid)
+            merged.append(o)
+        for o in history_orders:
+            oid = o.get("id", "")
+            if oid and oid not in seen_ids:
+                merged.append(o)
+        result["recent_orders"] = merged
 
         # Extract live prices from broker positions
         live_data: Dict[str, Any] = {}
@@ -708,12 +735,14 @@ class MainWindow(QMainWindow):
         # Calculate PnL
         self._calculate_pnl()
 
-        # Load position notes from DB
-        if hasattr(self, "history_manager"):
+        # Load position notes from DB — auto-create notes for held
+        # positions that were bought outside the AI (manual T212 trades)
+        if hasattr(self, "history_manager") and self.history_manager:
             try:
                 self.state.position_notes = self.history_manager.get_open_position_notes()
             except Exception:
                 pass
+            self._backfill_position_notes()
 
         # Refresh all panels
         self._refresh_all_panels()
@@ -725,6 +754,13 @@ class MainWindow(QMainWindow):
             except Exception as exc:
                 logger.exception("Auto-engine error: %s", exc)
                 self.statusBar().showMessage(f"Auto-engine error: {exc}", 5000)
+
+            # Auto colour-grade portfolio after fresh signals
+            self._auto_colour_grade()
+
+            # Check for losers if >15 min since last rotation
+            if time.time() - self._last_rotation_time > 900:
+                QTimer.singleShot(5000, self._rotate_losers)
 
     @Slot(str)
     def _on_refresh_progress(self, message: str) -> None:
@@ -1100,6 +1136,99 @@ class MainWindow(QMainWindow):
                 self.watchlist_panel.refresh_view(self.state)
         else:
             logger.debug("No colour grades found in response")
+
+    # ── Auto Colour Grading (runs after each pipeline) ─────────────
+
+    def _auto_colour_grade(self) -> None:
+        """Kick off a background colour grade after fresh signals arrive."""
+        if not self._claude_client or not getattr(self._claude_client, "available", False):
+            return
+        if self.state.signals is None or (hasattr(self.state.signals, "empty") and self.state.signals.empty):
+            return
+
+        self._run_background(
+            lambda: self._claude_client.grade_portfolio(
+                positions=self.state.positions,
+                signals_df=self.state.signals,
+                consensus_data=self.state.consensus_data,
+                news_data=self.state.news_sentiment,
+                regime=self.state.current_regime,
+                live_data=self.state.live_data,
+            ),
+            self._on_auto_colour_grade_result,
+        )
+
+    def _on_auto_colour_grade_result(self, response: str) -> None:
+        """Apply colour grades returned by the auto-grading call."""
+        if response:
+            self._parse_color_grades(response)
+
+    # ── Position Notes Backfill ──────────────────────────────────────
+
+    def _backfill_position_notes(self) -> None:
+        """Create position notes for held positions that lack them,
+        and close notes for positions no longer held.
+
+        Positions bought manually via Trading 212 (not through the AI)
+        won't have notes.  This fills them in using current signal and
+        consensus data so the Positions panel isn't empty.
+        """
+        if not self.history_manager:
+            return
+        notes = self.state.position_notes or {}
+
+        # Close notes for positions that have been sold
+        held_tickers = {p.get("ticker", "") for p in self.state.positions}
+        for ticker in list(notes.keys()):
+            if ticker not in held_tickers:
+                try:
+                    self.history_manager.close_position_note(ticker)
+                    logger.info("Closed position note for sold ticker %s", ticker)
+                except Exception as exc:
+                    logger.debug("Failed to close note for %s: %s", ticker, exc)
+
+        for pos in self.state.positions:
+            ticker = pos.get("ticker", "")
+            if not ticker or ticker in notes:
+                continue
+            # Gather current signal data if available
+            prob = 0.0
+            cons_pct = 0.0
+            profile_name = ""
+            if self.state.signals is not None and hasattr(self.state.signals, "empty") and not self.state.signals.empty:
+                sig_row = self.state.signals[self.state.signals["ticker"] == ticker]
+                if len(sig_row):
+                    prob = float(sig_row["prob_up"].iloc[0])
+
+            cons = self.state.consensus_data.get(ticker)
+            if cons:
+                cons_pct = cons.get("consensus_pct", 0) if isinstance(cons, dict) else getattr(cons, "consensus_pct", 0)
+
+            strat = self.state.strategy_assignments.get(ticker, {})
+            if isinstance(strat, dict):
+                profile_name = strat.get("name", "")
+
+            regime = self.state.current_regime
+
+            try:
+                self.history_manager.save_position_note(
+                    ticker=ticker,
+                    entry_reason=f"Manual buy (backfilled) | prob={prob:.2f} consensus={cons_pct:.0f}%",
+                    strategy_profile=profile_name,
+                    regime_at_entry=str(regime),
+                    intended_hold="unknown",
+                    entry_signal_prob=prob,
+                    entry_consensus_pct=cons_pct,
+                )
+                logger.info("Backfilled position note for %s", ticker)
+            except Exception as exc:
+                logger.debug("Failed to backfill note for %s: %s", ticker, exc)
+
+        # Reload notes after backfill
+        try:
+            self.state.position_notes = self.history_manager.get_open_position_notes()
+        except Exception:
+            pass
 
     # ── Trade Execution from Chat ──────────────────────────────────
 
@@ -1589,6 +1718,26 @@ class MainWindow(QMainWindow):
                 self.statusBar().showMessage(f"Added {ticker}", 3000)
                 self._refresh_all_panels()
 
+    def _remove_ticker_from_watchlist(self, ticker: str) -> bool:
+        """Programmatically remove a ticker from the active watchlist."""
+        ticker = ticker.upper().strip()
+        if not ticker:
+            return False
+        asset = self.state.active_asset_class
+        if asset == "stocks":
+            watchlists = self.config.get("watchlists", {})
+        else:
+            watchlists = self.config.get(asset, {}).get("watchlists", {})
+        active = self.state.active_watchlist
+        if active in watchlists and ticker in watchlists[active]:
+            watchlists[active].remove(ticker)
+            self._save_config()
+            self.ai_service._config_cache = None
+            if self.news_agent:
+                self.news_agent.update_tickers(self._get_active_tickers())
+            return True
+        return False
+
     @Slot()
     def action_ai_optimise(self) -> None:
         if not self._require_ai("AI optimization"):
@@ -1847,6 +1996,168 @@ class MainWindow(QMainWindow):
         if alerts:
             self._add_chat_response("[MARKET SCAN]\n" + "\n".join(alerts))
 
+    # ── Watchlist Rotation ─────────────────────────────────────────
+
+    def _score_ticker_health(self, ticker: str) -> float:
+        """Score a ticker's health from 0 (worst) to 100 (best).
+
+        Blends four factors: signal direction, PnL, consensus, freshness.
+        """
+        score = 0.0
+
+        # Signal direction (40 pts): prob_up 0.0→0, 1.0→40
+        prob = 0.5
+        if self.state.signals is not None and hasattr(self.state.signals, "empty") and not self.state.signals.empty:
+            rows = self.state.signals[self.state.signals["ticker"] == ticker]
+            if len(rows):
+                prob = float(rows["prob_up"].iloc[0])
+        score += prob * 40.0
+
+        # PnL % (25 pts): clamped [-10%, +10%] → [0, 25]
+        pos = next((p for p in self.state.positions if p.get("ticker") == ticker), None)
+        if pos:
+            avg = float(pos.get("avg_price", 0))
+            cur = float(pos.get("current_price", avg))
+            pnl_pct = ((cur - avg) / avg * 100) if avg > 0 else 0
+            clamped = max(-10.0, min(10.0, pnl_pct))
+            score += (clamped + 10.0) / 20.0 * 25.0
+        else:
+            score += 12.5  # neutral
+
+        # Consensus (20 pts): consensus_pct [0-100] → [0, 20]
+        cons = self.state.consensus_data.get(ticker)
+        if cons:
+            cpct = cons.get("consensus_pct", 50) if isinstance(cons, dict) else getattr(cons, "consensus_pct", 50)
+        else:
+            cpct = 50.0
+        score += float(cpct) / 100.0 * 20.0
+
+        # Freshness (15 pts): days held → 0-3=15, 3-7=10, 7-14=5, 14+=0
+        if pos:
+            notes = self.state.position_notes or {}
+            note = notes.get(ticker, {})
+            opened_at = note.get("opened_at", "") or pos.get("initial_fill_date", "")
+            if opened_at:
+                try:
+                    from datetime import datetime
+                    opened = datetime.fromisoformat(str(opened_at).replace("Z", "+00:00").replace("+00:00", ""))
+                    days = (datetime.now() - opened).days
+                    if days <= 3:
+                        score += 15.0
+                    elif days <= 7:
+                        score += 10.0
+                    elif days <= 14:
+                        score += 5.0
+                except (ValueError, TypeError):
+                    score += 10.0
+            else:
+                score += 10.0
+        else:
+            score += 15.0  # not held = fresh
+
+        return round(score, 1)
+
+    def _rotate_losers(self) -> None:
+        """Evict underperforming tickers — sell positions, remove from watchlist."""
+        if self.state.active_asset_class != "stocks":
+            return
+
+        rot_cfg = self.config.get("rotation", {})
+        max_size = int(rot_cfg.get("watchlist_max_size", 12))
+        threshold = float(rot_cfg.get("loser_threshold", 30))
+        max_evict = int(rot_cfg.get("max_evictions_per_cycle", 3))
+        grace_hrs = float(rot_cfg.get("grace_period_hours", 24))
+
+        watchlist_name = self.state.active_watchlist
+        wl = list(self.config.get("watchlists", {}).get(watchlist_name, []))
+        if not wl:
+            return
+
+        protected_upper = {t.upper() for t in self.state.protected_tickers}
+
+        # Score all non-protected tickers
+        scored: list[tuple[str, float]] = []
+        for ticker in wl:
+            if ticker.upper() in protected_upper:
+                continue
+            # Grace period: skip positions held < grace_hrs
+            pos = next((p for p in self.state.positions if p.get("ticker") == ticker), None)
+            if pos:
+                fill_date = pos.get("initial_fill_date", "")
+                if fill_date:
+                    try:
+                        from datetime import datetime, timedelta
+                        opened = datetime.fromisoformat(str(fill_date).replace("Z", "+00:00").replace("+00:00", ""))
+                        if datetime.now() - opened < timedelta(hours=grace_hrs):
+                            continue
+                    except (ValueError, TypeError):
+                        pass
+            scored.append((ticker, self._score_ticker_health(ticker)))
+
+        if not scored:
+            return
+
+        scored.sort(key=lambda x: x[1])
+
+        # Determine evictions: below threshold OR over cap
+        evictions: list[tuple[str, float]] = []
+        for ticker, health in scored:
+            if health < threshold:
+                evictions.append((ticker, health))
+        overcrowded = len(wl) - max_size
+        if overcrowded > 0:
+            for ticker, health in scored:
+                if (ticker, health) not in evictions:
+                    evictions.append((ticker, health))
+                    if len(evictions) >= overcrowded + len([e for e in evictions if e[1] < threshold]):
+                        break
+
+        evictions = evictions[:max_evict]
+        if not evictions:
+            return
+
+        def do_rotate() -> list[str]:
+            rotated: list[str] = []
+            for ticker, health in evictions:
+                # Sell position if held
+                pos = next((p for p in self.state.positions if p.get("ticker") == ticker), None)
+                if pos:
+                    qty = float(pos.get("quantity", 0))
+                    if qty > 0:
+                        try:
+                            self.broker_service.submit_order(
+                                ticker=ticker, side="SELL", quantity=qty,
+                                order_type="market",
+                            )
+                        except Exception as exc:
+                            logger.warning("Failed to sell %s during rotation: %s", ticker, exc)
+                            continue
+                    if self.history_manager:
+                        try:
+                            pnl = float(pos.get("unrealised_pnl", 0))
+                            self.history_manager.close_position_note(
+                                ticker, exit_reason="Rotated out (low health score)", pnl_realized=pnl,
+                            )
+                        except Exception:
+                            pass
+                rotated.append(f"{ticker} (score={health:.0f})")
+            return rotated
+
+        def on_rotated(rotated: list[str]) -> None:
+            self._last_rotation_time = time.time()
+            if not rotated:
+                return
+            for entry in rotated:
+                ticker = entry.split(" ")[0]
+                self._remove_ticker_from_watchlist(ticker)
+            self._add_chat_response(
+                "[ROTATION] Evicted:\n" + "\n".join(f"  {r}" for r in rotated)
+            )
+            self._refresh_all_panels()
+
+        self._last_rotation_time = time.time()
+        self._run_background(do_rotate, on_rotated)
+
     def _auto_optimize(self) -> None:
         """Periodic self-optimization — skip if insufficient data."""
         tracker = getattr(self.ai_service, "_accuracy_tracker", None)
@@ -1861,18 +2172,38 @@ class MainWindow(QMainWindow):
         self.action_ai_optimise()
 
     def _daily_stock_discovery(self) -> None:
-        """Ask AI for 5 new volatile ticker suggestions."""
+        """Regime-aware stock discovery that fills empty watchlist slots."""
         if not self._claude_client or not getattr(self._claude_client, "available", False):
             return
+
+        rot_cfg = self.config.get("rotation", {})
+        max_size = int(rot_cfg.get("watchlist_max_size", 12))
+
         current = self._get_active_tickers()
+        slots = max_size - len(current)
+        if slots <= 0:
+            return
+
+        count = min(slots, 3)
+        regime = self.state.current_regime
 
         def do_discover() -> List[str]:
+            if "down" in regime or "bear" in regime:
+                style = "Favour defensive/low-beta stocks with steady earnings"
+            else:
+                style = "Favour high-momentum volatile stocks with recent catalysts"
+
             prompt = (
-                "You are a stock screener for day trading. "
-                f"Current watchlist: {', '.join(current[:20])}\n\n"
-                "Suggest 5 new high-volatility US stocks NOT in the watchlist. "
-                "Focus on stocks with high average daily volume and recent price movement.\n"
-                "Respond strictly as JSON: {\"tickers\": [\"TICKER1\", \"TICKER2\", ...]}"
+                "You are a stock screener for short-term trading. "
+                f"Current watchlist: {', '.join(current[:20])}\n"
+                f"Market regime: {regime}\n\n"
+                f"Find {count} new US stocks NOT in the watchlist.\n"
+                f"- {style}\n"
+                "- High average daily volume (>1M shares)\n"
+                "- Diversify across sectors vs current holdings\n"
+                "- Must be real, actively traded tickers available on Trading 212\n"
+                "- Use Trading 212 ticker format with suffix (e.g. AAPL_US_EQ)\n\n"
+                'Respond strictly as JSON: {"tickers": ["TICKER1", ...]}'
             )
             text = self._claude_client._call(prompt, task_type="simple")
             if text:
@@ -1882,13 +2213,19 @@ class MainWindow(QMainWindow):
 
         def on_discovered(tickers: List[str]) -> None:
             added = []
+            cur_set = set(t.upper() for t in current)
             for t in tickers:
                 t = t.upper().strip()
-                if t and t not in current:
+                if t and t not in cur_set and len(current) + len(added) < max_size:
                     self._add_ticker_to_watchlist(t)
                     added.append(t)
+                    cur_set.add(t)
             if added:
-                self._add_chat_response(f"[DAILY DISCOVERY] Added {', '.join(added)} to watchlist.")
+                remaining = max_size - len(current) - len(added)
+                self._add_chat_response(
+                    f"[DISCOVERY] Added {', '.join(added)} "
+                    f"(regime={regime}, {remaining} slots remain)"
+                )
 
         self._run_background(do_discover, on_discovered)
 
@@ -2028,6 +2365,7 @@ class MainWindow(QMainWindow):
             self._scanner_timer,
             self._optimize_timer,
             self._discovery_timer,
+            self._rotation_timer,
             self._pipeline_poll_timer,
         ]:
             timer.stop()
