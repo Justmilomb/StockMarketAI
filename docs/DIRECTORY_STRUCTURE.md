@@ -126,11 +126,9 @@ StockMarketAI/
 │
 │  ── Build & Distribution ──────────────────────────────────────────────
 ├── installer/
-│   ├── bloomberg.spec             ← PyInstaller spec: Bloomberg edition
-│   ├── bloomberg.iss              ← Inno Setup: BlankBloombergSetup.exe
-│   ├── simple.spec                ← PyInstaller spec: Simple edition
-│   └── simple.iss                 ← Inno Setup: BlankSimpleSetup.exe
-├── build.bat                      ← Builds both editions + installers
+│   ├── bloomberg.spec             ← PyInstaller spec: blank.exe
+│   └── bloomberg.iss              ← Inno Setup: BlankSetup.exe
+├── build.bat                      ← Builds blank.exe + BlankSetup.exe
 ├── version_info.py                ← PyInstaller Windows version resource
 │
 │  ── Tests & Scripts ───────────────────────────────────────────────────

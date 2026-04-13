@@ -190,8 +190,7 @@ def version_info() -> dict[str, str]:
     """Version info for the desktop update checker."""
     return {
         "version": "1.0.0",
-        "download_url_bloomberg": "https://github.com/Justmilomb/StockMarketAI/releases/latest/download/BlankBloombergSetup.exe",
-        "download_url_simple": "https://github.com/Justmilomb/StockMarketAI/releases/latest/download/BlankSimpleSetup.exe",
+        "download_url": "https://github.com/Justmilomb/StockMarketAI/releases/latest/download/BlankSetup.exe",
     }
 
 

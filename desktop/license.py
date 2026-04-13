@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import logging
 import os
 import platform
@@ -15,23 +14,13 @@ import requests
 logger = logging.getLogger("blank.license")
 
 LICENSE_FILE = Path.home() / ".blank" / "license.key"
-DEFAULT_SERVER = "http://localhost:8000"
+# Hardcoded so a stale config.json from a previous install cannot point us at a
+# dead URL. Override for dev via BLANK_SERVER_URL env var.
+DEFAULT_SERVER = "https://blan-api.onrender.com"
 
 
 def _read_server_url() -> str:
-    """Read server URL from config.json next to the exe, falling back to env/default."""
-    import json
-    # check config.json in working directory
-    config_path = Path("config.json")
-    if config_path.exists():
-        try:
-            with open(config_path, encoding="utf-8") as f:
-                cfg = json.load(f)
-            url = cfg.get("server", {}).get("url", "")
-            if url:
-                return url.rstrip("/")
-        except Exception:
-            pass
+    """Return the license server URL. BLANK_SERVER_URL env var overrides."""
     return os.environ.get("BLANK_SERVER_URL", DEFAULT_SERVER)
 
 

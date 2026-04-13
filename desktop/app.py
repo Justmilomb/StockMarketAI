@@ -262,11 +262,8 @@ class MainWindow(QMainWindow):
 
     def _check_server_connectivity(self) -> None:
         """Ping the license server in the background and update status label."""
-        server_url = self.config.get("server", {}).get("url", "")
-        if not server_url:
-            self._server_status.setText("SRV: OFF")
-            self._server_status.setStyleSheet("color: #ff0000; font-weight: bold; padding: 0 8px;")
-            return
+        from desktop.license import _read_server_url
+        server_url = _read_server_url()
 
         def _ping() -> bool:
             try:

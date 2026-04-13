@@ -89,7 +89,10 @@
       "Bash(rm:*)",
       "WebFetch(domain:blan-api.onrender.com)",
       "Bash(awk '{print $NF}')",
-      "Bash(xargs -I {} basename {})"
+      "Bash(xargs -I {} basename {})",
+      "Bash(curl -sS -o /dev/null -w \"health: %{http_code}\\\\n\" https://blan-api.onrender.com/api/health --max-time 90)",
+      "Bash(curl -sS -o /dev/null -w \"root: %{http_code}\\\\n\" https://blan-api.onrender.com/ --max-time 90)",
+      "Bash(curl:*)"
     ]
   }
 }

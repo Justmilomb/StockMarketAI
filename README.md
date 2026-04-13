@@ -1,16 +1,13 @@
 # Blank — AI Trading Terminal
 
-AI-powered stock trading terminal by Certified Random. Two editions:
-
-- **Bloomberg** — full-featured panel layout with charts, chat, orders, and multi-asset support (stocks, crypto, polymarket)
-- **Simple** — clean card-based UI matching the website aesthetic
+AI-powered stock trading terminal by Certified Random. Bloomberg-style panel layout with charts, chat, orders, and multi-asset support (stocks, crypto, polymarket).
 
 Combines a 12-model ML ensemble, ARIMA/ETS statistical baselines, 5 Claude analyst personas, and a consensus engine to generate buy/sell/hold signals with probability scores.
 
 ## Quick Start
 
 ### Download (Windows)
-1. Download `BlankBloombergSetup.exe` or `BlankSimpleSetup.exe` from the latest release
+1. Download `BlankSetup.exe` from the latest release
 2. Run the installer
 3. Enter your license key on first launch
 4. Follow the setup wizard (Claude CLI + Trading 212)
@@ -18,16 +15,16 @@ Combines a 12-model ML ensemble, ARIMA/ETS statistical baselines, 5 Claude analy
 ### Build from Source
 ```
 setup.bat                              # Create venv + install deps
-build.bat                              # Build both editions + installers
+build.bat                              # Build blank.exe + installer
 ```
 
-Output: `dist/BlankBloombergSetup.exe` and `dist/BlankSimpleSetup.exe`
+Output: `dist/BlankSetup.exe`
 
 ## Project Structure
 
 ```
 core/           29 ML/AI/broker modules (on sys.path)
-desktop/        PySide6 app (Bloomberg + Simple editions)
+desktop/        PySide6 app (Bloomberg-dark UI)
 terminal/       Textual TUI (dev-only)
 server/         FastAPI license server
 website/        Landing page + admin panel

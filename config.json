@@ -1,7 +1,4 @@
 {
-  "server": {
-    "url": "https://blan-api.onrender.com"
-  },
   "watchlists": {
     "Trading 212": [
       "CCCX_US_EQ",
