@@ -190,8 +190,7 @@ def _init_db(conn: psycopg2.extensions.connection) -> None:
                 VALUES (%s, %s, '', %s, FALSE, %s, %s::date)
                 ON CONFLICT (version) DO UPDATE SET
                     notes        = EXCLUDED.notes,
-                    published_at = EXCLUDED.published_at,
-                    is_current   = EXCLUDED.is_current
+                    published_at = EXCLUDED.published_at
                 """,
                 (version, url, notes, is_current, pub_date),
             )
