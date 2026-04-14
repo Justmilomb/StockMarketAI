@@ -238,9 +238,16 @@
         .changelog {
             position: relative;
             z-index: 10;
-            max-width: 42rem;
-            margin: 0 auto;
+            width: 100%;
             padding: 6rem 2rem 5rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .changelog-inner {
+            width: 100%;
+            max-width: 42rem;
         }
 
         .changelog-title {
@@ -278,6 +285,7 @@
         .release-head {
             display: flex;
             align-items: baseline;
+            justify-content: center;
             gap: 1rem;
             margin-bottom: 1.375rem;
         }
@@ -379,6 +387,7 @@
     </main>
 
     <section id="changelog" class="changelog">
+      <div class="changelog-inner">
         <h2 class="changelog-title">update log</h2>
         <ol class="releases">
             <!-- RELEASES:START -->
@@ -392,6 +401,7 @@
             </li>
             <!-- RELEASES:END -->
         </ol>
+      </div>
     </section>
 
     <footer>

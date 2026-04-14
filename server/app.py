@@ -104,6 +104,43 @@ def _init_db(conn: psycopg2.extensions.connection) -> None:
                 (k, v),
             )
     conn.commit()
+    # seed release history — ON CONFLICT DO NOTHING so admin edits are preserved.
+    with conn.cursor() as cur:
+        seed_releases = [
+            (
+                "2.0.1",
+                "https://github.com/Justmilomb/StockMarketAI/releases/download/v2.0.1/BlankSetup.exe",
+                "",
+                "- blank now updates itself — no manual reinstall required\n"
+                "- maintenance messages from the team show inside the app without restarting\n"
+                "- claude agent runner lets the ai act on its own research, not just report it\n"
+                "- scheduled notifications surface directly in the terminal",
+                False,
+            ),
+            (
+                "2.1.0",
+                "https://github.com/Justmilomb/StockMarketAI/releases/download/v2.1.0/BlankSetup.exe",
+                "",
+                "- chat replies are instant, even while the agent is trading\n"
+                "- ask blank several things at once — answers come back in parallel\n"
+                "- chat now acts on plain-english commands — trades, watchlist edits, settings, portfolio tweaks, anything the agent can do\n"
+                "- paper mode is impossible to miss: gold banner, watermark, one-click flip to live\n"
+                "- paper positions and cash save between sessions instead of resetting\n"
+                "- smarter ai picks — fast model for info, careful model for real trade decisions\n"
+                "- removed the invisible thinking-time cap so the ai can finish its work",
+                False,
+            ),
+        ]
+        for version, url, sha, notes, mandatory in seed_releases:
+            cur.execute(
+                """
+                INSERT INTO releases (version, download_url, sha256, notes, mandatory, is_current, published_at)
+                VALUES (%s, %s, %s, %s, %s, TRUE, NOW())
+                ON CONFLICT (version) DO NOTHING
+                """,
+                (version, url, sha, notes, mandatory),
+            )
+    conn.commit()
 
 
 @contextmanager
