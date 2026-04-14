@@ -17,7 +17,7 @@
 
 [Setup]
 AppName=blank
-AppVersion=2.1.1
+AppVersion=2.1.2
 AppPublisher=Certified Random
 AppCopyright=Copyright (C) 2026 Certified Random
 AppMutex=BlankTradingTerminalMutex_v2
