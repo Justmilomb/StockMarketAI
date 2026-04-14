@@ -43,6 +43,12 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "refresh_interval_minutes": 5,
         "scraper_cadence_seconds": 300,
     },
+    "updates": {
+        "auto_check": True,
+        "check_interval_minutes": 30,
+        "skip_version": "",
+        "pending_install": None,
+    },
     "broker": {
         "type": "log",
         "api_key_env": "T212_API_KEY",
@@ -81,47 +87,53 @@ def init_state(config: Dict[str, Any]) -> AppState:
 
 
 def resolve_config_path(config_path: Path | str = "config.json") -> Path:
-    """Resolve config path, preferring exe-adjacent file for frozen builds.
+    """Resolve config path for the desktop app.
 
-    For frozen (PyInstaller) builds, always returns an exe-adjacent path so
-    writes persist across restarts.  On first run the bundled seed config is
-    copied next to the exe; subsequent runs use that copy directly.
+    For frozen (PyInstaller) builds, the user's config **always** lives at
+    ``%LOCALAPPDATA%\\blank\\config.json`` — the durable per-user location
+    owned by :mod:`desktop.paths`. The ``config_path`` argument is ignored
+    for frozen runs because the old "exe-adjacent" semantics meant user
+    state lived inside ``C:\\Program Files\\blank\\``, which was read-only
+    for unprivileged processes and got wiped by the v1 uninstaller.
+
+    For source/dev runs we honour the caller's path (typically
+    ``config.json`` resolved against cwd) so hot-reloading against the
+    repo-local config keeps working.
     """
-    import shutil
     import sys
+
+    if getattr(sys, "frozen", False):
+        from desktop.paths import config_path as _user_config_path
+        return _user_config_path()
 
     path = Path(config_path)
     if path.is_absolute() and path.exists():
         return path
-
-    # Frozen exe: always write next to the exe so state persists
-    if getattr(sys, "frozen", False):
-        exe_dir = Path(sys.executable).parent
-        exe_adjacent = exe_dir / path.name
-        if exe_adjacent.exists():
-            return exe_adjacent
-        # First run: copy bundled seed config to exe-adjacent
-        bundle_path = Path(sys._MEIPASS) / path.name
-        if bundle_path.exists():
-            shutil.copy2(str(bundle_path), str(exe_adjacent))
-            return exe_adjacent
-        # Neither exists — will create next to exe
-        return exe_adjacent
-
-    # Source: resolve relative to cwd
     return path
 
 
 def load_config(config_path: Path | str = "config.json") -> Dict[str, Any]:
     """Load config, creating a default if the file doesn't exist.
 
-    For frozen builds: looks next to the exe first, then the bundle.
-    Creates a default config.json if nothing is found.
+    For frozen builds this reads from ``%LOCALAPPDATA%\\blank\\config.json``
+    via :func:`resolve_config_path`. On first run (no migration source
+    found), we prefer copying the PyInstaller-bundled seed config before
+    falling back to :data:`DEFAULT_CONFIG`, so the shipped defaults win
+    over the terser Python dict.
     """
+    import sys
+
     path = resolve_config_path(config_path)
 
     if not path.exists():
         path.parent.mkdir(parents=True, exist_ok=True)
+        if getattr(sys, "frozen", False):
+            bundle_seed = Path(getattr(sys, "_MEIPASS", "")) / "config.json"
+            if bundle_seed.exists():
+                import shutil
+                shutil.copy2(str(bundle_seed), str(path))
+                with path.open("r", encoding="utf-8") as f:
+                    return json.load(f)
         with path.open("w", encoding="utf-8") as f:
             json.dump(DEFAULT_CONFIG, f, indent=2)
         return dict(DEFAULT_CONFIG)

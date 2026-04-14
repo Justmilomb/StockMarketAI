@@ -18,16 +18,27 @@ if getattr(sys, "frozen", False):
     BUNDLE_DIR = Path(sys._MEIPASS)
     sys.path.insert(0, str(BUNDLE_DIR))
     sys.path.insert(0, str(BUNDLE_DIR / "core"))
-    # CWD = next to the exe, where user's config.json lives
     EXE_DIR = Path(sys.executable).parent
-    os.chdir(EXE_DIR)
-    CONFIG_PATH = EXE_DIR / "config.json"
+    # For frozen builds we no longer chdir to EXE_DIR — user state lives
+    # in %LOCALAPPDATA%\blank\ (owned by desktop.paths), the exe parent
+    # is now effectively read-only under %LOCALAPPDATA%\Programs\blank.
+    # We chdir to the user data dir so any legacy relative-path writes
+    # land in the durable location instead of the install directory.
+    from desktop.paths import (
+        migrate_user_state_if_needed,
+        user_data_dir,
+        config_path as _user_config_path,
+    )
+    _MIGRATION_RESULT = migrate_user_state_if_needed()
+    os.chdir(str(user_data_dir()))
+    CONFIG_PATH = _user_config_path()
 else:
     PROJECT_ROOT = Path(__file__).resolve().parent.parent
     sys.path.insert(0, str(PROJECT_ROOT))
     sys.path.insert(0, str(PROJECT_ROOT / "core"))
     os.chdir(PROJECT_ROOT)
     CONFIG_PATH = PROJECT_ROOT / "config.json"
+    _MIGRATION_RESULT = None
 
 
 def _load_dotenv(directory: Path) -> None:
@@ -131,6 +142,15 @@ def launch(mode: str | None = None) -> None:
         format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
     )
     _setup_error_handlers()
+
+    # Log migration result on frozen builds so the very first installer
+    # run leaves a breadcrumb in the user's log file showing whether v1
+    # state was carried over.
+    if _MIGRATION_RESULT is not None:
+        logger.info(
+            "User state migration: %s", _MIGRATION_RESULT.as_dict(),
+        )
+        logger.info("User data dir: %s", CONFIG_PATH.parent)
 
     from PySide6.QtCore import Qt
     from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPixmap

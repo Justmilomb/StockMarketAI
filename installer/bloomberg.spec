@@ -71,6 +71,16 @@ a = Analysis(
         'market_hours', 'core.market_hours',
         'desktop.panels.exchanges',
         'terminal.state',
+        # v2.0.0: state durability + auto-update
+        # paths is referenced from desktop.state + main, which PyInstaller
+        # picks up via static imports, but the update_service + banner +
+        # schedule dialog are loaded lazily by app.py (`from desktop.panels...
+        # import UpdateBanner` etc.) so we must pin them explicitly.
+        'desktop.paths',
+        'desktop.update_service',
+        'desktop.panels.update_banner',
+        'desktop.dialogs.schedule_update',
+        'packaging', 'packaging.version', 'packaging.specifiers',
         # Claude-native agent runtime (Phase 4+)
         'claude_agent_sdk',
         'core.agent', 'core.agent.runner', 'core.agent.mcp_server',

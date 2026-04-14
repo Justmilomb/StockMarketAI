@@ -65,6 +65,17 @@ def _init_db(conn: psycopg2.extensions.connection) -> None:
                 key TEXT PRIMARY KEY,
                 value INTEGER DEFAULT 0
             );
+            CREATE TABLE IF NOT EXISTS releases (
+                id SERIAL PRIMARY KEY,
+                version TEXT UNIQUE NOT NULL,
+                download_url TEXT NOT NULL,
+                sha256 TEXT DEFAULT '',
+                notes TEXT DEFAULT '',
+                mandatory BOOLEAN DEFAULT FALSE,
+                published_at TIMESTAMPTZ DEFAULT NOW(),
+                is_current BOOLEAN DEFAULT TRUE
+            );
+            CREATE INDEX IF NOT EXISTS idx_releases_current ON releases(is_current);
         """)
     conn.commit()
     # seed default config if empty
@@ -130,6 +141,14 @@ class LogBatch(BaseModel):
     entries: list[LogEntry]
 
 
+class ReleaseCreateRequest(BaseModel):
+    version: str
+    download_url: str
+    sha256: str = ""
+    notes: str = ""
+    mandatory: bool = False
+
+
 # ── Auth ─────────────────────────────────────────────────────────────────
 
 def require_admin(x_admin_key: str = Header(...)) -> str:
@@ -186,11 +205,41 @@ def health_check() -> dict[str, str]:
 
 
 @app.get("/api/version")
-def version_info() -> dict[str, str]:
-    """Version info for the desktop update checker."""
+def version_info(
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> dict[str, Any]:
+    """Public update manifest consumed by the desktop ``UpdateService``.
+
+    Reads the most-recent ``releases`` row with ``is_current = TRUE``
+    and returns the full manifest. Falls back to the legacy hardcoded
+    v1.0.0 payload when no row exists, so v1 clients in the wild keep
+    getting *some* response while we're between admin publishes.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT version, download_url, sha256, notes, mandatory, published_at "
+            "FROM releases WHERE is_current = TRUE "
+            "ORDER BY published_at DESC LIMIT 1",
+        )
+        row = cur.fetchone()
+
+    if not row:
+        return {
+            "version": "2.0.0",
+            "download_url": "https://github.com/Justmilomb/StockMarketAI/releases/latest/download/BlankSetup.exe",
+            "sha256": "",
+            "notes": "",
+            "mandatory": False,
+            "published_at": None,
+        }
+
     return {
-        "version": "1.0.0",
-        "download_url": "https://github.com/Justmilomb/StockMarketAI/releases/latest/download/BlankSetup.exe",
+        "version": row["version"],
+        "download_url": row["download_url"],
+        "sha256": row["sha256"] or "",
+        "notes": row["notes"] or "",
+        "mandatory": bool(row["mandatory"]),
+        "published_at": row["published_at"].isoformat() if row["published_at"] else None,
     }
 
 
@@ -483,6 +532,111 @@ def admin_get_logs(
             d["created_at"] = d["created_at"].isoformat()
         results.append(d)
     return results
+
+
+# ── Admin: releases ──────────────────────────────────────────────────────
+
+def _serialise_release(row: dict[str, Any]) -> dict[str, Any]:
+    """Stringify TIMESTAMPTZ fields so JSONResponse can serialise."""
+    d = dict(row)
+    if d.get("published_at") is not None:
+        d["published_at"] = d["published_at"].isoformat()
+    d["mandatory"] = bool(d.get("mandatory", False))
+    d["is_current"] = bool(d.get("is_current", False))
+    return d
+
+
+@app.get("/api/admin/releases")
+def admin_list_releases(
+    _: str = Depends(require_admin),
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> list[dict[str, Any]]:
+    """All releases, newest first. Used by the admin Releases tab."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT id, version, download_url, sha256, notes, mandatory, "
+            "published_at, is_current FROM releases ORDER BY published_at DESC",
+        )
+        rows = cur.fetchall()
+    return [_serialise_release(r) for r in rows]
+
+
+@app.post("/api/admin/releases")
+def admin_create_release(
+    body: ReleaseCreateRequest,
+    _: str = Depends(require_admin),
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> dict[str, Any]:
+    """Publish a new release.
+
+    Atomically demotes every existing row (``is_current = FALSE``) and
+    inserts the new one as ``is_current = TRUE``. Re-publishing the
+    same version updates the existing row in place and re-promotes it
+    so the operator can fix a typo without a manual retract step.
+    """
+    if not body.version.strip() or not body.download_url.strip():
+        raise HTTPException(status_code=400, detail="version and download_url are required")
+
+    with conn.cursor() as cur:
+        cur.execute("UPDATE releases SET is_current = FALSE WHERE is_current = TRUE")
+        cur.execute(
+            """
+            INSERT INTO releases (version, download_url, sha256, notes, mandatory, is_current, published_at)
+            VALUES (%s, %s, %s, %s, %s, TRUE, NOW())
+            ON CONFLICT (version) DO UPDATE SET
+                download_url = EXCLUDED.download_url,
+                sha256       = EXCLUDED.sha256,
+                notes        = EXCLUDED.notes,
+                mandatory    = EXCLUDED.mandatory,
+                is_current   = TRUE,
+                published_at = NOW()
+            RETURNING id, version, download_url, sha256, notes, mandatory, published_at, is_current
+            """,
+            (body.version, body.download_url, body.sha256, body.notes, body.mandatory),
+        )
+        row = cur.fetchone()
+    conn.commit()
+    return _serialise_release(row)
+
+
+@app.delete("/api/admin/releases/{version}")
+def admin_retract_release(
+    version: str,
+    _: str = Depends(require_admin),
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> dict[str, Any]:
+    """Retract a release.
+
+    Hard-deletes the row. If the deleted release was the current one,
+    promotes the next-most-recent surviving release so ``/api/version``
+    keeps returning a usable manifest. Returns the new current release
+    (or ``None`` if the table is now empty).
+    """
+    with conn.cursor() as cur:
+        cur.execute("SELECT is_current FROM releases WHERE version = %s", (version,))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="release not found")
+        was_current = bool(row["is_current"])
+
+        cur.execute("DELETE FROM releases WHERE version = %s", (version,))
+
+        new_current: Optional[dict[str, Any]] = None
+        if was_current:
+            cur.execute(
+                "SELECT id FROM releases ORDER BY published_at DESC LIMIT 1",
+            )
+            successor = cur.fetchone()
+            if successor:
+                cur.execute(
+                    "UPDATE releases SET is_current = TRUE WHERE id = %s "
+                    "RETURNING id, version, download_url, sha256, notes, mandatory, "
+                    "published_at, is_current",
+                    (successor["id"],),
+                )
+                new_current = _serialise_release(cur.fetchone())
+    conn.commit()
+    return {"retracted": version, "new_current": new_current}
 
 
 # ── Run ──────────────────────────────────────────────────────────────────

@@ -528,6 +528,96 @@
 
         .uptime-label .pct { color: var(--glow); font-weight: 400; }
 
+        /* release form */
+        .release-form {
+            border: 1px solid var(--border);
+            background: var(--surface);
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .form-row { margin-bottom: 1rem; }
+
+        .form-row label {
+            display: block;
+            font-size: 0.6875rem;
+            font-weight: 300;
+            color: var(--text-dim);
+            letter-spacing: 0.08em;
+            margin-bottom: 0.4rem;
+            text-transform: lowercase;
+        }
+
+        .form-row input[type="text"],
+        .form-row textarea {
+            width: 100%;
+            background: #000;
+            color: var(--text);
+            border: 1px solid var(--border);
+            padding: 0.6rem 0.875rem;
+            font-family: 'Outfit', sans-serif;
+            font-size: 0.8125rem;
+            font-weight: 300;
+            outline: none;
+            transition: border-color 0.3s ease;
+        }
+
+        .form-row input[type="text"]:focus,
+        .form-row textarea:focus {
+            border-color: var(--glow);
+        }
+
+        .form-row textarea {
+            resize: vertical;
+            min-height: 120px;
+            line-height: 1.5;
+        }
+
+        .form-row-inline {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0;
+        }
+
+        .toggle-row {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .toggle-row span {
+            font-size: 0.75rem;
+            color: var(--text-mid);
+            font-weight: 300;
+        }
+
+        #btn-publish {
+            background: var(--glow-dim);
+            color: var(--glow);
+            border: 1px solid rgba(0,255,135,0.25);
+            padding: 0.6rem 1.5rem;
+            font-family: 'Outfit', sans-serif;
+            font-size: 0.75rem;
+            letter-spacing: 0.06em;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        #btn-publish:hover { background: rgba(0,255,135,0.15); }
+
+        .rel-status {
+            font-size: 0.6875rem;
+            font-weight: 300;
+            margin-top: 0.75rem;
+            min-height: 1rem;
+            font-family: monospace;
+            letter-spacing: 0.04em;
+        }
+
+        .rel-status.ok { color: var(--glow); }
+        .rel-status.err { color: var(--red); }
+
         /* fade animation */
         @keyframes fadeUp {
             from { opacity: 0; transform: translateY(16px); }
@@ -573,6 +663,7 @@
                 <button class="tab active" data-tab="overview">overview</button>
                 <button class="tab" data-tab="users">users</button>
                 <button class="tab" data-tab="config">config</button>
+                <button class="tab" data-tab="releases">releases</button>
                 <button class="tab" data-tab="system">system</button>
             </nav>
 
@@ -609,6 +700,45 @@
             <div class="section" data-section="config">
                 <p class="section-title">application config</p>
                 <div class="config-grid" id="config-grid"></div>
+            </div>
+
+            <!-- releases — publish + history -->
+            <div class="section" data-section="releases">
+                <p class="section-title">publish release</p>
+                <div class="release-form">
+                    <div class="form-row">
+                        <label>version</label>
+                        <input id="rel-version" type="text" placeholder="2.0.0">
+                    </div>
+                    <div class="form-row">
+                        <label>download url</label>
+                        <input id="rel-url" type="text" placeholder="https://github.com/Justmilomb/StockMarketAI/releases/download/v2.0.0/BlankSetup.exe">
+                    </div>
+                    <div class="form-row">
+                        <label>sha256 (optional — enables integrity check on client)</label>
+                        <input id="rel-sha" type="text" placeholder="leave blank to skip verification">
+                    </div>
+                    <div class="form-row">
+                        <label>release notes</label>
+                        <textarea id="rel-notes" rows="6" placeholder="- Fixed X&#10;- Added Y&#10;- Improved Z"></textarea>
+                    </div>
+                    <div class="form-row form-row-inline">
+                        <div class="toggle-row">
+                            <div id="rel-mandatory" class="toggle"></div>
+                            <span>mandatory update</span>
+                        </div>
+                        <button id="btn-publish">publish release</button>
+                    </div>
+                    <p id="rel-status" class="rel-status"></p>
+                </div>
+
+                <p class="section-title" style="margin-top:2.5rem;">release history</p>
+                <div class="table-wrap">
+                    <table>
+                        <thead><tr><th>version</th><th>published</th><th>mandatory</th><th>current</th><th>actions</th></tr></thead>
+                        <tbody id="releases-tbody"></tbody>
+                    </table>
+                </div>
             </div>
 
             <!-- system — populated by JS -->
@@ -712,7 +842,7 @@
             }).then(r => r.json());
         }
 
-        function loadAll() { loadStats(); loadChart(); loadLicenses(); loadConfig(); loadLogs(); }
+        function loadAll() { loadStats(); loadChart(); loadLicenses(); loadConfig(); loadReleases(); loadLogs(); }
 
         function renderStat(label, value, change, green) {
             return el('div', { class: 'stat' }, [
@@ -863,6 +993,127 @@
             grid.replaceChildren(...items);
         }
 
+        // ── releases ─────────────────────────────────────────────────
+        function formatReleaseDate(iso) {
+            if (!iso) return '\u2014';
+            const d = new Date(iso);
+            if (isNaN(d.getTime())) return iso;
+            return d.toLocaleString('en-GB', {
+                year: 'numeric', month: 'short', day: '2-digit',
+                hour: '2-digit', minute: '2-digit',
+            });
+        }
+
+        function setRelStatus(msg, kind) {
+            const s = document.getElementById('rel-status');
+            s.textContent = msg || '';
+            s.className = 'rel-status' + (kind ? ' ' + kind : '');
+        }
+
+        async function loadReleases() {
+            let releases;
+            try {
+                releases = await api('/api/admin/releases');
+            } catch (e) {
+                setRelStatus('failed to load releases: ' + String(e), 'err');
+                return;
+            }
+            const tbody = document.getElementById('releases-tbody');
+            if (!releases || releases.length === 0) {
+                tbody.replaceChildren(el('tr', {}, [
+                    el('td', {
+                        text: 'no releases published yet',
+                        colspan: '5',
+                        style: { color: 'var(--text-dim)', textAlign: 'center', padding: '1.5rem' },
+                    }),
+                ]));
+                return;
+            }
+            tbody.replaceChildren(...releases.map(r => {
+                const mandBadge = el('span', {
+                    class: r.mandatory ? 'badge expired' : 'badge',
+                    text: r.mandatory ? 'yes' : 'no',
+                    style: r.mandatory ? {} : { color: 'var(--text-dim)' },
+                });
+                const currBadge = el('span', {
+                    class: r.is_current ? 'badge active' : 'badge',
+                    text: r.is_current ? 'live' : '\u2014',
+                    style: r.is_current ? {} : { color: 'var(--text-dim)' },
+                });
+                const retract = el('button', {
+                    text: 'retract',
+                    style: {
+                        background: 'none', border: '1px solid rgba(255,77,77,0.3)',
+                        color: 'var(--red)', fontFamily: "'Outfit',sans-serif",
+                        fontSize: '0.625rem', padding: '0.2rem 0.5rem',
+                        cursor: 'pointer', letterSpacing: '0.04em',
+                    },
+                    onclick: () => retractRelease(r.version),
+                });
+                return el('tr', {}, [
+                    el('td', { text: r.version, style: { fontFamily: 'monospace', color: 'var(--text)' } }),
+                    el('td', { text: formatReleaseDate(r.published_at) }),
+                    el('td', {}, [mandBadge]),
+                    el('td', {}, [currBadge]),
+                    el('td', {}, [retract]),
+                ]);
+            }));
+        }
+
+        async function publishRelease() {
+            const version = document.getElementById('rel-version').value.trim();
+            const url = document.getElementById('rel-url').value.trim();
+            const sha = document.getElementById('rel-sha').value.trim();
+            const notes = document.getElementById('rel-notes').value.trim();
+            const mandatory = document.getElementById('rel-mandatory').classList.contains('on');
+
+            if (!version || !url) {
+                setRelStatus('version and download url are required', 'err');
+                return;
+            }
+
+            setRelStatus('publishing\u2026', '');
+            let result;
+            try {
+                result = await api('/api/admin/releases', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        version: version,
+                        download_url: url,
+                        sha256: sha,
+                        notes: notes,
+                        mandatory: mandatory,
+                    }),
+                });
+            } catch (e) {
+                setRelStatus('publish failed: ' + String(e), 'err');
+                return;
+            }
+
+            if (result && result.version) {
+                setRelStatus('published ' + result.version + ' \u2014 clients will pick it up within 30 min', 'ok');
+                document.getElementById('rel-version').value = '';
+                document.getElementById('rel-sha').value = '';
+                document.getElementById('rel-notes').value = '';
+                document.getElementById('rel-mandatory').classList.remove('on');
+                loadReleases();
+            } else {
+                setRelStatus((result && result.detail) || 'publish failed', 'err');
+            }
+        }
+
+        async function retractRelease(version) {
+            if (!confirm('Retract release ' + version + '?\n\nClients that already downloaded it will still run it, but new clients will no longer see it on next check.')) return;
+            try {
+                await api('/api/admin/releases/' + encodeURIComponent(version), { method: 'DELETE' });
+            } catch (e) {
+                setRelStatus('retract failed: ' + String(e), 'err');
+                return;
+            }
+            setRelStatus('retracted ' + version, 'ok');
+            loadReleases();
+        }
+
         async function loadLogs() {
             const logs = await api('/api/admin/logs?limit=50');
             const viewer = document.getElementById('log-viewer');
@@ -898,6 +1149,7 @@
                 if (target === 'overview') { loadStats(); loadChart(); }
                 if (target === 'users') loadLicenses();
                 if (target === 'config') loadConfig();
+                if (target === 'releases') loadReleases();
                 if (target === 'system') loadLogs();
             });
         });
@@ -932,6 +1184,26 @@
             const sys = document.querySelector('[data-section="system"]');
             if (sys && sys.classList.contains('visible')) loadLogs();
         }, 10000);
+
+        // release form wiring
+        document.getElementById('btn-publish').addEventListener('click', publishRelease);
+
+        document.getElementById('rel-mandatory').addEventListener('click', (e) => {
+            e.currentTarget.classList.toggle('on');
+        });
+
+        // auto-fill the download URL when the user types a version, so the
+        // common case (GitHub releases at our canonical path) is zero-effort.
+        // Don't clobber a URL the operator has already hand-edited.
+        const URL_TEMPLATE_PREFIX = 'https://github.com/Justmilomb/StockMarketAI/releases/download/v';
+        document.getElementById('rel-version').addEventListener('input', () => {
+            const version = document.getElementById('rel-version').value.trim();
+            const urlInput = document.getElementById('rel-url');
+            const current = urlInput.value;
+            if (!current || current.startsWith(URL_TEMPLATE_PREFIX)) {
+                urlInput.value = version ? URL_TEMPLATE_PREFIX + version + '/BlankSetup.exe' : '';
+            }
+        });
     </script>
 </body>
 </html>

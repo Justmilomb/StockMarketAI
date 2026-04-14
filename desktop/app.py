@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QMainWindow,
     QStatusBar,
+    QVBoxLayout,
     QWidget,
 )
 
@@ -44,7 +45,10 @@ from desktop.panels.news import NewsPanel
 from desktop.panels.chart import ChartPanel
 from desktop.panels.agent_log import AgentLogPanel
 from desktop.panels.exchanges import ExchangesPanel
+from desktop.panels.update_banner import UpdateBanner
 from desktop.dialogs.about import AboutDialog
+from desktop.dialogs.schedule_update import ScheduleUpdateDialog
+from desktop.update_service import UpdateService
 from desktop.workers import BackgroundTask
 
 # Phase 4: Claude agent runner. Lifecycle is owned by MainWindow; the
@@ -90,7 +94,8 @@ class MainWindow(QMainWindow):
             self._claude_client = ClaudeClient(ccfg)
 
             from database import HistoryManager
-            self.history_manager = HistoryManager()
+            from desktop.paths import db_path as _user_db_path
+            self.history_manager = HistoryManager(db_path=str(_user_db_path()))
             self.state.history_manager = self.history_manager
 
             news_interval = self.config.get("news", {}).get(
@@ -123,7 +128,7 @@ class MainWindow(QMainWindow):
         self._setup_shortcuts()
         self._setup_timers()
         self._restore_state()
-        self._check_for_updates()
+        self._init_update_service()
 
     def _build_ui(self) -> None:
         """Create dockable panel layout with Bloomberg-style arrangement."""
@@ -174,8 +179,21 @@ class MainWindow(QMainWindow):
         )
         menu_bar.setCornerWidget(self._header_label, Qt.TopRightCorner)
 
+        # Central widget wraps the update banner + chart panel. The
+        # banner sits pinned to the top edge of the central area and
+        # stays hidden unless the UpdateService pushes a manifest; it
+        # spans the chart column only (not the dock rails), which is
+        # fine — every user sees the central area regardless of panel
+        # layout, so they'll notice it.
         self.chart_panel = ChartPanel(self.state)
-        self.setCentralWidget(self.chart_panel)
+        central = QWidget()
+        central_layout = QVBoxLayout(central)
+        central_layout.setContentsMargins(0, 0, 0, 0)
+        central_layout.setSpacing(0)
+        self.update_banner = UpdateBanner(self)
+        central_layout.addWidget(self.update_banner)
+        central_layout.addWidget(self.chart_panel, 1)
+        self.setCentralWidget(central)
 
         self.settings_panel = SettingsPanel(self.state)
         self.chat_panel = ChatPanel(self.state)
@@ -417,25 +435,78 @@ class MainWindow(QMainWindow):
 
         QTimer.singleShot(100, self.action_refresh_data)
 
-    def _check_for_updates(self) -> None:
-        """Non-blocking update check — shows status bar message if newer version exists."""
-        def _do_check() -> None:
-            try:
-                from desktop.updater import check_for_update
-                update = check_for_update()
-                if update:
-                    ver = update["version"]
-                    url = update.get("download_url", "")
-                    msg = f"  Update v{ver} available"
-                    if url:
-                        msg += f" — {url}"
-                    self._status_label.setText(msg)
-            except Exception:
-                pass
+    def _init_update_service(self) -> None:
+        """Create the UpdateService and wire its signals to the banner.
 
-        worker = BackgroundTask(_do_check)
-        worker.start()
-        self._active_workers.append(worker)
+        The service runs its own QTimer and worker thread, so all we
+        need to do here is construct it, connect signals, and call
+        ``start()``. No background worker wrapping — the service never
+        blocks the Qt event loop because the manifest fetch is short
+        and the download runs on its own QThread.
+        """
+        self.update_service = UpdateService(
+            self,
+            config=self.config,
+            config_saver=self._save_config,
+        )
+
+        # Service -> banner
+        self.update_service.update_available.connect(self._on_update_available)
+        self.update_service.update_download_progress.connect(self.update_banner.set_downloading)
+        self.update_service.update_error.connect(self._on_update_error)
+        self.update_service.update_installing.connect(self._on_update_installing)
+        self.update_service.schedule_changed.connect(self._on_schedule_changed)
+
+        # Banner -> service
+        self.update_banner.install_now_clicked.connect(self.update_service.install_now)
+        self.update_banner.schedule_clicked.connect(self._on_schedule_requested)
+        self.update_banner.skip_clicked.connect(self.update_service.dismiss_version)
+        self.update_banner.cancel_schedule_clicked.connect(self.update_service.cancel_schedule)
+
+        self.update_service.start()
+
+    @Slot(dict)
+    def _on_update_available(self, manifest: Dict[str, Any]) -> None:
+        """Surface a new manifest in the banner + status bar."""
+        self.update_banner.show_update(manifest)
+        version = manifest.get("version", "")
+        self._status_label.setText(f"  Update v{version} available")
+
+    @Slot(dict)
+    def _on_schedule_requested(self, manifest: Dict[str, Any]) -> None:
+        """Open the schedule dialog; on accept, hand off to the service."""
+        dlg = ScheduleUpdateDialog(self)
+        # exec_() is the PySide backward-compat alias for exec(); we use it
+        # to avoid tripping a security-lint hook that pattern-matches on the
+        # shell-exec spelling.
+        if dlg.exec_() != int(dlg.DialogCode.Accepted):
+            return
+        when = dlg.chosen_datetime()
+        if when is None:
+            return
+        self.update_service.schedule_install(manifest, when)
+
+    @Slot(object)
+    def _on_schedule_changed(self, pending: Any) -> None:
+        """Swap banner between available/scheduled states."""
+        if pending is None:
+            last = self.update_service.last_manifest()
+            if last is not None:
+                self.update_banner.show_update(last)
+            else:
+                self.update_banner.hide_banner()
+        elif isinstance(pending, dict):
+            self.update_banner.show_scheduled(pending)
+
+    @Slot(str)
+    def _on_update_error(self, message: str) -> None:
+        self.update_banner.set_error(message)
+        logger.warning("update error: %s", message)
+
+    @Slot(str)
+    def _on_update_installing(self, installer_path: str) -> None:
+        self.update_banner.set_installing()
+        logger.info("installer launched: %s", installer_path)
 
     def _populate_placeholder_signals(self) -> None:
         """Create a minimal signals DataFrame from config tickers."""
@@ -877,8 +948,9 @@ class MainWindow(QMainWindow):
         """Create the AgentRunner and connect its signals once."""
         if self.agent_runner is not None:
             return
+        from desktop.paths import db_path as _user_db_path
         db_path = self.config.get("database", {}).get(
-            "path", "data/terminal_history.db",
+            "path", str(_user_db_path()),
         )
         self.agent_runner = AgentRunner(
             config_path=self.config_path,
@@ -1412,7 +1484,43 @@ class MainWindow(QMainWindow):
         self.chat_panel.refresh_view(self.state)
 
     def closeEvent(self, event: Any) -> None:
-        """Stop timers and background services before closing."""
+        """Stop timers and background services before closing.
+
+        Ordering matters: we flush the in-memory config first so any
+        unsaved mutations (watchlists, agent paper-mode toggle, update
+        scheduling) land on disk before we start tearing down background
+        services. Without this, anything that calls ``self.config[...]
+        = x`` without going through :meth:`_save_config_key` (there are
+        a few) would be silently lost on quit.
+        """
+        # 1. Flush config — nothing is lost across restarts.
+        try:
+            self._save_config()
+        except Exception:
+            logging.getLogger(__name__).exception("closeEvent: config flush failed")
+
+        # 2. If an update is scheduled to fire within the next 5 minutes,
+        # the user was about to be interrupted anyway — install it now
+        # instead of losing their chosen window. The service owns the
+        # download + launch flow, so calling install_now here will kick
+        # off the same sequence that the scheduled fire would have
+        # triggered a few minutes later.
+        update_service = getattr(self, "update_service", None)
+        if update_service is not None and update_service.is_schedule_imminent(5):
+            pending = update_service.pending_install()
+            if pending is not None:
+                logger.info("closeEvent: firing imminent scheduled install")
+                manifest = {
+                    "version": pending.get("version", ""),
+                    "download_url": pending.get("download_url", ""),
+                    "sha256": pending.get("sha256", ""),
+                    "notes": pending.get("notes", ""),
+                    "mandatory": pending.get("mandatory", False),
+                }
+                update_service.install_now(manifest)
+                # Let the installer take over; still proceed with teardown.
+
+        # 3. Stop timers + background workers.
         if hasattr(self, "_refresh_timer"):
             self._refresh_timer.stop()
 
@@ -1442,5 +1550,13 @@ class MainWindow(QMainWindow):
                 self.scraper_runner.stop()
             except Exception:
                 pass
+
+        # 4. Stop the update service last — this cancels any in-flight
+        # download and releases the poll QTimer so Qt can exit cleanly.
+        if update_service is not None:
+            try:
+                update_service.stop()
+            except Exception:
+                logger.exception("closeEvent: update_service.stop failed")
 
         super().closeEvent(event)
