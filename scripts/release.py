@@ -69,8 +69,6 @@ def main() -> None:
         _run([sys.executable, str(ROOT / "scripts" / "bump_version.py"), new_version])
 
     # ── 2. Build ─────────────────────────────────────────────────────────
-    import time as _time
-    build_start = _time.time()
     print()
     print("── Building exe ────────────────────────────────────────────────")
     _run(["cmd", "/c", str(ROOT / "build.bat")], cwd=str(ROOT))
