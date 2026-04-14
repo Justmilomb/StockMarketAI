@@ -121,7 +121,7 @@ def _init_db(conn: psycopg2.extensions.connection) -> None:
             ),
             (
                 "1.0.1",
-                "2025-11-03",
+                "2026-03-20",
                 False,
                 "- fixed the chart freezing when switching tickers quickly\n"
                 "- ai responses no longer cut off mid-sentence on slow connections\n"
@@ -130,7 +130,7 @@ def _init_db(conn: psycopg2.extensions.connection) -> None:
             ),
             (
                 "1.1.0",
-                "2025-11-28",
+                "2026-03-25",
                 False,
                 "- portfolio heat map: all your positions at a glance, colour-coded by gain/loss\n"
                 "- watchlist now persists across sessions\n"
@@ -139,7 +139,7 @@ def _init_db(conn: psycopg2.extensions.connection) -> None:
             ),
             (
                 "1.2.0",
-                "2026-01-17",
+                "2026-03-30",
                 False,
                 "- multi-timeframe forecasts: 1-day, 5-day, and 20-day outlooks run in parallel\n"
                 "- five specialised analyst personas now debate every trade before a signal fires\n"
@@ -148,7 +148,7 @@ def _init_db(conn: psycopg2.extensions.connection) -> None:
             ),
             (
                 "2.0.0",
-                "2026-02-26",
+                "2026-04-03",
                 False,
                 "- complete ui rebuild — faster, sharper, more bloomberg than bloomberg\n"
                 "- live trading via trading 212 alongside paper mode\n"
@@ -158,7 +158,7 @@ def _init_db(conn: psycopg2.extensions.connection) -> None:
             ),
             (
                 "2.0.1",
-                "2026-03-18",
+                "2026-04-06",
                 False,
                 "- fixed positions panel showing stale prices after market close\n"
                 "- chat no longer hangs if the ai takes more than 30 seconds to respond\n"
