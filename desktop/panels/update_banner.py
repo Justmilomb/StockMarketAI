@@ -243,12 +243,20 @@ class UpdateBanner(QFrame):
     # ─── public API ─────────────────────────────────────────────────────
 
     def show_update(self, manifest: dict[str, Any]) -> None:
-        """Show the available-update state with the given manifest."""
+        """Show the available-update state with the given manifest.
+
+        For mandatory manifests we still populate the widget (so the
+        main window can fall back to it if the floating overlay can't
+        be constructed) but strip every side door — skip, schedule,
+        dismiss are all hidden. Non-mandatory manifests get the normal
+        four-button affordance.
+        """
         self._manifest = dict(manifest)
         self._pending = None
         self._tick.stop()
 
-        self._set_available_state()
+        mandatory = bool(manifest.get("mandatory", False))
+        self._set_available_state(mandatory=mandatory)
         self._headline.setText(self._available_headline(manifest))
         self._notes_view.setPlainText(str(manifest.get("notes") or "No release notes."))
         self._notes_view.setVisible(False)
@@ -315,14 +323,16 @@ class UpdateBanner(QFrame):
 
     # ─── internal state switching ───────────────────────────────────────
 
-    def _set_available_state(self) -> None:
+    def _set_available_state(self, mandatory: bool = False) -> None:
         self._install_btn.setEnabled(True)
         self._install_btn.setVisible(True)
-        self._schedule_btn.setEnabled(True)
-        self._schedule_btn.setVisible(True)
-        self._skip_btn.setVisible(True)
+        # Mandatory updates strip every postpone/dismiss affordance so
+        # the user has exactly one choice: install now.
+        self._schedule_btn.setEnabled(not mandatory)
+        self._schedule_btn.setVisible(not mandatory)
+        self._skip_btn.setVisible(not mandatory)
         self._cancel_schedule_btn.setVisible(False)
-        self._dismiss_btn.setVisible(True)
+        self._dismiss_btn.setVisible(not mandatory)
         self._status_label.setStyleSheet(f"color: {TEXT_DIM};")
 
     def _set_scheduled_state(self) -> None:

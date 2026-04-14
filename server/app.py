@@ -73,10 +73,16 @@ def _init_db(conn: psycopg2.extensions.connection) -> None:
                 notes TEXT DEFAULT '',
                 mandatory BOOLEAN DEFAULT FALSE,
                 published_at TIMESTAMPTZ DEFAULT NOW(),
-                is_current BOOLEAN DEFAULT TRUE
+                is_current BOOLEAN DEFAULT TRUE,
+                scheduled_at TIMESTAMPTZ
             );
             CREATE INDEX IF NOT EXISTS idx_releases_current ON releases(is_current);
+            CREATE INDEX IF NOT EXISTS idx_releases_schedule ON releases(scheduled_at);
         """)
+        # Additive migration for databases that pre-date scheduled releases.
+        cur.execute(
+            "ALTER TABLE releases ADD COLUMN IF NOT EXISTS scheduled_at TIMESTAMPTZ",
+        )
     conn.commit()
     # seed default config if missing — use INSERT … ON CONFLICT DO NOTHING so
     # re-runs on an existing database never overwrite admin changes.
@@ -150,6 +156,7 @@ class ReleaseCreateRequest(BaseModel):
     sha256: str = ""
     notes: str = ""
     mandatory: bool = False
+    scheduled_at: Optional[str] = None  # ISO-8601 UTC; None = publish immediately
 
 
 class ScheduleNotificationRequest(BaseModel):
@@ -190,10 +197,118 @@ def startup() -> None:
 
 # ── Website serving ──────────────────────────────────────────────────────
 
+def _escape_html(s: str) -> str:
+    """Minimal HTML escape for user-supplied release notes and versions."""
+    return (
+        (s or "")
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+    )
+
+
+def _render_releases_html(conn: psycopg2.extensions.connection) -> str:
+    """Render the public release list as `<li class="release">…</li>` blocks.
+
+    Scheduled releases whose time has not arrived are excluded — they become
+    visible automatically on the next request after ``scheduled_at`` passes,
+    so there is no background job to run. The most recent *visible* release
+    is tagged with ``latest`` so the stylesheet glows its version in green.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT version, notes, published_at, scheduled_at
+              FROM releases
+             WHERE scheduled_at IS NULL OR scheduled_at <= NOW()
+             ORDER BY COALESCE(scheduled_at, published_at) DESC
+            """,
+        )
+        rows = cur.fetchall()
+
+    if not rows:
+        return (
+            '            <li class="release latest">\n'
+            '                <div class="release-head">\n'
+            '                    <span class="version">coming soon</span>\n'
+            '                </div>\n'
+            '                <ul class="release-notes">\n'
+            "                    <li>the first public release hasn't shipped yet — check back soon</li>\n"
+            '                </ul>\n'
+            "            </li>"
+        )
+
+    blocks: list[str] = []
+    for i, row in enumerate(rows):
+        classes = "release latest" if i == 0 else "release"
+        version = f"v{row['version']}"
+        when = row["scheduled_at"] or row["published_at"]
+        date_str = when.strftime("%B %Y").lower() if when else ""
+
+        raw = (row["notes"] or "").strip()
+        bullets: list[str] = []
+        for ln in raw.splitlines():
+            s = ln.strip()
+            if s.startswith(("-", "*", "•")):
+                s = s[1:].strip()
+            if s:
+                bullets.append(s)
+        if not bullets:
+            bullets = ["no release notes"]
+
+        bullets_html = "\n".join(
+            f"                    <li>{_escape_html(b)}</li>" for b in bullets
+        )
+        blocks.append(
+            f'            <li class="{classes}">\n'
+            f'                <div class="release-head">\n'
+            f'                    <span class="version">{_escape_html(version)}</span>\n'
+            f'                    <span class="date">{_escape_html(date_str)}</span>\n'
+            f'                </div>\n'
+            f'                <ul class="release-notes">\n'
+            f"{bullets_html}\n"
+            f"                </ul>\n"
+            f"            </li>"
+        )
+
+    return "\n".join(blocks)
+
+
 @app.get("/", response_class=HTMLResponse)
-def landing_page() -> HTMLResponse:
+def landing_page(
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> HTMLResponse:
+    """Serve the landing page with the update log injected from the DB.
+
+    The template carries a ``<!-- RELEASES -->`` placeholder; everything
+    between ``<!-- RELEASES:START -->`` and ``<!-- RELEASES:END -->`` is
+    replaced with the rendered release list on every request. If the DB
+    read fails for any reason, the template is returned as-is so the
+    landing page never 500s over a changelog.
+    """
     with open(os.path.join(WEBSITE_DIR, "index.html"), encoding="utf-8") as f:
         html = f.read()
+
+    try:
+        releases_html = _render_releases_html(conn)
+    except Exception as e:
+        logger.warning("release render failed, serving template as-is: %s", e)
+        return HTMLResponse(content=html)
+
+    start_tag = "<!-- RELEASES:START -->"
+    end_tag = "<!-- RELEASES:END -->"
+    si = html.find(start_tag)
+    ei = html.find(end_tag)
+    if si != -1 and ei != -1 and ei > si:
+        html = (
+            html[: si + len(start_tag)]
+            + "\n"
+            + releases_html
+            + "\n            "
+            + html[ei:]
+        )
+
     return HTMLResponse(content=html)
 
 
@@ -222,10 +337,17 @@ def version_info(
     so the client can react without needing a separate polling endpoint.
     """
     with conn.cursor() as cur:
+        # Scheduled releases whose time has not arrived are hidden from
+        # clients — same filter as the website update log so what the user
+        # sees on the landing page matches what desktop agents pull.
         cur.execute(
-            "SELECT version, download_url, sha256, notes, mandatory, published_at "
-            "FROM releases WHERE is_current = TRUE "
-            "ORDER BY published_at DESC LIMIT 1",
+            """
+            SELECT version, download_url, sha256, notes, mandatory, published_at
+              FROM releases
+             WHERE scheduled_at IS NULL OR scheduled_at <= NOW()
+             ORDER BY COALESCE(scheduled_at, published_at) DESC
+             LIMIT 1
+            """,
         )
         row = cur.fetchone()
 
@@ -242,7 +364,7 @@ def version_info(
 
     if not row:
         return {
-            "version": "2.1.0",
+            "version": "2.1.1",
             "download_url": "https://github.com/Justmilomb/StockMarketAI/releases/latest/download/BlankSetup.exe",
             "sha256": "",
             "notes": "",
@@ -556,12 +678,32 @@ def admin_get_logs(
 # ── Admin: releases ──────────────────────────────────────────────────────
 
 def _serialise_release(row: dict[str, Any]) -> dict[str, Any]:
-    """Stringify TIMESTAMPTZ fields so JSONResponse can serialise."""
+    """Stringify TIMESTAMPTZ fields so JSONResponse can serialise.
+
+    Adds a computed ``status`` field the admin UI uses instead of toggling
+    ``is_current`` manually — it reflects whether the release is pending
+    a scheduled publish, currently visible to clients, or superseded.
+    """
     d = dict(row)
+    sched = d.get("scheduled_at")
     if d.get("published_at") is not None:
         d["published_at"] = d["published_at"].isoformat()
+    if sched is not None:
+        now = datetime.now(timezone.utc)
+        if sched.tzinfo is None:
+            sched = sched.replace(tzinfo=timezone.utc)
+        is_future = sched > now
+        d["scheduled_at"] = sched.isoformat()
+    else:
+        is_future = False
     d["mandatory"] = bool(d.get("mandatory", False))
     d["is_current"] = bool(d.get("is_current", False))
+    if is_future:
+        d["status"] = "scheduled"
+    elif d["is_current"]:
+        d["status"] = "live"
+    else:
+        d["status"] = "superseded"
     return d
 
 
@@ -573,8 +715,12 @@ def admin_list_releases(
     """All releases, newest first. Used by the admin Releases tab."""
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT id, version, download_url, sha256, notes, mandatory, "
-            "published_at, is_current FROM releases ORDER BY published_at DESC",
+            """
+            SELECT id, version, download_url, sha256, notes, mandatory,
+                   published_at, is_current, scheduled_at
+              FROM releases
+             ORDER BY COALESCE(scheduled_at, published_at) DESC
+            """,
         )
         rows = cur.fetchall()
     return [_serialise_release(r) for r in rows]
@@ -588,30 +734,73 @@ def admin_create_release(
 ) -> dict[str, Any]:
     """Publish a new release.
 
-    Atomically demotes every existing row (``is_current = FALSE``) and
-    inserts the new one as ``is_current = TRUE``. Re-publishing the
-    same version updates the existing row in place and re-promotes it
-    so the operator can fix a typo without a manual retract step.
+    Immediate publish (``scheduled_at`` is ``None`` or already in the past):
+    demote every existing row and insert the new one as ``is_current = TRUE``.
+    Re-publishing the same version updates the existing row in place and
+    re-promotes it so the operator can fix a typo without retracting.
+
+    Scheduled publish (``scheduled_at`` in the future): insert the release
+    with ``is_current = FALSE`` and leave the currently-live release alone.
+    The scheduled release becomes visible on its own — both ``/api/version``
+    and the landing page query filter on ``scheduled_at <= NOW()``, so the
+    changeover happens the moment the first request arrives after that time.
+    No cron. No background job. If the operator edits ``scheduled_at`` via a
+    re-publish, the ``ON CONFLICT DO UPDATE`` path picks it up.
     """
     if not body.version.strip() or not body.download_url.strip():
         raise HTTPException(status_code=400, detail="version and download_url are required")
 
+    # Parse scheduled_at if given; reject future schedules with bad ISO strings.
+    scheduled_dt: Optional[datetime] = None
+    raw_sched = (body.scheduled_at or "").strip()
+    if raw_sched:
+        try:
+            parsed = datetime.fromisoformat(raw_sched.replace("Z", "+00:00"))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="scheduled_at must be ISO-8601")
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        # Treat a schedule that's already passed as "publish now" — avoids
+        # leaving a confused scheduled_at on what is effectively a live row.
+        if parsed > datetime.now(timezone.utc):
+            scheduled_dt = parsed
+
+    is_scheduled = scheduled_dt is not None
+    mark_current = not is_scheduled
+
     with conn.cursor() as cur:
-        cur.execute("UPDATE releases SET is_current = FALSE WHERE is_current = TRUE")
+        if mark_current:
+            # Only demote existing releases when the new one is going live
+            # right now — scheduled publishes must not yank the current
+            # release out from under clients before their time.
+            cur.execute("UPDATE releases SET is_current = FALSE WHERE is_current = TRUE")
         cur.execute(
             """
-            INSERT INTO releases (version, download_url, sha256, notes, mandatory, is_current, published_at)
-            VALUES (%s, %s, %s, %s, %s, TRUE, NOW())
+            INSERT INTO releases (
+                version, download_url, sha256, notes, mandatory,
+                is_current, published_at, scheduled_at
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, NOW(), %s)
             ON CONFLICT (version) DO UPDATE SET
                 download_url = EXCLUDED.download_url,
                 sha256       = EXCLUDED.sha256,
                 notes        = EXCLUDED.notes,
                 mandatory    = EXCLUDED.mandatory,
-                is_current   = TRUE,
-                published_at = NOW()
-            RETURNING id, version, download_url, sha256, notes, mandatory, published_at, is_current
+                is_current   = EXCLUDED.is_current,
+                published_at = NOW(),
+                scheduled_at = EXCLUDED.scheduled_at
+            RETURNING id, version, download_url, sha256, notes, mandatory,
+                      published_at, is_current, scheduled_at
             """,
-            (body.version, body.download_url, body.sha256, body.notes, body.mandatory),
+            (
+                body.version,
+                body.download_url,
+                body.sha256,
+                body.notes,
+                body.mandatory,
+                mark_current,
+                scheduled_dt,
+            ),
         )
         row = cur.fetchone()
     conn.commit()

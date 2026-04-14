@@ -470,7 +470,20 @@ class UpdateService(QObject):
     # ─── dismissal ──────────────────────────────────────────────────────
 
     def dismiss_version(self, version: str) -> None:
-        """Remember that the user doesn't want the banner for this version."""
+        """Remember that the user doesn't want the banner for this version.
+
+        Mandatory updates are *never* dismissable — if the latest
+        manifest we've seen marks the version as mandatory, we refuse
+        to write ``skip_version`` and leave ``_latest_seen`` alone so
+        the banner / overlay gets re-raised on the next tick.
+        """
+        last = self._last_manifest or {}
+        if (
+            str(last.get("version") or "") == version
+            and bool(last.get("mandatory", False))
+        ):
+            logger.info("refusing to dismiss mandatory version %s", version)
+            return
         updates = self._config.setdefault("updates", {})
         updates["skip_version"] = version
         self._save_config_safely()

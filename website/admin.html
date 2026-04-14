@@ -732,6 +732,16 @@
                         <label>release notes</label>
                         <textarea id="rel-notes" rows="6" placeholder="- Fixed X&#10;- Added Y&#10;- Improved Z"></textarea>
                     </div>
+                    <div class="form-row" style="margin-bottom:0.75rem;">
+                        <div class="toggle-row">
+                            <div id="rel-schedule-toggle" class="toggle" onclick="toggleReleaseSchedule()"></div>
+                            <span>schedule for later</span>
+                        </div>
+                    </div>
+                    <div id="rel-schedule-row" class="form-row" style="display:none;">
+                        <label>publish at (your local time) — clients and the website will only see it after this moment</label>
+                        <input id="rel-schedule-at" type="datetime-local" style="width:100%; background:#000; color:var(--text); border:1px solid var(--border); padding:0.6rem 0.875rem; font-family:'Outfit',sans-serif; font-size:0.8125rem; font-weight:300; outline:none; color-scheme:dark;">
+                    </div>
                     <div class="form-row form-row-inline">
                         <div class="toggle-row">
                             <div id="rel-mandatory" class="toggle"></div>
@@ -742,27 +752,10 @@
                     <p id="rel-status" class="rel-status"></p>
                 </div>
 
-                <div class="release-form" style="margin-top:1.5rem;">
-                    <div class="form-row form-row-inline" style="margin-bottom:0;">
-                        <div class="toggle-row">
-                            <div id="notif-toggle" class="toggle" onclick="toggleSchedule()"></div>
-                            <span>schedule this update</span>
-                        </div>
-                    </div>
-                    <div id="notif-datetime-row" style="display:none; margin-top:1rem;">
-                        <label style="display:block; font-size:0.6875rem; font-weight:300; color:var(--text-dim); letter-spacing:0.08em; margin-bottom:0.4rem;">send at (your local time)</label>
-                        <div style="display:flex; gap:0.75rem; align-items:center;">
-                            <input id="notif-at" type="datetime-local" style="flex:1; background:#000; color:var(--text); border:1px solid var(--border); padding:0.6rem 0.875rem; font-family:'Outfit',sans-serif; font-size:0.8125rem; font-weight:300; outline:none; color-scheme:dark;">
-                            <button onclick="scheduleNotification()" style="background:var(--glow-dim); color:var(--glow); border:1px solid rgba(0,255,135,0.25); padding:0.6rem 1.25rem; font-family:'Outfit',sans-serif; font-size:0.75rem; letter-spacing:0.06em; cursor:pointer; white-space:nowrap;">schedule update</button>
-                        </div>
-                    </div>
-                    <p id="notif-status" class="rel-status" style="margin-top:0.75rem;"></p>
-                </div>
-
                 <p class="section-title" style="margin-top:2.5rem;">release history</p>
                 <div class="table-wrap">
                     <table>
-                        <thead><tr><th>version</th><th>published</th><th>mandatory</th><th>current</th><th>actions</th></tr></thead>
+                        <thead><tr><th>version</th><th>when</th><th>mandatory</th><th>status</th><th>actions</th></tr></thead>
                         <tbody id="releases-tbody"></tbody>
                     </table>
                 </div>
@@ -1024,11 +1017,39 @@
                     text: r.mandatory ? 'yes' : 'no',
                     style: r.mandatory ? {} : { color: 'var(--text-dim)' },
                 });
-                const currBadge = el('span', {
-                    class: r.is_current ? 'badge active' : 'badge',
-                    text: r.is_current ? 'live' : '\u2014',
-                    style: r.is_current ? {} : { color: 'var(--text-dim)' },
-                });
+
+                // status derives from server-computed `status` field, falling
+                // back to is_current for old responses.
+                const status = r.status || (r.is_current ? 'live' : 'superseded');
+                let statusBadge;
+                if (status === 'scheduled') {
+                    statusBadge = el('span', {
+                        class: 'badge',
+                        text: 'scheduled',
+                        style: { color: '#ffd700', borderColor: 'rgba(255,215,0,0.3)' },
+                    });
+                } else if (status === 'live') {
+                    statusBadge = el('span', {
+                        class: 'badge active',
+                        text: 'live',
+                    });
+                } else {
+                    statusBadge = el('span', {
+                        class: 'badge',
+                        text: '\u2014',
+                        style: { color: 'var(--text-dim)' },
+                    });
+                }
+
+                // "when" shows the scheduled time for pending releases and the
+                // publish timestamp for everything else, so the table always
+                // answers "when does this appear to the public?".
+                const whenIso = (status === 'scheduled' && r.scheduled_at)
+                    ? r.scheduled_at
+                    : r.published_at;
+                const whenLabel = (status === 'scheduled' ? 'scheduled ' : '')
+                    + formatReleaseDate(whenIso);
+
                 const retract = el('button', {
                     text: 'retract',
                     style: {
@@ -1041,12 +1062,20 @@
                 });
                 return el('tr', {}, [
                     el('td', { text: r.version, style: { fontFamily: 'monospace', color: 'var(--text)' } }),
-                    el('td', { text: formatReleaseDate(r.published_at) }),
+                    el('td', { text: whenLabel }),
                     el('td', {}, [mandBadge]),
-                    el('td', {}, [currBadge]),
+                    el('td', {}, [statusBadge]),
                     el('td', {}, [retract]),
                 ]);
             }));
+        }
+
+        function toggleReleaseSchedule() {
+            const toggle = document.getElementById('rel-schedule-toggle');
+            const row = document.getElementById('rel-schedule-row');
+            const on = toggle.classList.toggle('on');
+            row.style.display = on ? 'block' : 'none';
+            if (!on) document.getElementById('rel-schedule-at').value = '';
         }
 
         async function publishRelease() {
@@ -1055,13 +1084,33 @@
             const sha = document.getElementById('rel-sha').value.trim();
             const notes = document.getElementById('rel-notes').value.trim();
             const mandatory = document.getElementById('rel-mandatory').classList.contains('on');
+            const scheduled = document.getElementById('rel-schedule-toggle').classList.contains('on');
 
             if (!version || !url) {
                 setRelStatus('version and download url are required', 'err');
                 return;
             }
 
-            setRelStatus('publishing\u2026', '');
+            let scheduledAt = null;
+            if (scheduled) {
+                const atRaw = document.getElementById('rel-schedule-at').value;
+                if (!atRaw) {
+                    setRelStatus('pick a schedule time or turn off scheduling', 'err');
+                    return;
+                }
+                const when = new Date(atRaw);
+                if (isNaN(when.getTime())) {
+                    setRelStatus('invalid schedule time', 'err');
+                    return;
+                }
+                if (when.getTime() <= Date.now()) {
+                    setRelStatus('schedule time must be in the future', 'err');
+                    return;
+                }
+                scheduledAt = when.toISOString();
+            }
+
+            setRelStatus(scheduled ? 'scheduling\u2026' : 'publishing\u2026', '');
             let result;
             try {
                 result = await api('/api/admin/releases', {
@@ -1072,6 +1121,7 @@
                         sha256: sha,
                         notes: notes,
                         mandatory: mandatory,
+                        scheduled_at: scheduledAt,
                     }),
                 });
             } catch (e) {
@@ -1080,60 +1130,31 @@
             }
 
             if (result && result.version) {
-                setRelStatus('published ' + result.version + ' \u2014 clients will pick it up within 30 min', 'ok');
+                if (result.status === 'scheduled' && result.scheduled_at) {
+                    setRelStatus(
+                        'scheduled ' + result.version + ' for '
+                            + new Date(result.scheduled_at).toLocaleString('en-GB')
+                            + ' \u2014 website update log will show it at that time',
+                        'ok',
+                    );
+                } else {
+                    setRelStatus(
+                        'published ' + result.version
+                            + ' \u2014 website update log refreshed; clients pick it up within 30 min',
+                        'ok',
+                    );
+                }
                 document.getElementById('rel-version').value = '';
                 document.getElementById('rel-sha').value = '';
                 document.getElementById('rel-notes').value = '';
                 document.getElementById('rel-mandatory').classList.remove('on');
+                document.getElementById('rel-schedule-toggle').classList.remove('on');
+                document.getElementById('rel-schedule-row').style.display = 'none';
+                document.getElementById('rel-schedule-at').value = '';
                 loadReleases();
             } else {
                 setRelStatus((result && result.detail) || 'publish failed', 'err');
             }
-        }
-
-        function setNotifStatus(msg, kind) {
-            const s = document.getElementById('notif-status');
-            s.textContent = msg || '';
-            s.className = 'rel-status' + (kind ? ' ' + kind : '');
-        }
-
-        function toggleSchedule() {
-            const toggle = document.getElementById('notif-toggle');
-            const row = document.getElementById('notif-datetime-row');
-            const on = toggle.classList.toggle('on');
-            row.style.display = on ? 'block' : 'none';
-            if (!on) clearNotification();
-        }
-
-        async function scheduleNotification() {
-            const atRaw = document.getElementById('notif-at').value;
-            if (!atRaw) { setNotifStatus('pick a date and time first', 'err'); return; }
-            const version = document.getElementById('rel-version').value.trim()
-                || 'latest';
-            const msg = `A new update (v${version}) is available. Restart blank to install it.`;
-            const notifyAt = new Date(atRaw).toISOString();
-            setNotifStatus('scheduling\u2026', '');
-            try {
-                const result = await api('/api/admin/notifications/schedule', {
-                    method: 'POST',
-                    body: JSON.stringify({ message: msg, notify_at: notifyAt }),
-                });
-                if (result && result.status === 'scheduled') {
-                    setNotifStatus('scheduled for ' + new Date(notifyAt).toLocaleString('en-GB'), 'ok');
-                } else {
-                    setNotifStatus((result && result.detail) || 'failed', 'err');
-                }
-            } catch (e) {
-                setNotifStatus('error: ' + String(e), 'err');
-            }
-        }
-
-        async function clearNotification() {
-            try {
-                await api('/api/admin/notifications', { method: 'DELETE' });
-                document.getElementById('notif-at').value = '';
-                setNotifStatus('', '');
-            } catch (e) { /* silent */ }
         }
 
         async function retractRelease(version) {

@@ -46,6 +46,7 @@ from desktop.panels.chart import ChartPanel
 from desktop.panels.agent_log import AgentLogPanel
 from desktop.panels.exchanges import ExchangesPanel
 from desktop.panels.update_banner import UpdateBanner
+from desktop.panels.mandatory_update_overlay import MandatoryUpdateOverlay
 from desktop.widgets.mode_banner import ModeBanner
 from desktop.widgets.mode_watermark import ModeWatermark
 from desktop.dialogs.about import AboutDialog
@@ -203,6 +204,10 @@ class MainWindow(QMainWindow):
         central_layout.setContentsMargins(0, 0, 0, 0)
         central_layout.setSpacing(0)
         self.update_banner = UpdateBanner(self)
+        # Floating always-on-top overlay used only for mandatory updates.
+        # Not in the central layout — it's a detached top-level window
+        # parented to MainWindow so it closes with the app.
+        self.mandatory_overlay = MandatoryUpdateOverlay(self)
         self.mode_banner = ModeBanner(self)
         self.mode_banner.set_mode(self.state.agent_paper_mode)
         self.mode_banner.mode_clicked.connect(self._toggle_agent_paper_mode)
@@ -531,7 +536,7 @@ class MainWindow(QMainWindow):
 
         # Service -> banner / overlay
         self.update_service.update_available.connect(self._on_update_available)
-        self.update_service.update_download_progress.connect(self.update_banner.set_downloading)
+        self.update_service.update_download_progress.connect(self._on_update_download_progress)
         self.update_service.update_error.connect(self._on_update_error)
         self.update_service.update_installing.connect(self._on_update_installing)
         self.update_service.schedule_changed.connect(self._on_schedule_changed)
@@ -544,14 +549,33 @@ class MainWindow(QMainWindow):
         self.update_banner.skip_clicked.connect(self.update_service.dismiss_version)
         self.update_banner.cancel_schedule_clicked.connect(self.update_service.cancel_schedule)
 
+        # Mandatory overlay -> service (only install; no skip/schedule)
+        self.mandatory_overlay.install_now_clicked.connect(self.update_service.install_now)
+
         self.update_service.start()
 
     @Slot(dict)
     def _on_update_available(self, manifest: Dict[str, Any]) -> None:
-        """Surface a new manifest in the banner + status bar."""
-        self.update_banner.show_update(manifest)
+        """Surface a new manifest — mandatory uses the floating overlay,
+        optional uses the regular embedded banner.
+        """
         version = manifest.get("version", "")
-        self._status_label.setText(f"  Update v{version} available")
+        if bool(manifest.get("mandatory", False)):
+            # Hide the embedded banner so the user only sees the
+            # undismissable overlay — no second exit hatch.
+            self.update_banner.hide_banner()
+            self.mandatory_overlay.show_mandatory(manifest)
+            self._status_label.setText(f"  Update v{version} required")
+        else:
+            self.mandatory_overlay.hide_overlay()
+            self.update_banner.show_update(manifest)
+            self._status_label.setText(f"  Update v{version} available")
+
+    @Slot(int)
+    def _on_update_download_progress(self, percent: int) -> None:
+        """Fan out the download percentage to whichever widget is live."""
+        self.update_banner.set_downloading(percent)
+        self.mandatory_overlay.set_downloading(percent)
 
     @Slot(dict)
     def _on_schedule_requested(self, manifest: Dict[str, Any]) -> None:
@@ -582,11 +606,13 @@ class MainWindow(QMainWindow):
     @Slot(str)
     def _on_update_error(self, message: str) -> None:
         self.update_banner.set_error(message)
+        self.mandatory_overlay.set_error(message)
         logger.warning("update error: %s", message)
 
     @Slot(str)
     def _on_update_installing(self, installer_path: str) -> None:
         self.update_banner.set_installing()
+        self.mandatory_overlay.set_installing()
         logger.info("installer launched: %s", installer_path)
 
     @Slot(bool, str)
