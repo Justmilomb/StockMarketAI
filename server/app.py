@@ -77,11 +77,16 @@ def _init_db(conn: psycopg2.extensions.connection) -> None:
                 scheduled_at TIMESTAMPTZ
             );
             CREATE INDEX IF NOT EXISTS idx_releases_current ON releases(is_current);
-            CREATE INDEX IF NOT EXISTS idx_releases_schedule ON releases(scheduled_at);
         """)
         # Additive migration for databases that pre-date scheduled releases.
+        # Must run before creating the scheduled_at index — if the table already
+        # exists without this column, the index CREATE above would fail with
+        # UndefinedColumn and abort the whole transaction.
         cur.execute(
             "ALTER TABLE releases ADD COLUMN IF NOT EXISTS scheduled_at TIMESTAMPTZ",
+        )
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS idx_releases_schedule ON releases(scheduled_at)",
         )
     conn.commit()
     # seed default config if missing — use INSERT … ON CONFLICT DO NOTHING so
