@@ -700,6 +700,16 @@
             <div class="section" data-section="config">
                 <p class="section-title">application config</p>
                 <div class="config-grid" id="config-grid"></div>
+                <div class="release-form" style="margin-top:0;">
+                    <div class="form-row">
+                        <label>maintenance message — shown on every terminal while maintenance mode is on</label>
+                        <textarea id="maintenance-msg" rows="3" placeholder="e.g. We're performing scheduled maintenance. Back in 30 minutes."></textarea>
+                    </div>
+                    <div style="display:flex; align-items:center; gap:1rem; margin-top:0.25rem;">
+                        <button id="btn-save-msg" onclick="saveMaintenanceMessage()" style="background:var(--glow-dim); color:var(--glow); border:1px solid rgba(0,255,135,0.25); padding:0.5rem 1.25rem; font-family:'Outfit',sans-serif; font-size:0.75rem; letter-spacing:0.06em; cursor:pointer;">save message</button>
+                        <span id="maintenance-msg-status" style="font-size:0.6875rem; color:var(--glow); opacity:0; transition:opacity 0.3s ease; font-family:monospace;">saved</span>
+                    </div>
+                </div>
             </div>
 
             <!-- releases — publish + history -->
@@ -730,6 +740,23 @@
                         <button id="btn-publish">publish release</button>
                     </div>
                     <p id="rel-status" class="rel-status"></p>
+                </div>
+
+                <p class="section-title" style="margin-top:2.5rem;">schedule notification</p>
+                <div class="release-form">
+                    <div class="form-row">
+                        <label>message — shown as a prompt on every terminal at the scheduled time</label>
+                        <textarea id="notif-msg" rows="3" placeholder="e.g. A new update is available. Please restart blank to install v2.0.2."></textarea>
+                    </div>
+                    <div class="form-row">
+                        <label>send at (your local time)</label>
+                        <input id="notif-at" type="datetime-local" style="width:100%; background:#000; color:var(--text); border:1px solid var(--border); padding:0.6rem 0.875rem; font-family:'Outfit',sans-serif; font-size:0.8125rem; font-weight:300; outline:none; color-scheme:dark;">
+                    </div>
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-top:0.25rem;">
+                        <button id="btn-clear-notif" onclick="clearNotification()" style="background:none; color:var(--text-dim); border:1px solid var(--border); padding:0.5rem 1rem; font-family:'Outfit',sans-serif; font-size:0.75rem; cursor:pointer;">clear</button>
+                        <button id="btn-schedule-notif" onclick="scheduleNotification()" style="background:var(--glow-dim); color:var(--glow); border:1px solid rgba(0,255,135,0.25); padding:0.5rem 1.25rem; font-family:'Outfit',sans-serif; font-size:0.75rem; letter-spacing:0.06em; cursor:pointer;">schedule notification</button>
+                    </div>
+                    <p id="notif-status" class="rel-status"></p>
                 </div>
 
                 <p class="section-title" style="margin-top:2.5rem;">release history</p>
@@ -918,79 +945,41 @@
             loadStats();
         }
 
-        // config keys that are dangerous — shown with red labels
-        const DANGER_KEYS = new Set(['kill_switch', 'maintenance_mode']);
-        // display labels for config keys
-        const CONFIG_LABELS = {
-            kill_switch: 'kill switch — emergency stop',
-            maintenance_mode: 'maintenance mode — pauses app',
-            force_update: 'force update prompt',
-        };
-        // only show these keys — everything else is hidden
-        const CONFIG_ORDER = [
-            'kill_switch', 'maintenance_mode',
-            'force_update',
-        ];
-        const CONFIG_VISIBLE = new Set(CONFIG_ORDER);
-
         async function loadConfig() {
             const config = await api('/api/admin/config');
             const grid = document.getElementById('config-grid');
 
-            // only show keys in CONFIG_VISIBLE, sorted by CONFIG_ORDER
-            const keys = Object.keys(config)
-                .filter(function(k) { return CONFIG_VISIBLE.has(k); })
-                .sort(function(a, b) {
-                    return CONFIG_ORDER.indexOf(a) - CONFIG_ORDER.indexOf(b);
+            const isOn = config['maintenance_mode'] === 'true';
+            const toggle = el('div', { class: 'toggle' + (isOn ? ' on' : '') });
+            toggle.addEventListener('click', async function() {
+                const on = toggle.classList.contains('on');
+                toggle.classList.toggle('on');
+                await api('/api/admin/config', {
+                    method: 'PUT',
+                    body: JSON.stringify({ key: 'maintenance_mode', value: on ? 'false' : 'true' }),
                 });
-
-            const items = keys.map(function(k) {
-                var v = config[k];
-                var label = CONFIG_LABELS[k] || k;
-                var isDanger = DANGER_KEYS.has(k);
-
-                if (v === 'true' || v === 'false') {
-                    const toggle = el('div', { class: 'toggle' + (v === 'true' ? ' on' : ''), 'data-config': k });
-                    toggle.addEventListener('click', async function() {
-                        const isOn = toggle.classList.contains('on');
-                        toggle.classList.toggle('on');
-                        await api('/api/admin/config', {
-                            method: 'PUT',
-                            body: JSON.stringify({ key: k, value: isOn ? 'false' : 'true' }),
-                        });
-                    });
-                    return el('div', { class: 'config-item' + (isDanger ? ' config-danger' : '') }, [
-                        el('span', { class: 'config-key', text: label }), toggle,
-                    ]);
-                }
-
-                // editable text/number input
-                var saved = el('span', { class: 'config-saved', text: 'saved' });
-                var input = el('input', {
-                    class: 'config-input',
-                    type: 'text',
-                    value: v,
-                });
-                var debounce = null;
-                input.addEventListener('input', function() {
-                    clearTimeout(debounce);
-                    saved.classList.remove('show');
-                    debounce = setTimeout(async function() {
-                        await api('/api/admin/config', {
-                            method: 'PUT',
-                            body: JSON.stringify({ key: k, value: input.value }),
-                        });
-                        saved.classList.add('show');
-                        setTimeout(function() { saved.classList.remove('show'); }, 1500);
-                    }, 600);
-                });
-
-                return el('div', { class: 'config-item' }, [
-                    el('span', { class: 'config-key', text: label }),
-                    el('div', { style: { display: 'flex', alignItems: 'center' } }, [input, saved]),
-                ]);
             });
-            grid.replaceChildren(...items);
+
+            grid.replaceChildren(
+                el('div', { class: 'config-item config-danger' }, [
+                    el('span', { class: 'config-key', text: 'maintenance mode' }), toggle,
+                ]),
+            );
+
+            // Message textarea lives below the grid
+            document.getElementById('maintenance-msg').value = config['maintenance_message'] || '';
+        }
+
+        async function saveMaintenanceMessage() {
+            const msg = document.getElementById('maintenance-msg').value;
+            const status = document.getElementById('maintenance-msg-status');
+            await api('/api/admin/config', {
+                method: 'PUT',
+                body: JSON.stringify({ key: 'maintenance_message', value: msg }),
+            });
+            status.textContent = 'saved';
+            status.style.opacity = '1';
+            setTimeout(function() { status.style.opacity = '0'; }, 1500);
         }
 
         // ── releases ─────────────────────────────────────────────────
@@ -1099,6 +1088,47 @@
                 loadReleases();
             } else {
                 setRelStatus((result && result.detail) || 'publish failed', 'err');
+            }
+        }
+
+        function setNotifStatus(msg, kind) {
+            const s = document.getElementById('notif-status');
+            s.textContent = msg || '';
+            s.className = 'rel-status' + (kind ? ' ' + kind : '');
+        }
+
+        async function scheduleNotification() {
+            const msg = document.getElementById('notif-msg').value.trim();
+            const atRaw = document.getElementById('notif-at').value;
+            if (!msg) { setNotifStatus('message is required', 'err'); return; }
+            if (!atRaw) { setNotifStatus('send time is required', 'err'); return; }
+            // Convert local datetime-local value to UTC ISO string
+            const notifyAt = new Date(atRaw).toISOString();
+            setNotifStatus('scheduling\u2026', '');
+            try {
+                const result = await api('/api/admin/notifications/schedule', {
+                    method: 'POST',
+                    body: JSON.stringify({ message: msg, notify_at: notifyAt }),
+                });
+                if (result && result.status === 'scheduled') {
+                    setNotifStatus('scheduled \u2014 terminals will show the message at ' + new Date(notifyAt).toLocaleString('en-GB'), 'ok');
+                } else {
+                    setNotifStatus((result && result.detail) || 'scheduling failed', 'err');
+                }
+            } catch (e) {
+                setNotifStatus('error: ' + String(e), 'err');
+            }
+        }
+
+        async function clearNotification() {
+            setNotifStatus('clearing\u2026', '');
+            try {
+                await api('/api/admin/notifications', { method: 'DELETE' });
+                document.getElementById('notif-msg').value = '';
+                document.getElementById('notif-at').value = '';
+                setNotifStatus('cleared', 'ok');
+            } catch (e) {
+                setNotifStatus('error: ' + String(e), 'err');
             }
         }
 

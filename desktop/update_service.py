@@ -143,6 +143,8 @@ class UpdateService(QObject):
     update_error = Signal(str)
     update_installing = Signal(str)
     schedule_changed = Signal(object)
+    maintenance_changed = Signal(bool, str)   # (active, message)
+    notification_received = Signal(str)       # message to display once
 
     def __init__(
         self,
@@ -164,10 +166,9 @@ class UpdateService(QObject):
 
         self._download: Optional[_DownloadWorker] = None
         self._last_manifest: Optional[dict[str, Any]] = None
-        # Remember the most-recent version we've already raised so a
-        # second poll within the same session doesn't re-show the banner
-        # right after the user dismisses it.
         self._latest_seen: Optional[str] = None
+        self._maintenance_active: bool = False
+        self._notif_seen_at: Optional[str] = None  # notification_at we've already fired
 
     # ─── lifecycle ──────────────────────────────────────────────────────
 
@@ -200,6 +201,31 @@ class UpdateService(QObject):
         manifest = self._fetch_manifest()
         if manifest is None:
             return
+
+        # ── Maintenance mode ─────────────────────────────────────────────
+        maintenance = bool(manifest.get("maintenance", False))
+        maint_msg = str(manifest.get("maintenance_message", "") or "")
+        if maintenance != self._maintenance_active:
+            self._maintenance_active = maintenance
+            self.maintenance_changed.emit(maintenance, maint_msg)
+        elif maintenance and maint_msg:
+            # message may have changed even if mode didn't flip
+            self.maintenance_changed.emit(True, maint_msg)
+
+        # ── Scheduled notification ───────────────────────────────────────
+        notif_msg = str(manifest.get("notification_message", "") or "")
+        notif_at_raw = str(manifest.get("notification_at", "") or "")
+        if notif_msg and notif_at_raw and notif_at_raw != self._notif_seen_at:
+            notif_at = self._parse_scheduled_at(notif_at_raw)
+            if notif_at is not None:
+                now = datetime.now(timezone.utc)
+                # Fire if the scheduled time has passed but is within the
+                # last 24 hours (so stale notifications don't haunt restarts)
+                if notif_at <= now <= notif_at + timedelta(hours=24):
+                    self._notif_seen_at = notif_at_raw
+                    self.notification_received.emit(notif_msg)
+
+        # ── Update check ─────────────────────────────────────────────────
         remote = str(manifest.get("version", "") or "")
         if not remote:
             return

@@ -78,17 +78,20 @@ def _init_db(conn: psycopg2.extensions.connection) -> None:
             CREATE INDEX IF NOT EXISTS idx_releases_current ON releases(is_current);
         """)
     conn.commit()
-    # seed default config if empty
+    # seed default config if missing — use INSERT … ON CONFLICT DO NOTHING so
+    # re-runs on an existing database never overwrite admin changes.
     with conn.cursor() as cur:
-        cur.execute("SELECT COUNT(*) AS c FROM config")
-        if cur.fetchone()["c"] == 0:
-            defaults = [
-                ("kill_switch", "false"),
-                ("maintenance_mode", "false"),
-                ("force_update", "false"),
-            ]
-            for k, v in defaults:
-                cur.execute("INSERT INTO config (key, value) VALUES (%s, %s)", (k, v))
+        defaults = [
+            ("maintenance_mode", "false"),
+            ("maintenance_message", ""),
+            ("notification_message", ""),
+            ("notification_at", ""),
+        ]
+        for k, v in defaults:
+            cur.execute(
+                "INSERT INTO config (key, value) VALUES (%s, %s) ON CONFLICT (key) DO NOTHING",
+                (k, v),
+            )
     conn.commit()
 
 
@@ -147,6 +150,11 @@ class ReleaseCreateRequest(BaseModel):
     sha256: str = ""
     notes: str = ""
     mandatory: bool = False
+
+
+class ScheduleNotificationRequest(BaseModel):
+    message: str
+    notify_at: str  # ISO-8601 UTC timestamp
 
 
 # ── Auth ─────────────────────────────────────────────────────────────────
@@ -210,10 +218,8 @@ def version_info(
 ) -> dict[str, Any]:
     """Public update manifest consumed by the desktop ``UpdateService``.
 
-    Reads the most-recent ``releases`` row with ``is_current = TRUE``
-    and returns the full manifest. Falls back to the legacy hardcoded
-    v1.0.0 payload when no row exists, so v1 clients in the wild keep
-    getting *some* response while we're between admin publishes.
+    Also includes maintenance mode state and any scheduled notification
+    so the client can react without needing a separate polling endpoint.
     """
     with conn.cursor() as cur:
         cur.execute(
@@ -223,14 +229,26 @@ def version_info(
         )
         row = cur.fetchone()
 
+        cur.execute("SELECT key, value FROM config WHERE key IN "
+                    "('maintenance_mode','maintenance_message','notification_message','notification_at')")
+        cfg = {r["key"]: r["value"] for r in cur.fetchall()}
+
+    base = {
+        "maintenance": cfg.get("maintenance_mode", "false") == "true",
+        "maintenance_message": cfg.get("maintenance_message", ""),
+        "notification_message": cfg.get("notification_message", ""),
+        "notification_at": cfg.get("notification_at", ""),
+    }
+
     if not row:
         return {
-            "version": "2.0.0",
+            "version": "2.0.1",
             "download_url": "https://github.com/Justmilomb/StockMarketAI/releases/latest/download/BlankSetup.exe",
             "sha256": "",
             "notes": "",
             "mandatory": False,
             "published_at": None,
+            **base,
         }
 
     return {
@@ -240,6 +258,7 @@ def version_info(
         "notes": row["notes"] or "",
         "mandatory": bool(row["mandatory"]),
         "published_at": row["published_at"].isoformat() if row["published_at"] else None,
+        **base,
     }
 
 
@@ -637,6 +656,55 @@ def admin_retract_release(
                 new_current = _serialise_release(cur.fetchone())
     conn.commit()
     return {"retracted": version, "new_current": new_current}
+
+
+# ── Admin: notifications ─────────────────────────────────────────────────
+
+@app.post("/api/admin/notifications/schedule")
+def admin_schedule_notification(
+    body: ScheduleNotificationRequest,
+    _: str = Depends(require_admin),
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> dict[str, str]:
+    """Schedule a broadcast notification for all connected terminals."""
+    if not body.message.strip():
+        raise HTTPException(status_code=400, detail="message is required")
+    if not body.notify_at.strip():
+        raise HTTPException(status_code=400, detail="notify_at is required")
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO config (key, value, updated_at) VALUES (%s, %s, NOW()) "
+            "ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()",
+            ("notification_message", body.message),
+        )
+        cur.execute(
+            "INSERT INTO config (key, value, updated_at) VALUES (%s, %s, NOW()) "
+            "ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()",
+            ("notification_at", body.notify_at),
+        )
+    conn.commit()
+    return {"status": "scheduled", "notify_at": body.notify_at}
+
+
+@app.delete("/api/admin/notifications")
+def admin_clear_notification(
+    _: str = Depends(require_admin),
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> dict[str, str]:
+    """Clear the scheduled notification."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO config (key, value, updated_at) VALUES (%s, %s, NOW()) "
+            "ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()",
+            ("notification_message", ""),
+        )
+        cur.execute(
+            "INSERT INTO config (key, value, updated_at) VALUES (%s, %s, NOW()) "
+            "ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()",
+            ("notification_at", ""),
+        )
+    conn.commit()
+    return {"status": "cleared"}
 
 
 # ── Run ──────────────────────────────────────────────────────────────────

@@ -116,7 +116,11 @@ class MainWindow(QMainWindow):
         # Phase 4 agent runner — created lazily when the user starts it.
         self.agent_runner: Optional[AgentRunner] = None
         agent_cfg = self.config.get("agent", {}) or {}
-        self.state.agent_paper_mode = bool(agent_cfg.get("paper_mode", True))
+        self.state.agent_paper_mode = bool(agent_cfg.get("paper_mode", False))
+
+        # Buffer accumulates text_chunk blocks across one iteration; flushed
+        # to chat at iteration end so the user sees the full agent message.
+        self._agent_text_buffer: List[str] = []
 
         # Phase 5 scraper runner — refreshes the news/social cache in
         # the background. Started after _build_ui so the watchlist
@@ -435,6 +439,10 @@ class MainWindow(QMainWindow):
 
         QTimer.singleShot(100, self.action_refresh_data)
 
+        # Auto-start the agent when the app launches in AUTO mode.
+        if self.state.mode == "full_auto_limited":
+            QTimer.singleShot(1500, self._on_agent_start)
+
     def _init_update_service(self) -> None:
         """Create the UpdateService and wire its signals to the banner.
 
@@ -450,12 +458,14 @@ class MainWindow(QMainWindow):
             config_saver=self._save_config,
         )
 
-        # Service -> banner
+        # Service -> banner / overlay
         self.update_service.update_available.connect(self._on_update_available)
         self.update_service.update_download_progress.connect(self.update_banner.set_downloading)
         self.update_service.update_error.connect(self._on_update_error)
         self.update_service.update_installing.connect(self._on_update_installing)
         self.update_service.schedule_changed.connect(self._on_schedule_changed)
+        self.update_service.maintenance_changed.connect(self._on_maintenance_changed)
+        self.update_service.notification_received.connect(self._on_notification_received)
 
         # Banner -> service
         self.update_banner.install_now_clicked.connect(self.update_service.install_now)
@@ -507,6 +517,70 @@ class MainWindow(QMainWindow):
     def _on_update_installing(self, installer_path: str) -> None:
         self.update_banner.set_installing()
         logger.info("installer launched: %s", installer_path)
+
+    @Slot(bool, str)
+    def _on_maintenance_changed(self, active: bool, message: str) -> None:
+        """Show or hide the full-window maintenance overlay."""
+        if active:
+            if not hasattr(self, "_maintenance_overlay") or self._maintenance_overlay is None:
+                from PySide6.QtWidgets import QVBoxLayout, QWidget
+                from PySide6.QtCore import Qt
+
+                overlay = QWidget(self)
+                overlay.setObjectName("maintenanceOverlay")
+                overlay.setStyleSheet(
+                    "#maintenanceOverlay { background: rgba(10,10,10,0.93); }"
+                )
+                layout = QVBoxLayout(overlay)
+                layout.setAlignment(Qt.AlignCenter)
+
+                from PySide6.QtWidgets import QLabel
+                icon = QLabel("⚙")
+                icon.setStyleSheet("color: #ffd700; font-size: 48px;")
+                icon.setAlignment(Qt.AlignCenter)
+
+                title = QLabel("MAINTENANCE")
+                title.setStyleSheet(
+                    "color: #ffd700; font-size: 18px; font-weight: bold; "
+                    "letter-spacing: 0.2em; margin-top: 12px;"
+                )
+                title.setAlignment(Qt.AlignCenter)
+
+                self._maintenance_msg_label = QLabel(message or "Back soon.")
+                self._maintenance_msg_label.setStyleSheet(
+                    "color: rgba(255,255,255,0.55); font-size: 13px; "
+                    "margin-top: 8px; max-width: 480px;"
+                )
+                self._maintenance_msg_label.setAlignment(Qt.AlignCenter)
+                self._maintenance_msg_label.setWordWrap(True)
+
+                layout.addWidget(icon)
+                layout.addWidget(title)
+                layout.addWidget(self._maintenance_msg_label)
+                self._maintenance_overlay = overlay
+
+            else:
+                self._maintenance_msg_label.setText(message or "Back soon.")
+
+            self._maintenance_overlay.setGeometry(self.rect())
+            self._maintenance_overlay.raise_()
+            self._maintenance_overlay.show()
+            self.statusBar().showMessage("MAINTENANCE MODE — terminal paused", 0)
+        else:
+            if hasattr(self, "_maintenance_overlay") and self._maintenance_overlay:
+                self._maintenance_overlay.hide()
+            self.statusBar().showMessage("Maintenance mode ended", 4000)
+
+    def resizeEvent(self, event: Any) -> None:
+        super().resizeEvent(event)
+        if hasattr(self, "_maintenance_overlay") and self._maintenance_overlay and self._maintenance_overlay.isVisible():
+            self._maintenance_overlay.setGeometry(self.rect())
+
+    @Slot(str)
+    def _on_notification_received(self, message: str) -> None:
+        """Show a timed notification banner in the status bar and chat."""
+        self.statusBar().showMessage(f"  {message}", 0)
+        self._add_chat_response(f"[notification] {message}")
 
     def _populate_placeholder_signals(self) -> None:
         """Create a minimal signals DataFrame from config tickers."""
@@ -772,6 +846,10 @@ class MainWindow(QMainWindow):
         self._save_config_key("terminal.mode", self.state.mode)
         self._update_header()
         self._refresh_all_panels()
+        if self.state.mode == "full_auto_limited":
+            self._on_agent_start()
+        else:
+            self._on_agent_stop()
         self.statusBar().showMessage(
             f"Mode: {self.state.mode}", 3000,
         )
@@ -960,6 +1038,7 @@ class MainWindow(QMainWindow):
         )
         self.agent_runner.status_changed.connect(self._on_agent_status_changed)
         self.agent_runner.log_line.connect(self._on_agent_log_line)
+        self.agent_runner.text_chunk.connect(self._on_agent_text_chunk)
         self.agent_runner.iteration_started.connect(self._on_agent_iteration_started)
         self.agent_runner.iteration_finished.connect(self._on_agent_iteration_finished)
         self.agent_runner.error_occurred.connect(self._on_agent_error_occurred)
@@ -985,15 +1064,25 @@ class MainWindow(QMainWindow):
         self.agent_log_panel.append_line(line)
 
     @Slot(str)
+    def _on_agent_text_chunk(self, chunk: str) -> None:
+        self._agent_text_buffer.append(chunk)
+
+    @Slot(str)
     def _on_agent_iteration_started(self, iteration_id: str) -> None:
         from datetime import datetime
         self.state.last_iteration_ts = datetime.now()
+        self._agent_text_buffer.clear()
 
     @Slot(str, str)
     def _on_agent_iteration_finished(self, iteration_id: str, summary: str) -> None:
-        if summary:
-            self.state.last_summary = summary
-            self._add_chat_response(f"[agent {iteration_id}] {summary}")
+        # Prefer the full agent text accumulated during streaming; fall back
+        # to the end_iteration summary if the buffer is empty.
+        full_text = "".join(self._agent_text_buffer).strip()
+        self._agent_text_buffer.clear()
+        message = full_text or summary
+        if message:
+            self.state.last_summary = summary or full_text
+            self._add_chat_response(message)
         self._refresh_all_panels()
 
     @Slot(str)

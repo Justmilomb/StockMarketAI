@@ -99,7 +99,9 @@
       "Bash(cmd.exe //c \"start /b E:\\\\Coding\\\\StockMarketAI\\\\dist\\\\blank.exe & timeout /t 6 /nobreak > nul & taskkill /im blank.exe /f\")",
       "Bash(SSL_CERT_FILE=$\\(python -c \"import certifi; print\\(certifi.where\\(\\)\\)\"\\) python -c \"import requests; r = requests.get\\('https://example.com/', timeout=10\\); print\\(r.status_code, len\\(r.text\\)\\)\")",
       "Bash(gh auth:*)",
-      "Bash(xargs head:*)"
+      "Bash(xargs head:*)",
+      "Bash(e:/Coding/StockMarketAI/.venv/Scripts/python.exe:*)",
+      "Bash(e:/Coding/StockMarketAI/.venv/Scripts/pip.exe install:*)"
     ]
   }
 }
