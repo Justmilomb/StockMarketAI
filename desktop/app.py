@@ -46,15 +46,17 @@ from desktop.panels.chart import ChartPanel
 from desktop.panels.agent_log import AgentLogPanel
 from desktop.panels.exchanges import ExchangesPanel
 from desktop.panels.update_banner import UpdateBanner
+from desktop.widgets.mode_banner import ModeBanner
+from desktop.widgets.mode_watermark import ModeWatermark
 from desktop.dialogs.about import AboutDialog
 from desktop.dialogs.schedule_update import ScheduleUpdateDialog
 from desktop.update_service import UpdateService
 from desktop.workers import BackgroundTask
 
-# Phase 4: Claude agent runner. Lifecycle is owned by MainWindow; the
-# runner lazy-imports claude-agent-sdk the first time it starts, so
-# importing this module at boot is cheap.
-from core.agent.runner import AgentRunner
+# Phase 4: Claude agent pool owns the supervisor + chat-worker fleet.
+# AgentRunner itself is still used, but only via AgentPool so paper
+# broker state and the wake cadence are shared across agents.
+from core.agent.pool import AgentPool
 
 
 class MainWindow(QMainWindow):
@@ -113,10 +115,18 @@ class MainWindow(QMainWindow):
 
         self._active_workers: List[BackgroundTask] = []
 
-        # Phase 4 agent runner — created lazily when the user starts it.
-        self.agent_runner: Optional[AgentRunner] = None
+        # Phase 4 agent pool — supervisor + chat worker fleet.
+        # The pool is built eagerly (cheap), but the supervisor runner
+        # inside it is only created lazily when Start Agent is clicked.
+        self.agent_pool: Optional[AgentPool] = None
         agent_cfg = self.config.get("agent", {}) or {}
         self.state.agent_paper_mode = bool(agent_cfg.get("paper_mode", False))
+
+        # Chat worker bookkeeping — we track active worker IDs so we
+        # can show "AI thinking (2)" when many workers are alive and
+        # route their incremental text back into the chat panel.
+        self._chat_worker_ids: set[str] = set()
+        self._chat_worker_buffers: Dict[str, List[str]] = {}
 
         # Buffer accumulates text_chunk blocks across one iteration; flushed
         # to chat at iteration end so the user sees the full agent message.
@@ -183,21 +193,32 @@ class MainWindow(QMainWindow):
         )
         menu_bar.setCornerWidget(self._header_label, Qt.TopRightCorner)
 
-        # Central widget wraps the update banner + chart panel. The
-        # banner sits pinned to the top edge of the central area and
-        # stays hidden unless the UpdateService pushes a manifest; it
-        # spans the chart column only (not the dock rails), which is
-        # fine — every user sees the central area regardless of panel
-        # layout, so they'll notice it.
+        # Central widget wraps the update banner + mode banner + chart
+        # panel. Mode banner is loud and pinned above the chart so
+        # paper/live is *unmissable*. UpdateBanner stays hidden unless
+        # the service pushes a manifest.
         self.chart_panel = ChartPanel(self.state)
         central = QWidget()
         central_layout = QVBoxLayout(central)
         central_layout.setContentsMargins(0, 0, 0, 0)
         central_layout.setSpacing(0)
         self.update_banner = UpdateBanner(self)
+        self.mode_banner = ModeBanner(self)
+        self.mode_banner.set_mode(self.state.agent_paper_mode)
+        self.mode_banner.mode_clicked.connect(self._toggle_agent_paper_mode)
         central_layout.addWidget(self.update_banner)
+        central_layout.addWidget(self.mode_banner)
         central_layout.addWidget(self.chart_panel, 1)
         self.setCentralWidget(central)
+
+        # Faint rotated watermark sits *over* the chart panel so the
+        # word PAPER / LIVE bleeds through even if the banner is
+        # hidden. Transparent to mouse events.
+        self.mode_watermark = ModeWatermark(self.chart_panel)
+        self.mode_watermark.set_mode(self.state.agent_paper_mode)
+        self.mode_watermark.resize(self.chart_panel.size())
+        self.mode_watermark.raise_()
+        self.mode_watermark.show()
 
         self.settings_panel = SettingsPanel(self.state)
         self.chat_panel = ChatPanel(self.state)
@@ -278,6 +299,51 @@ class MainWindow(QMainWindow):
         self._server_status.setStyleSheet("color: #888888; font-weight: bold; padding: 0 8px;")
         status.addPermanentWidget(self._server_status)
         self._check_server_connectivity()
+
+        # Propagate the initial paper/live tint across every dock +
+        # status bar + watermark. Idempotent — safe to re-call after
+        # any mode flip.
+        self._apply_mode_tint(self.state.agent_paper_mode)
+
+    def _apply_mode_tint(self, paper: bool) -> None:
+        """Propagate the paper/live colour to banner, docks, status.
+
+        Gold = PAPER, red = LIVE. The tint applies a thin top border
+        to every dock title so the entire chrome reads as "you are in
+        mode X" even if the user has closed the banner. Idempotent:
+        call it on every flip.
+        """
+        self.mode_banner.set_mode(paper)
+        self.mode_watermark.set_mode(paper)
+
+        stripe = "#ffd700" if paper else "#ff0000"
+        title_fg = "#ffd700" if paper else "#ff5555"
+        # Cache the stylesheet and push it to every dock we know
+        # about. Using QSS lets Qt handle the per-dock paint.
+        dock_qss = (
+            "QDockWidget::title {"
+            f" border-top: 2px solid {stripe};"
+            " background: #000000;"
+            f" color: {title_fg};"
+            " font-weight: bold;"
+            " padding: 4px 8px;"
+            " }"
+        )
+        if hasattr(self, "_all_docks"):
+            docks: List[QDockWidget] = []
+            for group in self._all_docks.values():
+                docks.extend(group)
+            for dock in docks:
+                dock.setStyleSheet(dock_qss)
+
+        # Status-bar broker label picks up the mode colour too so the
+        # bottom chrome doesn't look like a second source of truth.
+        if hasattr(self, "_broker_status"):
+            color = "#ffd700" if paper else "#ff5555"
+            self._broker_status.setText("PAPER" if paper else "LIVE")
+            self._broker_status.setStyleSheet(
+                f"color: {color}; font-weight: bold; padding: 0 8px;",
+            )
 
     def _check_server_connectivity(self) -> None:
         """Ping the license server in the background and update status label."""
@@ -388,6 +454,11 @@ class MainWindow(QMainWindow):
         ]
         for key, slot in shortcuts:
             QShortcut(QKeySequence(key), self, slot)
+
+        # Power-user shortcut: flip paper/live instantly from anywhere.
+        QShortcut(
+            QKeySequence("Ctrl+Shift+P"), self, self._toggle_agent_paper_mode,
+        )
 
     def _setup_timers(self) -> None:
         """Start all periodic background timers."""
@@ -901,11 +972,13 @@ class MainWindow(QMainWindow):
         self.chat_panel.focus_input()
 
     def _handle_chat_message(self, message: str) -> None:
-        """User submitted a chat message — persist, display, process in background.
+        """Spawn a chat worker for this message.
 
-        Routing: if the agent loop is alive, hand the message off to it
-        so the next iteration picks it up; otherwise fall back to the
-        one-shot Claude chat helper.
+        Every message goes through the agent pool: a fresh Claude
+        sub-agent is spawned in its own QThread, shares the supervisor's
+        brain (journal, memory, broker, config), and streams back into
+        the chat panel. No queueing, no "routed to the running agent"
+        wait — the supervisor (if running) keeps iterating undisturbed.
         """
         self.state.chat_history.append({"role": "user", "text": message})
         if self.history_manager:
@@ -915,80 +988,80 @@ class MainWindow(QMainWindow):
                 pass
         self.chat_panel.refresh_view(self.state)
 
-        if self.agent_runner is not None and self.agent_runner.isRunning():
-            self.agent_runner.send_user_message(message)
-            self._add_chat_response(
-                "(routed to the running agent — response will arrive in "
-                "the next iteration log)",
+        try:
+            self._ensure_agent_pool()
+        except Exception as e:
+            logger.exception("Failed to build AgentPool")
+            self._add_chat_response(f"Agent pool init failed: {e}")
+            return
+
+        assert self.agent_pool is not None
+        # Let the user know if they're piling on past the soft cap —
+        # the pool will still queue the message, just won't run it
+        # until a slot frees up.
+        if not self.agent_pool.can_spawn_chat_worker():
+            active = self.agent_pool.active_chat_count()
+            self.statusBar().showMessage(
+                f"AI busy ({active} workers) — queuing...", 4000,
             )
-            return
+        else:
+            self.statusBar().showMessage("AI thinking...", 10000)
+        self.agent_pool.spawn_chat_worker(message)
 
-        if not self._claude_client:
-            self._add_chat_response("Claude client not available.")
-            return
-
-        self.statusBar().showMessage("AI thinking...", 10000)
-        self._run_background(
-            lambda: self._do_chat(message),
-            self._on_chat_result,
-        )
-
-    # ── Agent runner lifecycle ───────────────────────────────────────
+    # ── Agent pool lifecycle ─────────────────────────────────────────
 
     @Slot()
     def _on_agent_start(self) -> None:
-        """Create (if needed) and start the Claude agent loop."""
-        if self.agent_runner is not None and self.agent_runner.isRunning():
-            self.statusBar().showMessage("Agent already running", 3000)
-            return
-
+        """Start the supervisor inside the pool (build pool if needed)."""
         try:
-            self._ensure_agent_runner()
+            self._ensure_agent_pool()
         except Exception as e:
-            logger.exception("Failed to build AgentRunner")
+            logger.exception("Failed to build AgentPool")
             self.statusBar().showMessage(f"Agent init failed: {e}", 6000)
             return
 
-        assert self.agent_runner is not None
-        self.agent_runner.start()
+        assert self.agent_pool is not None
+        if self.agent_pool.supervisor_running():
+            self.statusBar().showMessage("Agent already running", 3000)
+            return
+        self.agent_pool.start_supervisor()
         self.statusBar().showMessage("Agent loop starting...", 3000)
 
     @Slot()
     def _on_agent_stop(self) -> None:
-        """Ask the loop to stop after the current iteration."""
-        if self.agent_runner is None or not self.agent_runner.isRunning():
+        """Ask the supervisor to stop after the current iteration."""
+        if self.agent_pool is None or not self.agent_pool.supervisor_running():
             self.statusBar().showMessage("Agent not running", 3000)
             return
-        self.agent_runner.request_stop()
+        self.agent_pool.stop_supervisor()
         self.statusBar().showMessage(
             "Agent stopping after current iteration...", 5000,
         )
 
     @Slot()
     def _on_agent_kill(self) -> None:
-        """Hard-stop: request stop and terminate the thread if it doesn't
-        come back in a couple of seconds."""
-        if self.agent_runner is None:
+        """Hard-stop the supervisor (still leaves chat workers alone)."""
+        if self.agent_pool is None:
             return
-        self.agent_runner.request_stop()
-        if not self.agent_runner.wait(2000):
-            try:
-                self.agent_runner.terminate()
-                self.agent_runner.wait(1000)
-            except Exception:
-                pass
+        self.agent_pool.kill_supervisor()
         self.state.agent_running = False
         self.agent_log_panel.refresh_view(self.state)
         self.statusBar().showMessage("Agent killed", 3000)
 
     @Slot()
     def _toggle_agent_paper_mode(self) -> None:
-        """Flip agent.paper_mode and persist it. Takes effect next iteration."""
+        """Flip agent.paper_mode, persist it, and re-tint the chrome.
+
+        The pool reads ``agent.paper_mode`` fresh on every supervisor
+        iteration and chat worker spawn, so a flip takes effect on the
+        *next* agent turn automatically — no restart needed.
+        """
         new_value = not self.state.agent_paper_mode
         self.state.agent_paper_mode = new_value
         self._save_config_key("agent.paper_mode", new_value)
         self._agent_paper_action.setChecked(new_value)
         self.agent_log_panel.refresh_view(self.state)
+        self._apply_mode_tint(new_value)
         mode_str = "PAPER" if new_value else "LIVE"
         self.statusBar().showMessage(
             f"Agent mode: {mode_str} (applies next iteration)", 5000,
@@ -1022,26 +1095,45 @@ class MainWindow(QMainWindow):
         )
         self.scraper_runner.start()
 
-    def _ensure_agent_runner(self) -> None:
-        """Create the AgentRunner and connect its signals once."""
-        if self.agent_runner is not None:
+    def _ensure_agent_pool(self) -> None:
+        """Build the ``AgentPool`` once and wire its signals.
+
+        The pool lazily constructs the supervisor runner on the first
+        ``start_supervisor`` call, so creating the pool itself is
+        cheap — we can do it on the chat path too so chat workers are
+        available even if the user never clicks Start Agent.
+        """
+        if self.agent_pool is not None:
             return
         from desktop.paths import db_path as _user_db_path
         db_path = self.config.get("database", {}).get(
             "path", str(_user_db_path()),
         )
-        self.agent_runner = AgentRunner(
+        self.agent_pool = AgentPool(
             config_path=self.config_path,
-            main_broker_service=self.broker_service,
+            live_broker_service=self.broker_service,
             db_path=db_path,
             parent=self,
         )
-        self.agent_runner.status_changed.connect(self._on_agent_status_changed)
-        self.agent_runner.log_line.connect(self._on_agent_log_line)
-        self.agent_runner.text_chunk.connect(self._on_agent_text_chunk)
-        self.agent_runner.iteration_started.connect(self._on_agent_iteration_started)
-        self.agent_runner.iteration_finished.connect(self._on_agent_iteration_finished)
-        self.agent_runner.error_occurred.connect(self._on_agent_error_occurred)
+        # Lazily-created supervisor: we connect its signals the first
+        # time the pool hands it out. Since `ensure_supervisor` is
+        # idempotent we can safely call it once here — that way we
+        # don't need a second wiring layer inside the pool.
+        sup = self.agent_pool.ensure_supervisor()
+        sup.status_changed.connect(self._on_agent_status_changed)
+        sup.log_line.connect(self._on_agent_log_line)
+        sup.text_chunk.connect(self._on_agent_text_chunk)
+        sup.iteration_started.connect(self._on_agent_iteration_started)
+        sup.iteration_finished.connect(self._on_agent_iteration_finished)
+        sup.error_occurred.connect(self._on_agent_error_occurred)
+
+        # Chat worker signals are forwarded by the pool.
+        self.agent_pool.chat_text.connect(self._on_chat_worker_text)
+        self.agent_pool.chat_done.connect(self._on_chat_worker_done)
+        self.agent_pool.chat_error.connect(self._on_chat_worker_error)
+        self.agent_pool.chat_log_line.connect(self._on_agent_log_line)
+        self.agent_pool.worker_spawned.connect(self._on_chat_worker_spawned)
+        self.agent_pool.worker_finished.connect(self._on_chat_worker_finished)
 
     # ── Agent signal slots — run on the GUI thread ───────────────────
 
@@ -1090,37 +1182,51 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f"Agent error: {msg}", 8000)
         self._on_agent_log_line(f"[error] {msg}")
 
-    def _do_chat(self, message: str) -> str:
-        """Background: call Claude with broker context."""
-        memory_summary = ""
-        if self.history_manager:
-            try:
-                memory_summary = self.history_manager.get_memory_summary()
-            except Exception:
-                pass
-        return self._claude_client.chat_with_context(
-            user_message=message,
-            positions=self.state.positions,
-            signals=self.state.signals,
-            news_data=self.state.news_sentiment,
-            account_info=self.state.account_info,
-            chat_history=self.state.chat_history,
-            protected_tickers=self.state.protected_tickers,
-            regime="",
-            regime_confidence=0.0,
-            consensus_data={},
-            memory_summary=memory_summary,
-            live_data=self.state.live_data,
-        )
+    # ── Chat worker signal slots ─────────────────────────────────────
 
-    def _on_chat_result(self, response: str) -> None:
-        """Main thread: add response.
+    @Slot(str)
+    def _on_chat_worker_spawned(self, worker_id: str) -> None:
+        """Track a new worker so we can report concurrent workload."""
+        self._chat_worker_ids.add(worker_id)
+        self._chat_worker_buffers[worker_id] = []
+        count = len(self._chat_worker_ids)
+        if count > 1:
+            self.statusBar().showMessage(
+                f"AI thinking ({count} workers)...", 10000,
+            )
 
-        TRADE_INSTRUCTIONS parsing is gone — the agent loop (Phase 4)
-        will handle trade execution via tools instead of regex.
-        """
-        self.statusBar().showMessage("", 0)
-        self._add_chat_response(response)
+    @Slot(str, str)
+    def _on_chat_worker_text(self, worker_id: str, text: str) -> None:
+        """Buffer streamed assistant text for this worker."""
+        self._chat_worker_buffers.setdefault(worker_id, []).append(text)
+
+    @Slot(str, str)
+    def _on_chat_worker_done(self, worker_id: str, summary: str) -> None:
+        """Worker finished — flush the accumulated text into chat."""
+        parts = self._chat_worker_buffers.pop(worker_id, [])
+        full_text = "\n".join(p for p in parts if p).strip()
+        message = full_text or summary or ""
+        if message:
+            self._add_chat_response(message)
+        self._chat_worker_ids.discard(worker_id)
+        if not self._chat_worker_ids:
+            self.statusBar().showMessage("", 0)
+        # A chat worker may have mutated broker / watchlist state.
+        self._refresh_all_panels()
+
+    @Slot(str, str)
+    def _on_chat_worker_error(self, worker_id: str, error: str) -> None:
+        self._chat_worker_buffers.pop(worker_id, None)
+        self._chat_worker_ids.discard(worker_id)
+        self._add_chat_response(f"(chat worker error: {error})")
+        if not self._chat_worker_ids:
+            self.statusBar().showMessage("", 0)
+
+    @Slot(str)
+    def _on_chat_worker_finished(self, worker_id: str) -> None:
+        """Pool cleanup signal — second chance to release buffers."""
+        self._chat_worker_buffers.pop(worker_id, None)
+        self._chat_worker_ids.discard(worker_id)
 
     @Slot()
     def action_show_chart(self) -> None:

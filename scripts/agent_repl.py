@@ -195,7 +195,6 @@ async def run_one_iteration(prompt_text: str) -> None:
         mcp_servers={SERVER_NAME: mcp_server},
         allowed_tools=tool_allowlist,
         permission_mode="bypassPermissions",
-        max_turns=int(config.get("agent", {}).get("max_tool_calls_per_iter", 40)),
         cwd=str(PROJECT_ROOT),
     )
 

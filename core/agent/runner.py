@@ -1,8 +1,12 @@
 """AgentRunner — QThread that drives the Claude agent loop.
 
 Phase 4 of the Claude-native rebuild. One fresh Claude Code subprocess
-per iteration, streamed through the claude-agent-sdk ``query()`` helper,
-with hard wall-clock and tool-call caps enforced by this runner itself.
+per iteration, streamed through the claude-agent-sdk ``query()`` helper.
+No tool-call or wall-clock budget is enforced here any more — the
+agent runs each iteration until the model calls ``end_iteration`` (or
+the user hits stop). The earlier caps kept being hit mid-thought and
+were removed so the supervisor can do its best work without an
+invisible ceiling.
 
 Design notes
 ------------
@@ -13,9 +17,13 @@ Design notes
 * The QThread owns the asyncio event loop. Every SDK message is routed
   through Qt signals, which Qt auto-marshals onto the GUI thread via
   ``Qt.QueuedConnection``, so panel updates are safe.
-* Chat messages from the user are queued via ``send_user_message``.
-  Queuing also interrupts any current sleep so the next iteration fires
-  immediately with the user message prepended to the wake prompt.
+* Chat is no longer routed through the supervisor. The ``AgentPool``
+  spawns an independent ``ChatWorker`` per user message; this runner
+  only handles the long-lived autonomous loop. That way chat stays
+  responsive even while the supervisor is mid-iteration.
+* Broker selection goes through ``AgentPool.get_broker_for_mode`` so
+  the supervisor and every chat worker share one session-wide paper
+  broker (instead of each agent rebuilding an empty LogBroker).
 * ``request_stop`` raises a soft stop flag; the loop exits at the next
   safe checkpoint (end of iteration, sleep tick, or message boundary).
   The subprocess is killed by the SDK when the async iterator is broken
@@ -35,7 +43,6 @@ import logging
 import time
 import uuid
 from pathlib import Path
-from threading import Lock
 from typing import Any, Dict, List, Optional
 
 from PySide6.QtCore import QThread, Signal
@@ -73,34 +80,22 @@ class AgentRunner(QThread):
     def __init__(
         self,
         config_path: Path | str,
-        main_broker_service: Any,
+        pool: Any,
         db_path: str = "data/terminal_history.db",
         parent: Any = None,
     ) -> None:
         super().__init__(parent)
         self._config_path: Path = Path(config_path)
-        self._main_broker_service = main_broker_service
+        self._pool = pool
         self._db_path = db_path
 
         self._stop_requested: bool = False
         self._interrupt_sleep: bool = False
-        self._pending_user_messages: List[str] = []
-        self._pending_lock = Lock()
 
         # Per-iteration counters, reset on each run.
         self._tool_call_count: int = 0
 
     # ── public API ───────────────────────────────────────────────────
-
-    def send_user_message(self, text: str) -> None:
-        """Queue a chat message for the next iteration and wake the loop."""
-        text = (text or "").strip()
-        if not text:
-            return
-        with self._pending_lock:
-            self._pending_user_messages.append(text)
-        self._interrupt_sleep = True
-        self.log_line.emit(f"[user→agent] {text}")
 
     def request_stop(self) -> None:
         """Soft-stop: finish current iteration, then exit the loop."""
@@ -170,28 +165,23 @@ class AgentRunner(QThread):
             await asyncio.sleep(0.25)
 
     def _build_iteration_prompt(self) -> str:
-        with self._pending_lock:
-            pending = list(self._pending_user_messages)
-            self._pending_user_messages.clear()
-        if not pending:
-            return DEFAULT_WAKE_PROMPT
-        lines = [
-            "The user just sent these chat messages — address them "
-            "before doing routine checks:",
-        ]
-        for msg in pending:
-            lines.append(f"  - {msg}")
-        lines.append("")
-        lines.append(DEFAULT_WAKE_PROMPT)
-        return "\n".join(lines)
+        """The supervisor only ever gets the standard wake prompt.
+
+        Chat messages no longer flow through here — the pool spawns a
+        dedicated ``ChatWorker`` per user message so chat turnaround
+        doesn't wait on a full iteration.
+        """
+        return DEFAULT_WAKE_PROMPT
 
     @staticmethod
-    def _force_paper_config(config: Dict[str, Any]) -> Dict[str, Any]:
-        """Belt-and-braces override: broker.type=log, agent.paper_mode=True."""
+    def _with_paper_flag(config: Dict[str, Any], paper_mode: bool) -> Dict[str, Any]:
+        """Propagate the effective paper flag into the config dict the
+        tools read from. Broker selection is delegated to the pool —
+        we don't override ``broker.type`` here any more.
+        """
         cfg = dict(config)
-        cfg["broker"] = {**cfg.get("broker", {}), "type": "log"}
         agent = dict(cfg.get("agent", {}))
-        agent["paper_mode"] = True
+        agent["paper_mode"] = paper_mode
         cfg["agent"] = agent
         return cfg
 
@@ -210,7 +200,6 @@ class AgentRunner(QThread):
             UserMessage,
             query,
         )
-        from broker_service import BrokerService
         from database import HistoryManager
         from risk_manager import RiskManager
 
@@ -220,20 +209,15 @@ class AgentRunner(QThread):
             allowed_tool_names,
             build_mcp_server,
         )
+        from core.agent.model_router import supervisor_model
         from core.agent.prompts import render_system_prompt
 
         config = self._load_config()
         agent_cfg = config.get("agent", {}) or {}
         paper_mode = bool(agent_cfg.get("paper_mode", True))
-        max_tool_calls = max(1, int(agent_cfg.get("max_tool_calls_per_iter", 40)))
-        max_iter_seconds = max(30, int(agent_cfg.get("max_iter_seconds", 360)))
 
-        if paper_mode:
-            effective_config = self._force_paper_config(config)
-            broker_service = BrokerService(config=effective_config)
-        else:
-            effective_config = config
-            broker_service = self._main_broker_service
+        effective_config = self._with_paper_flag(config, paper_mode)
+        broker_service = self._pool.get_broker_for_mode(paper_mode)
 
         db = HistoryManager(self._db_path)
         risk = RiskManager(config=effective_config)
@@ -251,10 +235,15 @@ class AgentRunner(QThread):
         self._tool_call_count = 0
         prompt_text = self._build_iteration_prompt()
 
+        # The supervisor is the autonomous trade decider — always Opus.
+        # Chat workers get the lighter Sonnet tier for info-retrieval
+        # questions via core.agent.model_router.chat_worker_model.
+        model_id = supervisor_model(effective_config)
+
         self.iteration_started.emit(iteration_id)
         self.log_line.emit(
             f"[runner] iteration {iteration_id} "
-            f"(paper={paper_mode}, cap={max_tool_calls} calls / {max_iter_seconds}s)",
+            f"(paper={paper_mode}, model={model_id}, no caps)",
         )
 
         mcp_server = build_mcp_server()
@@ -263,29 +252,18 @@ class AgentRunner(QThread):
             mcp_servers={SERVER_NAME: mcp_server},
             allowed_tools=allowed_tool_names(),
             permission_mode="bypassPermissions",
-            max_turns=max_tool_calls,
+            model=model_id,
             cwd=str(self._config_path.parent),
         )
 
         start = time.monotonic()
-        deadline = start + max_iter_seconds
         summary: str = ""
 
         try:
             async for message in query(prompt=prompt_text, options=options):
-                # Budget + stop checks on every message boundary.
+                # Only hard gate left is the user-initiated stop flag.
                 if self._stop_requested:
                     self.log_line.emit("[runner] stop requested — breaking iteration")
-                    break
-                if time.monotonic() > deadline:
-                    self.log_line.emit(
-                        f"[runner] wall-clock cap {max_iter_seconds}s hit",
-                    )
-                    break
-                if self._tool_call_count >= max_tool_calls:
-                    self.log_line.emit(
-                        f"[runner] tool-call cap {max_tool_calls} hit",
-                    )
                     break
 
                 if isinstance(message, AssistantMessage):

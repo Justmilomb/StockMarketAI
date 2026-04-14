@@ -26,12 +26,12 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "agent": {
         "enabled": False,
         "cadence_seconds": 90,
-        "max_tool_calls_per_iter": 40,
-        "max_iter_seconds": 360,
         "paper_mode": True,
         "daily_max_drawdown_pct": 3.0,
         "max_position_pct": 20.0,
         "max_trades_per_hour": 10,
+        "max_chat_workers": 5,
+        "chat_model": "sonnet",
     },
     "claude": {
         "model": "claude-sonnet-4-20250514",

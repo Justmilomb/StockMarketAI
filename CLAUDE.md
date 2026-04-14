@@ -40,7 +40,7 @@ AI-driven stock trading terminal combining scikit-learn ML predictions with Clau
 ## 4 — Architecture Quick Reference
 
 ```
-backtest.py / desktop/main_bloomberg.py / desktop/main_simple.py  (entry points)
+backtest.py / desktop/main_bloomberg.py  (entry points)
   │
   ├─ core/                   (all ML/AI/broker modules — on sys.path)
   │   ├─ AiService           (ML ensemble + statistical + Claude orchestration)
@@ -64,12 +64,10 @@ backtest.py / desktop/main_bloomberg.py / desktop/main_simple.py  (entry points)
   │
   ├─ backtesting/            (walk-forward validation engine)
   │
-  ├─ desktop/                (PySide6 desktop app — two editions)
-  │   ├─ main.py             (shared bootstrap: license, wizard, launch(mode))
+  ├─ desktop/                (PySide6 desktop app — Bloomberg edition)
+  │   ├─ main.py             (shared bootstrap: license, wizard, launch)
   │   ├─ main_bloomberg.py   (Bloomberg edition entry point)
-  │   ├─ main_simple.py      (Simple edition entry point)
   │   ├─ app.py              (MainWindow — Bloomberg-dark panels)
-  │   ├─ simple/app.py       (SimpleWindow — card-based minimal UI)
   │   ├─ panels/             (Bloomberg UI panels)
   │   └─ dialogs/            (modal dialogs incl. setup wizard, license)
   │
@@ -173,7 +171,7 @@ CONSTRAINTS:
 - **Phase 3.15:** Autoconfig — autonomous parameter optimisation, 23+ experiments — **done**
 - **Phase 3.2:** PySide6 desktop app (Bloomberg-dark GUI, build to exe) — **done**
 - **Phase 3.5:** Commercialisation — license server, setup wizard, admin panel, code signing — **done**
-- **Phase 3.6:** Simple app + root reorganisation — core/ package, two installers — **done**
+- **Phase 3.6:** Root reorganisation — core/ package, installer — **done**
 - **Phase 4:** Production hardening, test coverage, monitoring — **in progress**
 
 ---

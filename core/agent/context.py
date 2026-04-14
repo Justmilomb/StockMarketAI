@@ -3,16 +3,23 @@
 The @tool decorator from claude-agent-sdk requires module-level async
 functions whose only parameter is a dict of arguments. Those functions
 still need access to stateful resources — broker, database, config,
-risk manager — so we park them in a process-wide singleton that the
-runner (or the agent_repl harness) initialises once before registering
-the MCP server.
+risk manager — so we park them in a context variable that each agent
+task writes into before its ``query()`` iterator runs.
 
-This is deliberately a tiny object: one struct, one init/get pair, no
-magic. Importing the tool modules does *not* build any of the real
-resources — only a call to ``init_agent_context`` does.
+Why ``contextvars`` rather than a plain module global: once we run the
+supervisor loop alongside one or more chat workers, two ``query()``
+calls can be in flight concurrently. A plain global would race — the
+last writer wins and every tool reads garbage. ``ContextVar`` is
+asyncio-native: each asyncio task inherits its own copy, and the
+runner / chat workers each set their own value inside their own task,
+so tools pulled from ``get_agent_context()`` always see the right one.
+
+Importing the tool modules does *not* build any of the real resources —
+only a call to ``init_agent_context`` does.
 """
 from __future__ import annotations
 
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
 
@@ -55,7 +62,9 @@ class AgentContext:
     stats: Dict[str, int] = field(default_factory=dict)
 
 
-_context: Optional[AgentContext] = None
+_context: ContextVar[Optional[AgentContext]] = ContextVar(
+    "agent_context", default=None,
+)
 
 
 def init_agent_context(
@@ -66,9 +75,14 @@ def init_agent_context(
     iteration_id: str = "",
     paper_mode: bool = True,
 ) -> AgentContext:
-    """Set the process-wide agent context. Called once per agent iteration."""
-    global _context
-    _context = AgentContext(
+    """Bind an agent context to the current asyncio task / thread.
+
+    Must be called from inside the same asyncio task that will drive the
+    ``query()`` iterator. Tools called by that iterator will resolve
+    ``get_agent_context()`` to this object, not to whatever another
+    concurrent agent happens to have set.
+    """
+    ctx = AgentContext(
         config=config,
         broker_service=broker_service,
         db=db,
@@ -76,20 +90,21 @@ def init_agent_context(
         iteration_id=iteration_id,
         paper_mode=paper_mode,
     )
-    return _context
+    _context.set(ctx)
+    return ctx
 
 
 def get_agent_context() -> AgentContext:
-    """Return the initialised context or raise if init_agent_context was skipped."""
-    if _context is None:
+    """Return the context bound to the current task, or raise if unset."""
+    ctx = _context.get()
+    if ctx is None:
         raise RuntimeError(
             "AgentContext not initialised — call init_agent_context() "
             "before spawning the agent iteration.",
         )
-    return _context
+    return ctx
 
 
 def clear_agent_context() -> None:
-    """Drop the context — used for test isolation."""
-    global _context
-    _context = None
+    """Drop the context for the current task — used for test isolation."""
+    _context.set(None)

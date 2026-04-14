@@ -121,4 +121,69 @@ async def remove_from_watchlist(args: Dict[str, Any]) -> Dict[str, Any]:
     return _text_result({"status": "removed", "ticker": ticker, "watchlist": name})
 
 
-WATCHLIST_TOOLS = [get_watchlist, add_to_watchlist, remove_from_watchlist]
+@tool(
+    "clear_watchlist_except",
+    "Remove every ticker from the active watchlist except the ones in 'keep'. "
+    "Typical use: chat asks to keep only tickers the user has open positions in, "
+    "so first call get_portfolio, extract the ticker list, then pass it here. "
+    "Supply a short reason for the journal.",
+    {"keep": list, "reason": str},
+)
+async def clear_watchlist_except(args: Dict[str, Any]) -> Dict[str, Any]:
+    keep_raw = args.get("keep") or []
+    # Case-insensitive match — the watchlist can carry broker-specific
+    # suffixes (e.g. "NVDA_US_EQ") but the user usually types plain tickers,
+    # so we compare on uppercase prefix / exact uppercase.
+    keep_upper = {str(t).strip().upper() for t in keep_raw if str(t).strip()}
+    reason = str(args.get("reason", ""))
+
+    wl_root = _watchlists_root()
+    name = _active_watchlist_name()
+    tickers = list(wl_root.get(name, []) or [])
+
+    def _matches(ticker: str) -> bool:
+        t_up = ticker.upper()
+        if t_up in keep_upper:
+            return True
+        # Broker-suffixed match: "NVDA_US_EQ" matches "NVDA".
+        head = t_up.split("_", 1)[0]
+        return head in keep_upper
+
+    kept = [t for t in tickers if _matches(t)]
+    removed = [t for t in tickers if not _matches(t)]
+
+    if not removed:
+        return _text_result({
+            "status": "noop",
+            "reason": "nothing to remove",
+            "watchlist": name,
+            "kept": kept,
+        })
+
+    wl_root[name] = kept
+    _save_config()
+    _journal(
+        "watchlist_clear_except",
+        {
+            "tool": "clear_watchlist_except",
+            "kept": kept,
+            "removed": removed,
+            "reason": reason,
+            "watchlist": name,
+        },
+        tags=["watchlist"],
+    )
+    return _text_result({
+        "status": "cleared",
+        "watchlist": name,
+        "kept": kept,
+        "removed": removed,
+    })
+
+
+WATCHLIST_TOOLS = [
+    get_watchlist,
+    add_to_watchlist,
+    remove_from_watchlist,
+    clear_watchlist_except,
+]
