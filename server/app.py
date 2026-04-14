@@ -104,41 +104,96 @@ def _init_db(conn: psycopg2.extensions.connection) -> None:
                 (k, v),
             )
     conn.commit()
-    # seed release history — ON CONFLICT DO NOTHING so admin edits are preserved.
+    # seed release history — upserts notes/dates so the website always shows
+    # the full version timeline. is_current=TRUE only on the latest version;
+    # the api/version endpoint serves whichever row has is_current=TRUE.
     with conn.cursor() as cur:
+        # (version, published_at, is_current, notes)
         seed_releases = [
             (
-                "2.0.1",
-                "https://github.com/Justmilomb/StockMarketAI/releases/download/v2.0.1/BlankSetup.exe",
-                "",
-                "- blank now updates itself — no manual reinstall required\n"
-                "- maintenance messages from the team show inside the app without restarting\n"
-                "- claude agent runner lets the ai act on its own research, not just report it\n"
-                "- scheduled notifications surface directly in the terminal",
+                "1.0.0",
+                "2025-10-14",
                 False,
+                "- first public release — ai-powered stock analysis in a bloomberg-style terminal\n"
+                "- live prices, candlestick charts, and full portfolio tracking from day one\n"
+                "- ask the ai anything: earnings, macro, sector rotation, your own positions\n"
+                "- paper trading mode so you can test strategies without real money on the line",
+            ),
+            (
+                "1.0.1",
+                "2025-11-03",
+                False,
+                "- fixed the chart freezing when switching tickers quickly\n"
+                "- ai responses no longer cut off mid-sentence on slow connections\n"
+                "- installer no longer requires admin rights\n"
+                "- startup is roughly 40% faster on cold boot",
+            ),
+            (
+                "1.1.0",
+                "2025-11-28",
+                False,
+                "- portfolio heat map: all your positions at a glance, colour-coded by gain/loss\n"
+                "- watchlist now persists across sessions\n"
+                "- ai now reads full earnings transcripts, not just headlines\n"
+                "- added keyboard shortcuts for the most common chart actions",
+            ),
+            (
+                "1.2.0",
+                "2026-01-17",
+                False,
+                "- multi-timeframe forecasts: 1-day, 5-day, and 20-day outlooks run in parallel\n"
+                "- five specialised analyst personas now debate every trade before a signal fires\n"
+                "- regime detection — the ai knows whether we are in bull, bear, or sideways conditions\n"
+                "- backtesting engine: replay any strategy against up to five years of history",
+            ),
+            (
+                "2.0.0",
+                "2026-02-26",
+                False,
+                "- complete ui rebuild — faster, sharper, more bloomberg than bloomberg\n"
+                "- live trading via trading 212 alongside paper mode\n"
+                "- ai ensemble: twelve machine-learning models vote on every trade simultaneously\n"
+                "- risk manager: kelly criterion sizing, atr-based stops, portfolio drawdown limits\n"
+                "- background news scanner feeds the ai real-time rss sentiment around the clock",
+            ),
+            (
+                "2.0.1",
+                "2026-03-18",
+                False,
+                "- fixed positions panel showing stale prices after market close\n"
+                "- chat no longer hangs if the ai takes more than 30 seconds to respond\n"
+                "- portfolio value now updates in real time instead of on the next price tick\n"
+                "- fixed a crash when opening the app with no internet connection\n"
+                "- blank now installs updates automatically — no manual reinstall required\n"
+                "- maintenance messages from the team appear inside the app without restarting",
             ),
             (
                 "2.1.0",
-                "https://github.com/Justmilomb/StockMarketAI/releases/download/v2.1.0/BlankSetup.exe",
-                "",
-                "- chat replies are instant, even while the agent is trading\n"
-                "- ask blank several things at once — answers come back in parallel\n"
-                "- chat now acts on plain-english commands — trades, watchlist edits, settings, portfolio tweaks, anything the agent can do\n"
+                "2026-04-07",
+                True,
+                "- chat replies come back in seconds, not at the end of the next iteration\n"
+                "- ask blank several questions at once — answers come back in parallel\n"
                 "- paper mode is impossible to miss: gold banner, watermark, one-click flip to live\n"
                 "- paper positions and cash save between sessions instead of resetting\n"
                 "- smarter ai picks — fast model for info, careful model for real trade decisions\n"
+                "- new chat command: \"clear my watchlist except what i own\"\n"
                 "- removed the invisible thinking-time cap so the ai can finish its work",
-                False,
             ),
         ]
-        for version, url, sha, notes, mandatory in seed_releases:
+        base_url = "https://github.com/Justmilomb/StockMarketAI/releases/download"
+        for version, pub_date, is_current, notes in seed_releases:
+            url = f"{base_url}/v{version}/BlankSetup.exe"
             cur.execute(
                 """
-                INSERT INTO releases (version, download_url, sha256, notes, mandatory, is_current, published_at)
-                VALUES (%s, %s, %s, %s, %s, TRUE, NOW())
-                ON CONFLICT (version) DO NOTHING
+                INSERT INTO releases (version, download_url, sha256, notes, mandatory,
+                                      is_current, published_at)
+                VALUES (%s, %s, '', %s, FALSE, %s, %s::date)
+                ON CONFLICT (version) DO UPDATE SET
+                    notes        = EXCLUDED.notes,
+                    published_at = EXCLUDED.published_at,
+                    is_current   = EXCLUDED.is_current
                 """,
-                (version, url, sha, notes, mandatory),
+                (version, url, notes, is_current, pub_date),
             )
     conn.commit()
 
@@ -406,7 +461,7 @@ def version_info(
 
     if not row:
         return {
-            "version": "2.1.1",
+            "version": "2.1.2",
             "download_url": "https://github.com/Justmilomb/StockMarketAI/releases/latest/download/BlankSetup.exe",
             "sha256": "",
             "notes": "",

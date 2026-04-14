@@ -355,7 +355,13 @@ class UpdateService(QObject):
 
         qt_app = QApplication.instance()
         if qt_app is not None:
-            QTimer.singleShot(500, qt_app.quit)
+            # Wait long enough for Inno Setup to initialise and register this
+            # process with Windows Restart Manager before we exit. If we quit
+            # in under ~1 s, RM never sees us and /RESTARTAPPLICATIONS has
+            # nothing to relaunch. 8 s is conservative — Inno Setup typically
+            # sends WM_CLOSE well before this fires, so in practice the app
+            # closes sooner and the timer is just a fallback.
+            QTimer.singleShot(8_000, qt_app.quit)
 
     # ─── schedule ───────────────────────────────────────────────────────
 
