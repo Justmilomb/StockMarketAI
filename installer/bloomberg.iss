@@ -6,7 +6,7 @@
 
 [Setup]
 AppName=blank
-AppVersion=1.0.0
+AppVersion=2.0.0
 AppPublisher=Certified Random
 AppCopyright=Copyright (C) 2026 Certified Random
 SetupIconFile={#MyAppRoot}\desktop\assets\icon.ico

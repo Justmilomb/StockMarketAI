@@ -5,8 +5,6 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QGroupBox, QHeaderView, QTableWidget, QTableWidgetItem, QVBoxLayout
 
-from intraday_data import is_intraday_supported
-
 COLUMNS = ["Ticker", "Verdict", "Live Px", "Day %", "Prob", "Signal", "AI Rec", "Consensus", "Conf", "Sentiment", "Strategy"]
 
 STRATEGY_COLORS = {
@@ -115,15 +113,10 @@ class WatchlistPanel(QGroupBox):
             if not strat_name:
                 strat_name = str(row_data.get("strategy", "")) if "strategy" in row_data.index else ""
 
-            # Protected / daily-only tags
+            # Protected tag (intraday support is always available now —
+            # the agent fetches via yfinance on demand, no pre-filter).
             is_protected = ticker in state.protected_tickers
-            daily_only = not is_intraday_supported(ticker)
-            tags = []
-            if is_protected:
-                tags.append("L")
-            if daily_only:
-                tags.append("D")
-            prefix = "".join(f"[{t}]" for t in tags)
+            prefix = "[L]" if is_protected else ""
             display_ticker = f"{prefix} {ticker}" if prefix else ticker
 
             rows.append((

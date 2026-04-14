@@ -82,46 +82,31 @@ def _apply_remote_config(remote_cfg: dict[str, str]) -> None:
 
     changed = False
 
-    # paper_mode → broker.practice
+    # paper_mode → broker.practice (and agent.paper_mode — redundant but explicit)
     if "paper_mode" in remote_cfg:
         practice = remote_cfg["paper_mode"] == "true"
         local.setdefault("broker", {})["practice"] = practice
+        local.setdefault("agent", {})["paper_mode"] = practice
         changed = True
 
-    # auto_trading → stored for AutoEngine to read
+    # auto_trading → agent.enabled (start/stop the Claude agent loop)
     if "auto_trading" in remote_cfg:
-        local["auto_trading_enabled"] = remote_cfg["auto_trading"] == "true"
+        local.setdefault("agent", {})["enabled"] = remote_cfg["auto_trading"] == "true"
         changed = True
 
-    # strategy params
+    # max_position_pct → agent.max_position_pct (percent of equity per ticker)
     if "max_position_pct" in remote_cfg:
         try:
-            val = float(remote_cfg["max_position_pct"]) / 100
-            local.setdefault("strategy", {})["position_size_fraction"] = val
+            local.setdefault("agent", {})["max_position_pct"] = float(remote_cfg["max_position_pct"])
             changed = True
         except ValueError:
             pass
 
-    if "confidence_threshold" in remote_cfg:
-        try:
-            val = float(remote_cfg["confidence_threshold"])
-            local.setdefault("strategy", {})["threshold_buy"] = val
-            changed = True
-        except ValueError:
-            pass
-
-    if "trailing_stop_pct" in remote_cfg:
-        try:
-            val = float(remote_cfg["trailing_stop_pct"]) / 100
-            local.setdefault("strategy", {})["trailing_stop"] = val
-            changed = True
-        except ValueError:
-            pass
-
+    # refresh_interval_s → agent.cadence_seconds (min seconds between iterations)
     if "refresh_interval_s" in remote_cfg:
         try:
             val = int(float(remote_cfg["refresh_interval_s"]))
-            local["refresh_interval_seconds"] = val
+            local.setdefault("agent", {})["cadence_seconds"] = max(30, val)
             changed = True
         except ValueError:
             pass

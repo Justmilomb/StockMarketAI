@@ -1,246 +1,192 @@
 # Architecture
 
-## System Graph
+## Overview
+
+**blank** (rebranded StockMarketAI) is a desktop trading terminal where
+Claude is the decision-maker. The old hand-rolled ML pipeline
+(ensemble → regime → consensus → auto-engine) has been deleted.
+Python is now a typed **tool bus** — a small set of MCP-registered
+functions that Claude calls whenever it wants: fetch prices, read
+news, compute Kelly sizing, place orders, etc.
 
 ```
-                    ┌─────────────────────────────────────────┐
-                    │               ENTRY POINTS              │
-                    │  ai.py │ backtest.py │ desktop/main.py  │
-                    │        │             │ terminal/app.py  │
-                    └────┬───┴──────┬──────┴─────────┬────────┘
-                         │          │                 │
-           ┌─────────────┘          │       ┌─────────┘
-           ▼                        ▼       ▼
-      ┌──────────┐  ┌───────────────────────────────────────┐
-      │ AiService│  │  TradingTerminalApp  /  MainWindow     │
-      │ (hub)    │  │  (Textual TUI)       (PySide6 desktop) │
-      │1000-     │  │  ┌────────────────────────────────────┐│
-      │analyst   │  │  │ AppState (regime, consensus,       ││
-      │ensemble) │  │  │          ensemble metadata)        ││
-      └──┬───────┘  │  └────────────────────────────────────┘│
-         │ ├─────┬──┤  ┌────┐  ┌──────────┐                 │
-         │ │     │  │  │views   │NewsAgent │                 │
-         │ │     │  │  │charts  │(bg thrd) │                 │
-         │ │     │  │  └──────┐ └──────────┘                 │
-         │ │     │  └─────────┘                              │
-         │ │     │     ▼                                     │
-         │ │     │  ┌──────────────┐                         │
-         │ │     │  │BrokerService │                         │
-         │ │     │  │  (facade)    │                         │
-         │ │     │  └──┬───────┬───┘                         │
-         │ │     │     │       │                             │
-         │ │     │     ▼       ▼                             │
-         │ │     │  ┌────────┬────────┐                      │
-         │ │     │  │LogBrk. │T212Brk.│                      │
-         │ │     │  └────────┴────────┘                      │
-         │ │     └──────────────────────────────────────────┘│
-         │ │                                                  │
-         └─┴──────────────────────────────────────────────────┘
-
-        ┌─────────────────────────────────────────────────────┐
-        │              ML + Claude Pipeline                    │
-        │                                                      │
-        │  data_loader ──► features_advanced (V2, 31 feat)    │
-        │  (yfinance)       ├─ 6 analyst groups               │
-        │                   │                                 │
-        │                   ▼                                 │
-        │                ensemble ──► timeframe (3 horizons)  │
-        │                (12 models)   (1d/5d/20d)            │
-        │                │                ▼                   │
-        │                │           [36 ML signals]          │
-        │                │                │                   │
-        │                ├──► regime ────┐│                   │
-        │                │   (macro det) ││                   │
-        │                │               ││                   │
-        │                ├──► claude_personas ──┐ │           │
-        │                │    (5 analysts)       │ │           │
-        │                │                       │ │           │
-        │                └──► consensus ◄───────┘ │           │
-        │                     (committee)          │           │
-        │                         │                │           │
-        │                         ▼                │           │
-        │                    [signals + conf]      │           │
-        │                         │                │           │
-        │                         ├──► strategy ◄─┘           │
-        │                         │    (buy/sell/hold)        │
-        │                         │                           │
-        │                         ▼                           │
-        │                  risk_manager                       │
-        │                  (pos. sizing)                      │
-        │                         │                           │
-        │                         ▼                           │
-        │                  [risk-managed orders]              │
-        │                                                      │
-        └──────────────────────► AutoEngine ──────────────────┘
-                                  (execution)
-
-        ┌─────────────────────────────────────────────────────┐
-        │              Autoconfig Subsystem                    │
-        │                                                      │
-        │  autoconfig/run.py ──► Claude Code CLI sessions      │
-        │       │                (Opus 4.6, iterative)         │
-        │       │                                              │
-        │       ├──► autoconfig/experiment.py                  │
-        │       │     (single backtest with config overrides)  │
-        │       │                                              │
-        │       ├──► autoconfig/universe.py                    │
-        │       │     (~250 diverse stocks for generalisation) │
-        │       │                                              │
-        │       ├──► autoconfig/strategy_profiles.py           │
-        │       │     (profile → config override bridge)       │
-        │       │                                              │
-        │       └──► autoconfig/results.tsv + .progress        │
-        │             (experiment log, persisted across runs)  │
-        │                                                      │
-        │  autoresearch/ — autonomous strategy improvement     │
-        │       runner.py ──► evaluator.py ──► SQLite DB       │
-        │                                                      │
-        └─────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────┐
+│ desktop/app.py  (Qt MainWindow, Bloomberg-dark panels)              │
+│                                                                     │
+│   ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐               │
+│   │ Chart    │ │ Positions│ │ News     │ │ Chat     │               │
+│   │ Orders   │ │ Watchlist│ │ Agent log│ │ Settings │               │
+│   └────┬─────┘ └────┬─────┘ └────┬─────┘ └────┬─────┘               │
+│        └────────────┴────────────┴────────────┘                     │
+│                     ▼                                               │
+│                  AppState                                           │
+│                     ▲                                               │
+└─────────────────────┼───────────────────────────────────────────────┘
+                      │ Qt signals — streamed from the runner
+                      │
+┌─────────────────────┴───────────────────────────────────────────────┐
+│ core/agent/runner.py  (AgentRunner QThread)                         │
+│                                                                     │
+│   while not stop_requested:                                         │
+│     spawn Claude Code subprocess via claude-agent-sdk               │
+│     stream tool-call + text events → AppState via Qt signals       │
+│     sleep(agent.cadence_seconds)                                    │
+└─────────────────────┬───────────────────────────────────────────────┘
+                      │ claude-agent-sdk query(prompt, options)
+                      ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│ Claude Code CLI (one fresh subprocess per iteration)                │
+│                                                                     │
+│   System prompt: autonomous PM + risk rules + kill conditions       │
+│   MCP server "blank" (in-process, registered per iteration):        │
+│     broker_tools    market_tools    risk_tools                      │
+│     memory_tools    watchlist_tools news_tools                      │
+│     social_tools    flow_tools                                      │
+└─────────────────────┬───────────────────────────────────────────────┘
+                      │ in-process MCP calls
+                      ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│ core/agent/tools/*.py  (typed, stateless, JSON-return)              │
+│                                                                     │
+│   broker_tools   → core/broker_service.py (T212 / LogBroker)        │
+│   market_tools   → yfinance + T212 live prices                      │
+│   risk_tools     → core/risk_manager.py (Kelly + ATR sizing)        │
+│   memory_tools   → sqlite agent_memory + agent_journal              │
+│   news_tools     → sqlite scraper_items + core/scrapers/*           │
+│   social_tools   → sqlite scraper_items + core/scrapers/*           │
+│   watchlist_tools→ config.json round-trip                           │
+│   flow_tools     → end_iteration, sleep_until                       │
+└─────────────────────┬───────────────────────────────────────────────┘
+                      │
+                      ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│ core/scrapers/runner.py  (background daemon thread)                 │
+│                                                                     │
+│   Every 5 min:                                                      │
+│     for scraper in SCRAPERS (9 sources):                            │
+│       items = scraper.safe_fetch(tickers=watchlist)                 │
+│       db.save_scraper_items(items)                                  │
+│     db.purge_old_scraper_items(keep_days=7)                         │
+│                                                                     │
+│   Sources: google_news, yahoo_finance, bbc, bloomberg,              │
+│            marketwatch, youtube, stocktwits, reddit, x (via gnews)  │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
-## Signal Pipeline (8-Step Flow)
+## Data flow invariants
 
-The system generates signals through a structured, multi-layered process:
+1. **Every read is a tool call.** The agent never acts on a cached
+   snapshot. `place_order` re-fetches the broker portfolio before
+   submitting, which makes the "sell 0 owned" class of bug impossible
+   by construction.
+2. **One Claude subprocess per iteration.** `AgentRunner` spawns a
+   fresh `query()` call each cycle. No persistent process, no shared
+   conversation state beyond what's persisted in sqlite
+   (`agent_memory`, `agent_journal`).
+3. **Paper by default.** `agent.paper_mode = true` forces
+   `broker.type = log` in the effective config, so live trading only
+   kicks in when the user flips the Paper/Live toggle *and*
+   configures a real broker.
+4. **Scrapers never raise.** `ScraperBase.safe_fetch` wraps every
+   source in a try/except; a broken endpoint returns `[]`, increments
+   the health counter, and never kills the runner.
+5. **Hard caps.** Per-iteration: 40 tool calls, 360s wall clock.
+   Cadence floor: 30s. Kill switch in the Agent menu.
 
-1. **Fetch Universe Data** — `data_loader.fetch_universe_data()` retrieves OHLCV data from yfinance with CSV caching.
-
-2. **Compute V2 Features** — `features_advanced.build_advanced_features()` calculates 31 technical indicators grouped into 6 analyst specialties (momentum, volatility, trend, valuation, macro, flow).
-
-3. **Detect Market Regime** — `regime.RegimeDetector.detect()` classifies market conditions (bull, bear, range-bound, high-volatility) for macro context.
-
-4. **Multi-Timeframe ML Ensemble** — `ensemble.EnsembleModel.predict_ensemble()` runs 12 diverse ML models across 3 horizons (1d, 5d, 20d), producing 36 independent signals with probabilities.
-
-4a. **Statistical Forecasters** — `forecaster_statistical.StatisticalForecaster.fit_and_predict()` fits ARIMA(1,1,1) + Holt-Winters ETS per ticker per horizon, converting forecast distributions to P(up) via normal CDF.
-
-4b. **Deep Learning Forecaster** — `forecaster_deep.DeepForecaster.fit_and_predict()` trains N-BEATS neural architecture on pooled return windows (optional, requires PyTorch). Gracefully skipped if torch unavailable.
-
-4c. **Meta-Ensemble** — `meta_ensemble.MetaEnsemble.combine()` blends ML (50%), Statistical (25%), and Deep Learning (25%) probabilities. Auto-redistributes weights when a family is unavailable.
-
-4d. **MiroFish Multi-Agent Simulation** — `mirofish.MiroFishOrchestrator.run_universe()` spawns ~1000 heterogeneous AI agents (9 types: momentum, mean-reversion, sentiment, fundamental, noise, contrarian, institutional, algorithmic, LLM-seeded) per ticker. Runs N Monte Carlo simulations in parallel across all CPU cores. Agents interact via herding/contrarian dynamics, producing emergent market behaviour. Extracts net sentiment, order flow, agreement index, and volatility predictions as `ModelSignal` entries for consensus.
-
-5. **Claude Persona Analysis** — `claude_personas.ClaudePersonaAnalyzer.analyze_batch()` routes per-ticker features to 5 specialized analyst personas (technical, fundamental, sentiment, macro, risk), each producing a signal + confidence.
-
-6. **Consensus Aggregation** — `consensus.ConsensusEngine.compute_all()` combines all model signals (ML + Statistical + Deep + Claude), regime weighting, and horizon breakdown into a unified consensus score.
-
-7. **Strategy Signal Generation** — `strategy_selector.StrategySelector.select_strategies()` assigns one of 5 trading profiles (conservative, day_trader, swing, crisis_alpha, trend_follower) per ticker based on regime, consensus quality, volatility, and performance history. `strategy.generate_signals()` then applies per-ticker thresholds to convert consensus scores into actionable buy/sell/hold decisions.
-
-8. **Risk-Managed Order Sizing** — `risk_manager.RiskManager.generate_risk_enhanced_orders()` calculates position sizes via Kelly criterion, volatility adjustment, and portfolio concentration limits.
-
-## Data Flow
+## Directory layout
 
 ```
-yfinance  →  CSV cache  →  features_advanced (31 V2 indicators)
-                                  │
-                                  ▼
-                          6 analyst groups
-                                  │
-                                  ▼
-                    ensemble (12 models × 3 horizons)
-                          [36 ML signals]
-                                  │
-                 ┌────────────────┼────────────────┐
-                 │                │                │
-                 ▼                ▼                ▼
-           regime detect    claude_personas  consensus
-           (macro state)    (5 analysts)      (investment
-                                              committee)
-                                  │
-                                  ▼
-                            consensus score
-                            + confidence
-                                  │
-                                  ▼
-                            strategy signals
-                            (buy/sell/hold)
-                                  │
-                                  ▼
-                            risk_manager
-                            (position sizing)
-                                  │
-                                  ▼
-                        risk-managed orders
-                                  │
-                                  ▼
-                            BrokerService
-                            (log or T212)
+core/
+├── agent/
+│   ├── runner.py              — AgentRunner QThread
+│   ├── mcp_server.py          — create_sdk_mcp_server wiring
+│   ├── prompts.py             — autonomous PM system prompt
+│   ├── context.py             — per-iteration context
+│   └── tools/
+│       ├── broker_tools.py
+│       ├── market_tools.py
+│       ├── risk_tools.py
+│       ├── memory_tools.py
+│       ├── watchlist_tools.py
+│       ├── news_tools.py
+│       ├── social_tools.py
+│       └── flow_tools.py
+├── scrapers/
+│   ├── base.py                — ScraperBase + ScrapedItem
+│   ├── runner.py              — background daemon
+│   ├── google_news.py
+│   ├── yahoo_finance.py
+│   ├── bbc.py
+│   ├── bloomberg.py
+│   ├── marketwatch.py
+│   ├── youtube.py
+│   ├── stocktwits.py
+│   ├── reddit.py
+│   └── x_via_gnews.py
+├── broker_service.py          — broker facade (T212 / LogBroker)
+├── trading212.py              — Trading 212 REST client
+├── risk_manager.py            — Kelly + ATR sizing (tool-exposed)
+├── data_loader.py             — yfinance daily OHLCV cache
+├── database.py                — sqlite persistence
+└── news_agent.py              — legacy RSS agent (still used for panel sentiment)
+
+desktop/
+├── app.py                     — MainWindow, panel wiring, agent lifecycle
+├── state.py                   — DEFAULT_CONFIG + init_state
+├── main.py                    — shared bootstrap (license, wizard, launch)
+├── main_bloomberg.py          — Bloomberg edition entry point
+├── panels/
+│   ├── agent_log.py           — live log + start/stop/kill
+│   ├── chart.py
+│   ├── chat.py
+│   ├── news.py
+│   ├── orders.py
+│   ├── positions.py
+│   ├── settings.py            — account + agent status readout
+│   └── watchlist.py
+└── dialogs/                   — setup wizard, license, etc.
 ```
 
-## Subsystem Responsibilities
+## Key files (by owner)
 
-| System | Owns | Must NOT |
-|--------|------|----------|
-| data_loader | OHLCV download, CSV caching | Touch model or strategy logic |
-| features | Technical indicator calculation, label creation | Import model or broker |
-| features_advanced | 31 V2 indicators, 6 analyst groups, feature vectors | Touch model or ensemble directly |
-| ensemble | Multi-model training/prediction, model serialisation | Know about tickers or strategy |
-| timeframe | Horizon-specific ensembles (1d/5d/20d) | Aggregate signals beyond its horizon |
-| regime | Market regime detection and classification | Make trading decisions |
-| claude_client | All Claude API communication | Access broker or data_loader |
-| claude_personas | 5 Claude analyst personas, per-ticker analysis routing | Make final trading decisions |
-| consensus | Signal aggregation, investment committee logic | Call APIs or train models |
-| risk_manager | Position sizing, portfolio risk calculations | Submit orders or modify state |
-| forecaster_statistical | ARIMA/ETS baseline fitting and probability conversion | Know about ML ensemble or broker |
-| forecaster_deep | N-BEATS architecture, training, and prediction | Know about other forecasters or broker |
-| meta_ensemble | Three-family weighted combination | Train models or call APIs |
-| mirofish | Multi-agent simulation, Monte Carlo orchestration, signal extraction | Call APIs, train ML models, or submit orders |
-| autoconfig/ | Autonomous config optimisation via Claude CLI sessions | Not import any project modules except backtesting |
-| backtesting/ | Walk-forward validation, trade simulation, performance metrics | Modify live config, submit real orders |
-| pipeline_tracker | Thread-safe progress tracking for TUI | Know about TUI or AI logic |
-| strategy | Probability → signal conversion, position limits | Train models or call APIs |
-| broker / broker_service | Order submission, position/account queries | Know about ML or features |
-| auto_engine | Automated signal → order loop, execution | Modify broker or AI logic directly |
-| news_agent | RSS fetching, sentiment via Claude | Submit orders or modify state directly |
-| terminal/app | TUI lifecycle, action routing, view wiring | Implement business logic |
-| terminal/state | Shared AppState dataclass | Contain methods or logic |
-| terminal/views | UI rendering, user input | Call broker or AI directly |
-| terminal/charts | Sparkline rendering | Fetch data directly |
-| desktop/app | PySide6 Bloomberg-dark window, grid layout, timer wiring | Implement business logic |
-| desktop/state | Qt-aware AppState wrapper (reuses terminal/state) | Contain business logic |
-| desktop/workers | QThread background workers (RefreshWorker, BackgroundTask) | Access broker or AI directly |
-| desktop/panels/* | Individual UI panels (watchlist, chat, news, orders, etc.) | Call broker or AI directly |
-| desktop/dialogs/* | Modal dialogs (add ticker, AI recommend, trade, etc.) | Contain persistent state |
+- **Boss-owned hubs:** `desktop/app.py`, `desktop/main.py`,
+  `core/agent/runner.py`, `config.json`, `requirements.txt`
+- **Tool bus (one module per concern):** `core/agent/tools/*.py`
+- **Scrapers (one file per source):** `core/scrapers/*.py`
+- **Panels (one file per panel):** `desktop/panels/*.py`
 
-## Key Types / Schemas
+## Config surface
 
-| Type | Location | Purpose |
-|------|----------|---------|
-| ConfigDict | `Dict[str, Any]` | Runtime config loaded from `config.json` |
-| AppState | `terminal/state.py` | Shared TUI state (signals, positions, chat, regime, consensus, ensemble metadata) |
-| AiService | `ai_service.py` | ML + Claude orchestrator (1000-analyst ensemble) |
-| BrokerService | `broker_service.py` | Broker-agnostic facade |
-| Broker (ABC) | `broker.py` | Abstract broker interface |
-| StrategyConfig | `strategy.py` | Buy/sell thresholds, position limits |
-| ModelConfig | `model.py` | Legacy RF hyperparams, model path, train split |
-| ClaudeConfig | `claude_client.py` | Claude model name, API key env var |
-| TickerNews | `news_agent.py` | Per-ticker sentiment + headlines |
-| FEATURE_COLUMNS | `features.py` | Legacy list (10 features) of model input |
-| FEATURE_COLUMNS_V2 | `features_advanced.py` | V2 canonical list (31 features) + analyst grouping |
-| FEATURE_GROUPS | `features_advanced.py` | Mapping of feature names to 6 analyst specialties |
-| EnsembleModel | `ensemble.py` | Multi-model classifier with train/predict/save/load |
-| TimeframeEnsemble | `timeframe.py` | Horizon-specific (1d/5d/20d) ensemble wrappers |
-| RegimeState | `regime.py` | Market regime classification + confidence |
-| ConsensusResult | `consensus.py` | Aggregated signal, confidence, component breakdown |
-| ClaudePersonaSignal | `claude_personas.py` | Per-persona ticker analysis + probability + reason |
-| RiskManager | `risk_manager.py` | Position sizing, portfolio concentration logic |
-| StrategyProfile | `strategy_profiles.py` | Immutable trading-style configs (conservative, swing, etc.) |
-| StrategySelector | `strategy_selector.py` | Regime-aware per-ticker profile assignment |
-| AssetClass | `types_shared.py` | Literal["stocks","crypto","polymarket"] + all shared dataclasses |
-| AssetRegistry | `asset_registry.py` | Factory registry mapping AssetClass → data/features/ensemble modules |
-| AccuracyTracker | `accuracy_tracker.py` | Sliding-window hit-rate tracking for per-source signal accuracy |
-| CpuConfig | `cpu_config.py` | Centralised CPU core caps to prevent memory thrashing |
+```json
+{
+  "agent": {
+    "enabled": false,
+    "cadence_seconds": 90,
+    "max_tool_calls_per_iter": 40,
+    "max_iter_seconds": 360,
+    "paper_mode": true,
+    "daily_max_drawdown_pct": 3.0,
+    "max_position_pct": 20.0,
+    "max_trades_per_hour": 10
+  },
+  "news": {
+    "refresh_interval_minutes": 5,
+    "scraper_cadence_seconds": 300
+  },
+  "broker": {
+    "type": "log",
+    "api_key_env": "T212_API_KEY",
+    "secret_key_env": "T212_SECRET_KEY",
+    "practice": true
+  }
+}
+```
 
-## Phase Map
+## What the agent cannot do (deliberately)
 
-| Phase | Scope | Status |
-|-------|-------|--------|
-| 1 | Core ML pipeline: data → features → model → signals → broker | Done |
-| 2 | TUI terminal, Claude integration, news agent, Trading 212 | Done |
-| 2.5 | Self-learning AI loops, SQLite persistence, chat history, 1000-analyst ensemble | Done |
-| 2.75 | 12-model ensemble, regime detection, Claude personas, consensus engine, risk management | Done |
-| 2.85 | Three-family meta-ensemble (ARIMA/ETS + N-BEATS + ML), pipeline visualisation | Done |
-| 2.9 | MiroFish multi-agent simulation (1000 agents × 9 types × Monte Carlo) | Done |
-| 3.0 | Backtesting engine (walk-forward validation, trade simulation, Sharpe/Sortino/Calmar) | Done |
-| 3.1 | Multi-asset expansion (stocks, crypto, polymarket) | Done |
-| 3.15 | Autoconfig — autonomous parameter optimisation via Claude CLI, GCP VM deployment | Active |
-| 3.2 | Testing, pytest coverage, integration tests | Planned |
-| 4 | Production hardening, monitoring, deployment automation | Planned |
+- Scrape Instagram or Facebook (both gate aggressively; rotations break).
+- Tick-level data (requires paid feed).
+- Arbitrary CLI execution (`allowed_tools` is hard-capped to the
+  `mcp__blank__*` namespace; no Bash, no Read, no Write).
+- Cancel its own kill switch (the Qt thread flag is set on the GUI
+  thread, never inside the subprocess).

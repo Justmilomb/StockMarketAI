@@ -1,69 +1,98 @@
 # Desktop App
 
-PySide6 Bloomberg-dark desktop GUI providing a 3×4 grid layout with live trading data, AI chat, news, pipeline visualisation, and settings. Alternative front-end to the Textual TUI.
+PySide6 Bloomberg-dark desktop GUI. Phase 4+ rewrite — the pipeline
+refresh chain is gone; panels now update live from `AgentRunner` Qt
+signals as tool calls stream back from the Claude Code subprocess.
 
-## Purpose
+## Entry points
 
-Provides a native desktop application entry point. Uses the same backend services as the TUI (AiService, BrokerService, NewsAgent, etc.) wired via Qt timers and background worker threads, exposed through a Bloomberg-style panel grid.
-
-## Entry Point
-
-```bash
-python desktop/main.py
+```
+python desktop/main_bloomberg.py
 ```
 
-`desktop/main.py` handles PyInstaller `freeze_support()`, `.env` loading, applies the Bloomberg-dark QSS stylesheet, and launches `MainWindow`.
+`desktop/main.py` is the shared bootstrap — handles PyInstaller
+`freeze_support()`, `.env` loading, license check, setup wizard,
+and applies the Bloomberg-dark QSS stylesheet before launching
+`MainWindow`.
 
 ## Layout
 
-`MainWindow` (QMainWindow with QGridLayout 3 columns × 4 rows):
+`MainWindow` (QMainWindow with panel grid):
 
-| Panel | Position | Purpose |
-|-------|----------|---------|
-| WatchlistPanel | top-left | Ticker table with signals, probabilities, consensus |
-| PositionsPanel | mid-left | Open positions with PnL |
-| OrdersPanel | bottom-left | Recent orders |
-| ChartPanel | top-centre | Price chart for selected ticker |
-| PipelinePanel | mid-centre | AI pipeline progress visualisation |
-| SettingsPanel | bottom-centre | Config editor (thresholds, modes) |
-| ChatPanel | top-right (spans 2) | Interactive Claude AI chat |
-| NewsPanel | bottom-right | RSS news feed with sentiment |
+| Panel | Purpose |
+|-------|---------|
+| WatchlistPanel | Active tickers for the current watchlist |
+| PositionsPanel | Open positions with PnL (from broker tool reads) |
+| OrdersPanel | Recent / pending orders |
+| ChartPanel | Price chart for selected ticker |
+| AgentLogPanel | Live tool-call feed + start/stop/kill buttons + paper badge |
+| SettingsPanel | Account + agent status readout (no controls) |
+| ChatPanel | User chat — routes into the running agent loop |
+| NewsPanel | RSS news feed (legacy `news_agent` sentiment) |
 
-## Key Classes
+## Key attributes on MainWindow
 
 ```python
-class MainWindow(QMainWindow):  # desktop/app.py — wires all services + panels
+class MainWindow(QMainWindow):  # desktop/app.py
     config: Dict[str, Any]
-    state: AppState              # desktop/state.py
-    ai_service: AiService
+    state: AppState               # from desktop/state.py
     broker_service: BrokerService
-    auto_engine: AutoEngine
-    pipeline_tracker: PipelineTracker
-    news_agent: NewsAgent
     history_manager: HistoryManager
-    _claude_client: ClaudeClient
+    news_agent: NewsAgent         # legacy panel sentiment
+    agent_runner: Optional[AgentRunner]   # lazy
+    scraper_runner: Optional[ScraperRunner]
+    _claude_client: Optional[ClaudeClient]  # chat / ticker-search helper
 ```
 
-## Background Workers
+## Agent lifecycle
 
-`RefreshWorker` runs the AI pipeline on a `QTimer` (configurable interval). `BackgroundTask` runs one-off operations (news fetch, manual refresh) in a thread to avoid blocking the UI.
+1. **Start** — Agent menu → `start_agent()`. Constructs `AgentRunner`,
+   connects signals, calls `start()`.
+2. **Stream** — tool calls and text chunks fan out to panels via
+   `Qt.QueuedConnection` slots (safe to touch widgets).
+3. **Chat** — `ChatPanel` submits are forwarded to
+   `AgentRunner.send_user_message` and interrupt any current sleep.
+4. **Stop / Kill** — Agent menu or `AgentLogPanel` buttons call
+   `request_stop()`; kill also waits 3 s then `terminate()`.
+5. **Close** — `closeEvent` stops both runners cleanly before
+   letting Qt quit.
+
+## Scraper lifecycle
+
+Started at boot in `_start_scraper_runner()`:
+
+```python
+self.scraper_runner = ScraperRunner(
+    db=self.history_manager,
+    watchlist_provider=self._get_active_tickers,
+    cadence_seconds=int(self.config["news"]["scraper_cadence_seconds"]),
+)
+self.scraper_runner.start()
+```
+
+`ScraperRunner` is a plain `threading.Thread` (daemon), so `core/`
+stays free of PySide6 imports. Stopped in `closeEvent` via
+`scraper_runner.stop()`.
 
 ## Theming
 
-Bloomberg-dark QSS stylesheet from `desktop/theme.py` — dark background (#0D1117 equivalent), amber/green accent colours matching the Textual TUI palette.
+Bloomberg-dark QSS from `desktop/theme.py`. Sharp corners, hard
+amber/green accents — no rounded corners, no soft shadows (see
+`feedback_terminal_ui` memory).
 
-## Keyboard Shortcuts
+## PyInstaller notes
 
-Configured via `QShortcut` in `MainWindow.__init__`. Core shortcuts mirror the TUI (refresh, add/remove ticker, chat focus, etc.).
-
-## PyInstaller Compatibility
-
-`desktop/main.py` calls `multiprocessing.freeze_support()` before anything else. `sys._MEIPASS` path injection ensures subprocesses spawned by ProcessPoolExecutor (MiroFish, backtesting) don't re-launch the full GUI.
+`desktop/main.py` calls `multiprocessing.freeze_support()` before
+anything else. `sys._MEIPASS` path injection keeps spawned
+subprocesses (backtesting workers) from re-launching the GUI.
 
 ## Dependencies
 
-- `PySide6` (Qt6 bindings)
-- All backend services: `ai_service`, `broker_service`, `news_agent`, `database`, `auto_engine`, `pipeline_tracker`
-- `desktop/state.py` (AppState dataclass, init_state, load_config)
-- `desktop/workers.py` (RefreshWorker, BackgroundTask)
-- `desktop/panels/` (one module per panel)
+- `PySide6` (Qt6)
+- `core/agent/runner.py` — agent QThread
+- `core/scrapers/runner.py` — scraper daemon
+- `core/broker_service.py`, `core/trading212.py`
+- `core/database.py` — sqlite persistence
+- `core/news_agent.py` — legacy panel sentiment
+- `core/claude_client.py` — chat / ticker-search helper
+- `desktop/state.py`, `desktop/panels/`, `desktop/dialogs/`

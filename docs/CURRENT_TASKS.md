@@ -1,83 +1,164 @@
 # Current Tasks
 
-## Active Phase: Phase 4 — Production Hardening
+## Active Phase: Phase 4+ — Claude-native rebuild
+
+The app has been rebuilt around the Claude Agent SDK. The hand-rolled
+ML pipeline (ensemble, regime, consensus, auto-engine) has been
+deleted. Claude is now the brain; Python is a typed tool bus.
 
 ### Completed
 
-**Phase 1 — Core ML Pipeline**
-- [x] Core ML pipeline: data download, feature engineering, RF model, signal generation — 2026-02-15
-- [x] Broker abstraction with LogBroker (paper trading) — 2026-02-15
+**Phase 1–3.6 — pre-rebuild milestones** (ML pipeline, TUI, desktop
+app, commercialisation, simple edition). See `docs/CHANGELOG.md` for
+the full history — everything before 2026-04-09 is legacy.
 
-**Phase 2 — TUI & Integrations**
-- [x] Bloomberg-style Textual TUI with 3-column grid layout — 2026-02-28
-- [x] Claude API integration for signal generation + chat + recommendations — 2026-03-01
-- [x] Weighted ensemble scoring (sklearn 50% + claude 30% + news 20%) — 2026-03-05
-- [x] Trading 212 live broker implementation — 2026-03-08
-- [x] Background news agent with RSS + Claude sentiment — 2026-03-10
-- [x] Watchlist management, trade modal, price charts, AI chat — 2026-03-14
+**Rebuild Phase 1 — Strangler fig skeleton** — 2026-04-09
+- [x] `core/agent/` package created with empty tool modules
+- [x] `agent` section added to `config.json`
+- [x] `agent_memory` + `agent_journal` tables in sqlite
+- [x] Agent menu added to desktop app (disabled)
 
-**Phase 2.5 — 1000-Analyst Ensemble Pipeline**
-- [x] Advanced feature engineering (V2: 31 features × 6 analyst groups) — 2026-03-17
-- [x] Multi-model ensemble (12 diverse ML classifiers) — 2026-03-18
-- [x] Multi-timeframe signal generation (1d/5d/20d horizons) — 2026-03-18
-- [x] Market regime detection, Claude personas, consensus engine — 2026-03-20
-- [x] Portfolio risk manager (Kelly criterion + volatility sizing) — 2026-03-20
-- [x] SQLite persistence, pipeline visualization — 2026-03-21
-- [x] ARIMA/ETS statistical baseline forecasters — 2026-03-21
+**Rebuild Phase 2 — Tool bus + SDK integration** — 2026-04-10
+- [x] `claude-agent-sdk==0.1.58` pinned in `requirements.txt`
+- [x] `core/agent/tools/` — broker, market, risk, memory, watchlist, flow tools
+- [x] `core/agent/mcp_server.py` — `create_sdk_mcp_server` wiring
+- [x] `core/agent/context.py` — per-iteration context
+- [x] `core/agent/prompts.py` — autonomous PM system prompt
+- [x] `scripts/agent_repl.py` — one-iteration smoke harness
 
-**Phase 2.9 — MiroFish Multi-Agent Simulation**
-- [x] 1000 heterogeneous agents (9 types) × 16 Monte Carlo sims — 2026-03-27
+**Rebuild Phase 3 — Delete the ML pipeline** — 2026-04-11
+- [x] 18 files deleted from `core/` (ai_service, auto_engine, consensus,
+  claude_personas, ensemble, features*, forecaster_statistical, regime,
+  strategy*, timeframe, model, accuracy_tracker, intraday_data,
+  pipeline_tracker)
+- [x] `desktop/app.py` stripped of pipeline refresh, TRADE_INSTRUCTIONS
+  regex, two-phase refresh, strategy/risk auto-execute paths
+- [x] `desktop/panels/pipeline.py` → `desktop/panels/agent_log.py`
+- [x] `desktop/state.py` agent-centric shape; DEFAULT_CONFIG stripped
+- [x] `desktop/main.py` remote config rewired to `agent.*` keys
 
-**Phase 3.0 — Backtesting Engine**
-- [x] Walk-forward validation with parallel fold execution — 2026-03-27
-- [x] Trade simulation (stops, slippage, sizing), Sharpe/Sortino/Calmar metrics — 2026-03-27
+**Rebuild Phase 4 — Agent runner + UI wiring** — 2026-04-12
+- [x] `core/agent/runner.py` — `AgentRunner` QThread, asyncio loop,
+  streaming tool calls, stop/kill, soft-stop on message boundary
+- [x] `desktop/panels/agent_log.py` — start/stop/kill buttons, paper
+  indicator, live log tail
+- [x] `desktop/app.py` Agent menu + lifecycle slots, closeEvent
+  agent shutdown, chat routed to running agent
+- [x] `state.agent_running` / `agent_paper_mode` / `last_iteration_ts`
+  / `agent_journal_tail` wired
 
-**Phase 3.05 — Multi-Strategy + Stress Testing**
-- [x] 5 strategy profiles, regime-aware selection, crisis period testing — 2026-03-28
+**Rebuild Phase 5 — Scraper expansion 24/7** — 2026-04-13
+- [x] `core/scrapers/base.py` — `ScraperBase` with rate-limited GET,
+  UA rotation, per-source health tracking, safe-fail
+- [x] 9 scrapers: google_news, yahoo_finance, bbc, bloomberg,
+  marketwatch, youtube, stocktwits, reddit, x (via gnews)
+- [x] `core/database.py` — `scraper_items` table + save/get/purge helpers
+- [x] `core/scrapers/runner.py` — background daemon thread, cycles
+  every 5 min, writes to sqlite, bounded retention (7 days)
+- [x] `core/agent/tools/news_tools.py` — `get_news`, `subscribe_news`,
+  `get_scraper_health`
+- [x] `core/agent/tools/social_tools.py` — `get_social_buzz`,
+  `get_market_buzz`
+- [x] `desktop/app.py` — scraper runner started at boot, stopped on close
 
-**Phase 3.1 — Multi-Asset Expansion**
-- [x] Crypto package (8 files) + Polymarket package (10 files) — 2026-03-29
-- [x] Asset registry pattern, TUI/desktop asset switching — 2026-03-29
+### Completed (cont.)
 
-**Phase 3.15 — Autoconfig (Autonomous Optimisation)**
-- [x] Claude Opus 4.6 CLI sessions, walk-forward backtesting, 23+ experiments — 2026-04-01
+**Rebuild Phase 6 — UI polish + verification** — 2026-04-13
+- [x] Settings panel rewired to show agent/account info instead of
+  dead ML pipeline fields
+- [x] `README.md`, `docs/ARCHITECTURE.md`, `docs/CONTRACTS.md`,
+  `docs/SYSTEM_OVERVIEW.md`, `docs/DIRECTORY_STRUCTURE.md` rewritten
+  for the Claude-native architecture
+- [x] `docs/systems/*.md` cleanup — deleted 12 stale ML-module docs
+  (auto-engine, consensus, ensemble, features*, regime, strategy,
+  timeframe, model, claude-personas, forecaster-statistical,
+  autoconfig), added `agent-runner.md` and `scrapers.md`, rewrote
+  `desktop-app.md`
+- [x] `website/index.html` copy updated to the "autonomous AI trader"
+  story (`claude drives · news & social 24/7 · bloomberg-dark ui`)
+- [x] `installer/bloomberg.spec` hiddenimports cleaned (dropped 16
+  deleted ML modules, added `core.agent.*`, `core.scrapers.*`,
+  `claude_agent_sdk`)
+- [x] `build.bat` produces `dist/blank.exe` successfully (291 MB);
+  .exe launches, Qt event loop runs, no import errors.
+  `BlankSetup.exe` requires Inno Setup 6 (not installed on this
+  machine) — `.iss` script is up to date.
 
-**Phase 3.2 — PySide6 Desktop App**
-- [x] Bloomberg-dark GUI with QDockWidget panels — 2026-04-02
-- [x] PyInstaller build + Inno Setup installer — 2026-04-02
+**Rebuild Phase 7 — Research browser tool** — 2026-04-13
+- [x] `core/agent/tools/browser_tools.py` — `fetch_page(url, max_chars)`
+  with SSRF guard, per-iteration rate limit (10 fetches), 1 MB body
+  cap, stdlib `urllib.request` + `ssl.create_default_context()` so
+  the Python 3.14 / OpenSSL 3 Windows SSL trust-store issue doesn't
+  bite, `lxml`-based article extraction preferring `<article>` →
+  `<main>` → longest `<div>`, Content-Type filter
+- [x] `core/agent/mcp_server.py` wires `BROWSER_TOOLS` into
+  `ALL_TOOLS`; agent sees `mcp__blank__fetch_page`
+- [x] `core/agent/prompts.py` tool-catalogue entry + standing rule
+  #8 explicitly forbidding `fetch_page` as a price feed
+- [x] `tests/test_browser_tools.py` — 10 pytest cases covering
+  guard rails (empty URL, bad scheme, localhost, RFC1918, loopback,
+  rate limit), happy path (article extraction, truncation, bad
+  content-type), and journal row writes. `pytest` run: 10 passed
+- [x] `docs/CONTRACTS.md` — added "Tool bus ↔ the web" section with
+  input/output shape and full invariant list
 
-**Phase 3.5 — Commercialisation**
-- [x] License server (FastAPI + SQLite on Render) — 2026-04-07
-- [x] Remote admin config enforcement (kill switch, maintenance, force update) — 2026-04-07
-- [x] First-run setup wizard (Claude CLI + T212 instructions) — 2026-04-08
-- [x] News agent data sync fix + AI availability guards — 2026-04-08
-- [x] Admin panel simplified (removed fine-tuning knobs) — 2026-04-08
-- [x] Code signing support in build pipeline — 2026-04-08
-
-**Phase 3.6 — Simple App + Reorganisation**
-- [x] Simple edition: card-based UI matching website aesthetic — 2026-04-08
-- [x] Root cleanup: 29 core modules moved to `core/` package — 2026-04-08
-- [x] Two separate installers: Bloomberg + Simple editions — 2026-04-08
-- [x] Dead files removed (ai.py, daily_agent.py, prompt.txt, proxy/) — 2026-04-08
-- [x] Documentation overhaul — 2026-04-08
-
-### In Progress
-- [ ] Test coverage expansion (pytest suite for ensemble, timeframe, regime, consensus, risk_manager)
+**Rebuild Phase 8 — Market awareness, backtest sanity, integration
+tests** — 2026-04-14
+- [x] `core/scrapers/base.py` — custom `_StdlibSSLAdapter` mounted on
+  `requests.Session` so the dev-box Python 3.14 + urllib3 + Windows
+  trust-store bug stops biting. Verified live against example.com.
+- [x] `core/market_hours.py` — 13-exchange registry (US, LSE, XETRA,
+  Euronext Paris/Amsterdam, BME, Borsa Italiana, SIX, Nasdaq Nordics,
+  Oslo, TASE), `Exchange` dataclass with timezone + weekday mask,
+  `status()` returning is_open + next_open + next_close in local time,
+  `exchange_for_ticker()` parsing T212 suffixes including the
+  lowercase-'l' London convention.
+- [x] `core/agent/tools/market_hours_tools.py` — `get_market_status`
+  tool joining the registry to the broker's positions, returning
+  per-exchange is_open + positions_count + position_tickers and a
+  global open_count. Wired into `mcp_server.ALL_TOOLS`.
+- [x] `core/agent/tools/backtest_tools.py` — lean
+  `simulate_stop_target(ticker, stop_pct, target_pct, hold_days,
+  lookback_days)` sliding stop/target sim over daily OHLCV from
+  `core.data_loader`. Pessimistic same-bar collisions, returns
+  win_rate/expectancy/best/worst/n_trades. Does **not** revive the
+  deleted `backtesting/engine.py` ML pipeline.
+- [x] `core/agent/prompts.py` — tool catalogue entries for
+  market-hours + backtesting; standing rule #9 telling Claude to call
+  `get_market_status` early and use it to drive
+  `next_check_in_minutes` when the markets are closed.
+- [x] `desktop/panels/exchanges.py` — Bloomberg-style MARKETS panel
+  (QGroupBox + QTableWidget + 30s QTimer) showing 13 venues with
+  OPEN/CLOSED/local time/next transition/positions count. Wired
+  into `desktop/app.py` MainWindow, included in the stocks dock
+  group, and refreshed alongside POSITIONS in `_refresh_all_panels`.
+- [x] `tests/test_agent_loop.py` — 12 integration tests covering
+  context lifecycle, the full ALL_TOOLS shape (every tool has
+  callable `.handler` + `.name`, no duplicates, allowed_tool_names
+  matches), MCP server build, broker/place_order happy + ownership-
+  refusal paths with a MagicMock broker, `get_market_status`
+  bucketing, and `end_iteration` mutating runner signals. All 12
+  green. Combined with `test_browser_tools.py` the agent test suite
+  is 22 tests, ~7 s.
+- [x] `installer/bloomberg.spec` hiddenimports updated for
+  `core.market_hours`, `core.agent.tools.market_hours_tools`,
+  `core.agent.tools.backtest_tools`, `desktop.panels.exchanges`.
 
 ### Up Next
-- [ ] Integration tests for Trading 212 broker (mocked API)
-- [ ] Production monitoring and alerting
-- [ ] Auto-update mechanism (check server version endpoint)
-- [ ] Outfit font bundling for Simple edition
+
+- [ ] (none currently — Phase 8 closed out the post-Phase-7 backlog)
+
+(Crypto + polymarket restore is deferred indefinitely; dormant code
+stays bundled in the installer but is not exposed to the agent.)
 
 ### Blocked
+
 - [ ] (none currently)
 
 ## How to Pick Up Work
 
-1. Read `docs/ARCHITECTURE.md` for context
-2. Check "In Progress" — don't duplicate active work
-3. Pick from "Up Next" in order
-4. Move task to "In Progress" with your name/agent-id
-5. Complete the task + update all relevant docs
-6. Move task to "Completed" with date
+1. Read `docs/ARCHITECTURE.md` for context.
+2. Check "In Progress" — don't duplicate active work.
+3. Pick from "Up Next" in order.
+4. Complete the task + update the relevant docs.
+5. Move the task to "Completed" with a date.

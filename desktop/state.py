@@ -14,27 +14,24 @@ from terminal.state import AppState
 
 # Minimal valid config — enough to boot the app without crashing.
 # User is prompted to import their real config on first launch.
+# Phase 3: strategy / ensemble / regime / risk / strategy_profiles /
+# claude_personas / consensus / forecasters / pipeline / timeframes sections
+# are gone. The agent is the brain and owns its own risk rules.
 DEFAULT_CONFIG: Dict[str, Any] = {
     "watchlists": {"Default": []},
     "protected_tickers": [],
     "active_watchlist": "Default",
-    "start_date": "2018-01-01",
-    "end_date": "2026-12-31",
     "data_dir": "data",
-    "model_path": "models/rf_tomorrow_up.joblib",
-    "strategy": {
-        "threshold_buy": 0.58,
-        "threshold_sell": 0.42,
-        "max_positions": 8,
-        "position_size_fraction": 0.12,
-    },
     "capital": 10,
-    "ai": {
-        "sklearn_weight": 0.5,
-        "ai_weight": 0.3,
-        "news_weight": 0.2,
-        "retrain_on_start": True,
-        "retrain_interval_hours": 24,
+    "agent": {
+        "enabled": False,
+        "cadence_seconds": 90,
+        "max_tool_calls_per_iter": 40,
+        "max_iter_seconds": 360,
+        "paper_mode": True,
+        "daily_max_drawdown_pct": 3.0,
+        "max_position_pct": 20.0,
+        "max_trades_per_hour": 10,
     },
     "claude": {
         "model": "claude-sonnet-4-20250514",
@@ -42,7 +39,10 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "model_medium": "claude-sonnet-4-20250514",
         "model_simple": "claude-haiku-4-5-20251001",
     },
-    "news": {"refresh_interval_minutes": 5},
+    "news": {
+        "refresh_interval_minutes": 5,
+        "scraper_cadence_seconds": 300,
+    },
     "broker": {
         "type": "log",
         "api_key_env": "T212_API_KEY",
@@ -50,46 +50,11 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "base_url": "https://live.trading212.com",
         "practice": True,
     },
-    "ensemble": {
-        "n_models": 12,
-        "stacking_enabled": True,
-        "performance_lookback_days": 90,
-        "min_model_weight": 0.02,
-    },
-    "timeframes": {"horizons": [1, 5, 20], "weights": {"1": 0.7, "5": 0.2, "20": 0.1}},
-    "regime": {"lookback_days": 60, "spy_ticker": "SPY", "regime_weight_adjustment": 0.3},
-    "risk": {
-        "kelly_fraction_cap": 0.35,
-        "max_position_pct": 0.20,
-        "atr_stop_multiplier": 1.8,
-        "atr_profit_multiplier": 2.5,
-        "drawdown_threshold": 0.15,
-        "drawdown_size_reduction": 0.5,
-        "min_position_dollars": 1.0,
-        "fractional_shares": True,
-    },
-    "strategy_profiles": {
-        "enabled": True,
-        "regime_mapping": {
-            "trending_up": "trend_follower",
-            "trending_down": "conservative",
-            "mean_reverting": "day_trader",
-            "high_volatility": "crisis_alpha",
-            "unknown": "swing",
-        },
-    },
-    "claude_personas": {
-        "enabled": True,
-        "personas": ["technical", "fundamental", "momentum", "contrarian", "risk"],
-    },
-    "consensus": {"min_consensus_pct": 60, "disagreement_penalty": 0.5},
-    "forecasters": {
-        "statistical": {"enabled": True, "arima_order": [1, 1, 1], "cache_dir": "models/statistical"},
-    },
-    "pipeline": {"show_progress": True},
     "terminal": {
-        "mode": "recommendation", "refresh_interval_seconds": 30,
-        "theme": "default", "max_daily_loss": 0.05,
+        "mode": "recommendation",
+        "refresh_interval_seconds": 30,
+        "theme": "default",
+        "max_daily_loss": 0.05,
     },
     "active_asset_class": "stocks",
     "enabled_asset_classes": ["stocks"],

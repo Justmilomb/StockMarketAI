@@ -8,6 +8,8 @@ Tables:
   - chat_history: persists chat messages across sessions
   - ai_memory: persistent facts about user preferences and trading behaviour
   - prediction_log: tracks predictions vs actual outcomes for accuracy measurement
+  - agent_memory: key-value store the Claude agent uses as its scratchpad
+  - agent_journal: append-only log of agent iterations, tool calls, and decisions
 """
 import sqlite3
 import json
@@ -182,6 +184,46 @@ class HistoryManager:
                 );
                 CREATE INDEX IF NOT EXISTS idx_pn_ticker ON position_notes(ticker);
                 CREATE INDEX IF NOT EXISTS idx_pn_open ON position_notes(is_open);
+
+                CREATE TABLE IF NOT EXISTS agent_memory (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL,
+                    updated_at TEXT DEFAULT (datetime('now'))
+                );
+
+                CREATE TABLE IF NOT EXISTS agent_journal (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TEXT DEFAULT (datetime('now')),
+                    iteration_id TEXT,
+                    kind TEXT NOT NULL,
+                    tool TEXT,
+                    payload TEXT,
+                    tags TEXT
+                );
+                CREATE INDEX IF NOT EXISTS idx_aj_ts ON agent_journal(timestamp);
+                CREATE INDEX IF NOT EXISTS idx_aj_kind ON agent_journal(kind);
+                CREATE INDEX IF NOT EXISTS idx_aj_iter ON agent_journal(iteration_id);
+
+                -- Scraped items: news headlines + social posts from the
+                -- background scraper runner. Tools read from this table
+                -- rather than hitting sources live on every agent call.
+                CREATE TABLE IF NOT EXISTS scraper_items (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    fetched_at TEXT DEFAULT (datetime('now')),
+                    source TEXT NOT NULL,
+                    kind TEXT NOT NULL,
+                    ticker TEXT,
+                    title TEXT NOT NULL,
+                    url TEXT,
+                    ts TEXT,
+                    summary TEXT,
+                    meta_json TEXT,
+                    UNIQUE(source, url, title)
+                );
+                CREATE INDEX IF NOT EXISTS idx_sc_fetched ON scraper_items(fetched_at);
+                CREATE INDEX IF NOT EXISTS idx_sc_ticker ON scraper_items(ticker);
+                CREATE INDEX IF NOT EXISTS idx_sc_source ON scraper_items(source);
+                CREATE INDEX IF NOT EXISTS idx_sc_kind ON scraper_items(kind);
             """)
 
     # ── Migrations ─────────────────────────────────────────────────────
@@ -627,6 +669,113 @@ class HistoryManager:
         for r in rows:
             notes[r["ticker"]] = dict(r)
         return notes
+
+    # ── Scraped items (Phase 5) ────────────────────────────────────────
+
+    def save_scraper_items(self, items: List[Dict[str, Any]]) -> int:
+        """Bulk-insert scraped items. Duplicates (source+url+title) are
+        silently skipped via ``INSERT OR IGNORE``. Returns the number of
+        *new* rows actually inserted.
+        """
+        if not items:
+            return 0
+
+        rows = []
+        for it in items:
+            meta_json = it.get("meta_json")
+            if meta_json is None and it.get("meta") is not None:
+                meta_json = json.dumps(it["meta"], default=str)
+            rows.append((
+                it.get("source"),
+                it.get("kind"),
+                it.get("ticker"),
+                it.get("title"),
+                it.get("url"),
+                it.get("ts"),
+                it.get("summary", ""),
+                meta_json,
+            ))
+
+        with sqlite3.connect(self.db_path) as conn:
+            before = conn.execute("SELECT COUNT(*) FROM scraper_items").fetchone()[0]
+            conn.executemany(
+                "INSERT OR IGNORE INTO scraper_items "
+                "(source, kind, ticker, title, url, ts, summary, meta_json) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                rows,
+            )
+            after = conn.execute("SELECT COUNT(*) FROM scraper_items").fetchone()[0]
+        return after - before
+
+    def get_scraper_items(
+        self,
+        *,
+        kinds: Optional[List[str]] = None,
+        tickers: Optional[List[str]] = None,
+        since_minutes: int = 1440,
+        limit: int = 200,
+    ) -> List[Dict[str, Any]]:
+        """Return scraped items newer than *since_minutes*, filtered by
+        kind and ticker. Most-recent first.
+        """
+        where: List[str] = ["fetched_at >= datetime('now', ?)"]
+        params: List[Any] = [f"-{int(since_minutes)} minutes"]
+
+        if kinds:
+            placeholders = ",".join("?" * len(kinds))
+            where.append(f"kind IN ({placeholders})")
+            params.extend(kinds)
+
+        if tickers:
+            # Match either items tagged with the ticker or items whose
+            # title contains the ticker as a token — so market-wide
+            # feeds (BBC, Bloomberg, YouTube) still surface relevant
+            # hits for the agent's watchlist.
+            ticker_clauses: List[str] = []
+            for t in tickers:
+                clean = (t or "").split("_")[0].upper()
+                if not clean:
+                    continue
+                ticker_clauses.append("ticker = ?")
+                params.append(clean)
+                ticker_clauses.append("UPPER(title) LIKE ?")
+                params.append(f"%{clean}%")
+            if ticker_clauses:
+                where.append("(" + " OR ".join(ticker_clauses) + ")")
+
+        sql = (
+            "SELECT id, fetched_at, source, kind, ticker, title, url, ts, "
+            "summary, meta_json FROM scraper_items "
+            f"WHERE {' AND '.join(where)} "
+            "ORDER BY COALESCE(ts, fetched_at) DESC LIMIT ?"
+        )
+        params.append(int(limit))
+
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(sql, params).fetchall()
+
+        items: List[Dict[str, Any]] = []
+        for r in rows:
+            d = dict(r)
+            meta_json = d.pop("meta_json", None)
+            try:
+                d["meta"] = json.loads(meta_json) if meta_json else {}
+            except (ValueError, TypeError):
+                d["meta"] = {}
+            items.append(d)
+        return items
+
+    def purge_old_scraper_items(self, keep_days: int = 7) -> int:
+        """Delete scraper items older than *keep_days*. Returns deleted count."""
+        with sqlite3.connect(self.db_path) as conn:
+            before = conn.execute("SELECT COUNT(*) FROM scraper_items").fetchone()[0]
+            conn.execute(
+                "DELETE FROM scraper_items WHERE fetched_at < datetime('now', ?)",
+                (f"-{int(keep_days)} days",),
+            )
+            after = conn.execute("SELECT COUNT(*) FROM scraper_items").fetchone()[0]
+        return before - after
 
     def close(self) -> None:
         pass  # connections are per-call via context manager

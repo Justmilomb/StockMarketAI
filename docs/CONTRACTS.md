@@ -1,454 +1,283 @@
 # Interface Contracts
 
-Explicit contracts between every system pair that communicates.
-Breaking any of these is a regression.
+Contracts between every subsystem pair that communicates. Breaking
+any of these is a regression — the Phase 3 rewrite deliberately
+narrowed the app's surface to a handful of well-typed seams.
 
 ---
 
-## AiService ↔ data_loader
+## AgentRunner ↔ claude-agent-sdk
 
-**Access pattern:** AiService calls `fetch_universe_data()` to get raw OHLCV DataFrames.
+**Access pattern:** `AgentRunner._run_one_iteration` spawns one fresh
+Claude Code subprocess per iteration via `claude_agent_sdk.query()`.
 
-**AiService calls on data_loader:**
+**Calls on the SDK:**
 | Function | When | Returns |
 |----------|------|---------|
-| `fetch_universe_data(tickers, start_date, end_date, data_dir, use_cache)` | On signal generation or retrain | `Dict[str, pd.DataFrame]` — ticker → OHLCV DataFrame |
-| `fetch_live_prices(tickers)` | On TUI refresh | `Dict[str, Dict[str, float]]` — ticker → {price, change_pct} |
+| `query(prompt, options)` | Once per iteration | Async iterator of messages |
+| `create_sdk_mcp_server(name, version, tools)` | Once per iteration | In-process MCP server object passed to `ClaudeAgentOptions.mcp_servers` |
 
 **Invariants:**
-- Returned DataFrames always have columns: Open, High, Low, Close, Volume
-- Index is DatetimeIndex named "Date"
-- Empty DataFrame raises `ValueError`, never returns silently
-- Cache files are CSV in `data/` directory
+- The `options.allowed_tools` list is hard-capped to the `mcp__blank__*`
+  namespace. No Bash / Read / Write / Glob; the agent cannot escape
+  the tool bus.
+- `permission_mode="bypassPermissions"` — every tool in our bus is
+  safe-by-construction, so we don't want the SDK to prompt.
+- `max_turns = agent.max_tool_calls_per_iter` (config, default 40).
+- Wall-clock deadline is checked in Python on every message
+  boundary, independent of the SDK.
+- Iterating the async generator can be broken out of at any time;
+  the SDK cleans up the subprocess in its `finally`.
 
 ---
 
-## AiService ↔ features_advanced
+## AgentRunner ↔ MainWindow
 
-**Access pattern:** AiService calls V2 feature builder to create 31-dimensional feature vectors grouped by 6 analyst specialties.
+**Access pattern:** `MainWindow` owns a single `AgentRunner` QThread
+instance created lazily when the user starts the agent.
 
-**AiService calls on features_advanced:**
-| Function | When | Returns |
-|----------|------|---------|
-| `get_feature_columns() → List[str]` | At initialisation | Ordered list of 31 feature names matching FEATURE_COLUMNS_V2 |
-| `get_feature_groups() → Dict[str, List[str]]` | At initialisation | Mapping {group_name: [feature1, feature2, ...]} for 6 analyst groups |
-| `build_advanced_features(universe_data) → (X, y, meta)` | Training | `X: ndarray (shape: N × 31)`, `y: ndarray (binary)`, `meta: DataFrame` |
-| `latest_advanced_features(universe_data) → (features_df, meta_df)` | Inference | `features_df: DataFrame (indexed by ticker)`, `meta_df: DataFrame` |
+**Qt signals emitted by AgentRunner:**
+| Signal | Payload | Meaning |
+|--------|---------|---------|
+| `status_changed` | `bool` | `True` when the loop is alive |
+| `iteration_started` | `str iteration_id` | New subprocess about to spawn |
+| `iteration_finished` | `str iteration_id, str summary` | `end_iteration` return or wall-clock hit |
+| `tool_use` | `dict {name, input, iteration_id}` | An MCP tool call fired |
+| `tool_result` | `dict {content, is_error, iteration_id}` | Tool call result streamed back |
+| `text_chunk` | `str` | Raw assistant text block |
+| `log_line` | `str` | Pre-formatted journal line |
+| `error_occurred` | `str` | Fatal runner error |
+
+**Calls on AgentRunner from MainWindow:**
+| Call | When | Effect |
+|------|------|--------|
+| `send_user_message(text)` | Chat submit while agent is alive | Queues a user message and sets `_interrupt_sleep` so the next iteration fires immediately |
+| `request_stop()` | Stop button / Kill button | Soft-stop flag checked at every message boundary and during sleep |
 
 **Invariants:**
-- `X` columns always match `FEATURE_COLUMNS_V2` in exact order (31 features)
-- 6 feature groups: momentum, volatility, trend, valuation, macro, flow
-- `y` is binary: 0 or 1 (tomorrow's close higher)
-- `meta` always has columns `[ticker, date]`
-- `features_df` is indexed by ticker symbol
-- NaN rows are dropped before return — callers can assume clean data
-- No feature is NaN after computation (all rows are complete)
+- All signals are auto-marshalled onto the GUI thread via
+  `Qt.QueuedConnection`, so slots are safe to touch widgets.
+- Chat messages sent via `send_user_message` are prepended to the
+  next iteration's prompt, not dropped.
+- Stop is soft: the current iteration can finish cleanly. Kill is
+  the same soft-stop plus a 3-second `wait()` before `terminate()`.
 
 ---
 
-## AiService ↔ ensemble
+## Tool bus ↔ core.agent.context
 
-**Access pattern:** AiService calls EnsembleModel to train on 12 diverse ML models and generate predictions.
+**Access pattern:** every tool module calls `get_agent_context()` to
+reach the current iteration's broker service, sqlite DB, risk
+manager, and config.
 
-**AiService calls on ensemble:**
-| Function | When | Returns |
-|----------|------|---------|
-| `train_ensemble(X, y, meta, config) → EnsembleModel` | First run or retrain | Trained ensemble with 12 models (RF, XGB, LR, SVM, GB, etc.) |
-| `load_ensemble(model_path) → EnsembleModel` | Subsequent runs | Deserialised EnsembleModel from disk |
-| `predict_ensemble(X_latest) → ndarray` | Inference per-ticker | `ndarray` shape (n_tickers, n_models) — raw model probabilities |
-| `get_model_metadata() → Dict` | Introspection | Names and hyperparams of all 12 models |
-| `save(model_path)` | After training | Serialised to joblib/pickle at model_path |
+**Context shape (`core.agent.context.AgentContext`):**
+| Field | Type | Set by |
+|-------|------|--------|
+| `config` | `dict` | Runner, loaded fresh from `config.json` each iteration |
+| `broker_service` | `BrokerService` | Runner — paper-mode uses a forced-`log` copy |
+| `db` | `HistoryManager` | Runner |
+| `risk_manager` | `RiskManager` | Runner |
+| `iteration_id` | `str` | Runner (8-char uuid hex) |
+| `paper_mode` | `bool` | Runner, copied from `agent.paper_mode` |
+| `end_requested` | `bool` | `end_iteration` tool |
+| `next_wait_minutes` | `int` | `end_iteration` tool (0 = use default cadence) |
+| `end_summary` | `str` | `end_iteration` tool |
 
 **Invariants:**
-- 12 diverse models to reduce overfitting and improve generalisation
-- `predict_ensemble()` returns shape (n_samples, n_models) — row = sample, col = model probability P(up)
-- All probabilities clamped to [0.0, 1.0]
-- Model expects input shape matching `FEATURE_COLUMNS_V2` length (31 features)
-- `train_ensemble()` always saves to `config.model_path` before returning
-- `load_ensemble()` raises `FileNotFoundError` if model file missing
+- `init_agent_context` is called once at the start of every iteration,
+  `clear_agent_context` in the `finally`.
+- Tools never mutate `config` persistently — `watchlist_tools` is
+  the one exception and it writes back to disk via `_save_config`.
 
 ---
 
-## AiService ↔ timeframe
+## Scrapers ↔ HistoryManager
 
-**Access pattern:** AiService calls TimeframeEnsemble to generate horizon-specific signals (1d, 5d, 20d).
+**Access pattern:** `ScraperRunner` fetches from every scraper in
+`core.scrapers.SCRAPERS` on a schedule and writes results to
+`scraper_items` via `db.save_scraper_items`. Agent tools
+(`news_tools`, `social_tools`) read back via
+`db.get_scraper_items`.
 
-**AiService calls on timeframe:**
-| Function | When | Returns |
-|----------|------|---------|
-| `train_timeframe_ensembles(X, y, meta, config) → Dict[str, TimeframeEnsemble]` | Training | `{horizon: ensemble}` for ["1d", "5d", "20d"] |
-| `predict_all_horizons(X_latest) → Dict[str, ndarray]` | Inference | `{horizon: ndarray of shape (n_tickers, n_models)}` |
-| `get_horizon_weights() → Dict[str, float]` | Configuration | Default weights for consensus aggregation |
+**Table: `scraper_items`**
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | INTEGER PK | |
+| `fetched_at` | TEXT | DB-side `datetime('now')` at insert |
+| `source` | TEXT | `ScraperBase.name` |
+| `kind` | TEXT | `"news"` or `"social"` |
+| `ticker` | TEXT NULL | Normalised symbol (broker suffix stripped) |
+| `title` | TEXT NOT NULL | Headline / post body |
+| `url` | TEXT NULL | Link back to source |
+| `ts` | TEXT NULL | Publisher timestamp (ISO) if available |
+| `summary` | TEXT | Up to 500 chars |
+| `meta_json` | TEXT | Source-specific extras (upvotes, sentiment, etc.) |
+
+**Unique constraint:** `(source, url, title)` — `INSERT OR IGNORE`
+dedupes across cycles.
 
 **Invariants:**
-- Three horizons always present: "1d", "5d", "20d"
-- `predict_all_horizons()` returns 36 total signals (12 models × 3 horizons)
-- Each horizon's ensemble is independent and trained with horizon-specific labels
-- All probabilities in [0.0, 1.0]
+- Scrapers **never raise** out of `safe_fetch`; failures increment
+  health counters and return `[]`.
+- `save_scraper_items` returns the number of *new* rows inserted
+  (duplicates silently skipped).
+- `get_scraper_items` orders by `COALESCE(ts, fetched_at) DESC`.
+- `purge_old_scraper_items(keep_days=7)` is called on every cycle.
 
 ---
 
-## AiService ↔ regime
+## Tool bus ↔ BrokerService
 
-**Access pattern:** AiService calls RegimeDetector to classify market conditions.
+**Access pattern:** `broker_tools` is a thin typed wrapper over
+`BrokerService`, which is unchanged from the pre-rebuild codebase.
 
-**AiService calls on regime:**
-| Function | When | Returns |
-|----------|------|---------|
-| `detect(universe_data) → RegimeState` | Before ensemble prediction | Current market regime + confidence |
+**Broker calls the tools make:**
+| Tool | BrokerService method | Notes |
+|------|---------------------|-------|
+| `get_portfolio` | `get_account_info`, `get_positions` | Always re-fetched; no cache |
+| `get_pending_orders` | `get_orders` | |
+| `get_order_history` | `get_order_history(limit)` | |
+| `place_order` | `place_order(ticker, side, qty, ...)` | Re-fetches portfolio first to enforce ownership + cash checks |
+| `cancel_order` | `cancel_order(order_id)` | |
 
 **Invariants:**
-- RegimeState includes: `regime` (bull/bear/range/high_vol), `confidence` (0.0–1.0), `macro_context: str`
-- Used to weight ensemble predictions (bullish regimes increase buy signal weight)
-- Regime detection is fast and deterministic based on recent price action
+- `place_order` is the **only** mutating broker call in the tool
+  bus. Everything else is read-only.
+- Paper-mode forces `broker.type="log"` via `_force_paper_config`
+  in the runner; a `LogBroker` instance serves every read/write.
 
 ---
 
-## AiService ↔ forecaster_statistical
+## Tool bus ↔ the web (browser_tools.fetch_page)
 
-**Access pattern:** AiService calls StatisticalForecaster for ARIMA/ETS baseline predictions.
+**Access pattern:** `browser_tools.fetch_page` is the only tool in
+the bus that talks to arbitrary URLs. It's deliberately narrow — one
+call, one URL, cleaned-article text back. Everything else (news,
+social, prices) goes through typed readers backed by the scraper
+daemon or the broker.
 
-**AiService calls on forecaster_statistical:**
-| Function | When | Returns |
-|----------|------|---------|
-| `fit_and_predict(universe_data, horizons, on_progress)` | After ML ensemble (step 4a) | `Dict[str, List[ForecasterSignal]]` — ticker → signals per horizon |
-
-**ForecasterSignal structure:**
-```
-{
-  "family": "statistical",
-  "ticker": str,
-  "probability": float,       # P(up) via normal CDF [0.05, 0.95]
-  "confidence": float,        # [0.0, 1.0]
-  "forecast_return": float,   # Expected return over horizon
-  "horizon_days": int,
-  "model_name": str           # "arima" or "ets"
-}
-```
+**Inputs / outputs:**
+| Field | Type | Notes |
+|-------|------|-------|
+| `url` | `str` | `http://` or `https://` only |
+| `max_chars` | `int` | Clamped to `[500, 20000]`; default `8000` |
+| returns | `dict` | `{url, host, status, title, text, truncated, bytes, fetch_count, fetches_remaining}` on success; `{error, url, ...}` on failure |
 
 **Invariants:**
-- Uses ARIMA(1,1,1) + Holt-Winters ETS, blended via simple average
-- P(up) = 1 - Φ(-μ/σ) where Φ is standard normal CDF, clamped to [0.05, 0.95]
-- Parallel fitting via ThreadPoolExecutor(max_workers=4)
-- Graceful degradation: returns empty dict if statsmodels not installed
-- Each ticker produces 2 signals per horizon (one ARIMA, one ETS)
+- **Hard cap of 10 fetches per iteration**, tracked on
+  `ctx.stats["browser_fetches"]`. Errors still burn budget.
+- **Body cap of 1 MB** — streamed with `urlopen().read(chunk)` and
+  truncated mid-stream if the server sends more.
+- **SSRF guard**: localhost, `::1`, `0.`, `10.`, `127.`, `169.254.`,
+  `172.16-31.`, `192.168.` hosts are rejected before any network hit.
+- **Scheme guard**: only `http` / `https` allowed.
+- **Content-type filter**: only responses whose Content-Type contains
+  `html`, `xml`, `text`, or `json` are returned; everything else
+  errors out with `unsupported content-type`.
+- **Stdlib urllib**, not `requests`/`httpx`, because Python 3.14 +
+  OpenSSL 3 on Windows doesn't plumb the system trust store through
+  urllib3's custom SSL context. `ssl.create_default_context()`
+  does the right thing.
+- **Not a price feed**: the system prompt explicitly forbids using
+  `fetch_page` to poll quote pages. Agents must call `get_live_price`
+  for anything price-shaped.
+- Every attempt writes one row to `agent_journal` with
+  `kind='browser_fetch'`, `tool='fetch_page'`, `tags='browser'` so
+  the UI log can show fetches in real time.
 
 ---
 
-## AiService ↔ forecaster_deep
+## Tool bus ↔ market hours
 
-**Access pattern:** AiService calls DeepForecaster for N-BEATS neural predictions.
+**Access pattern:** `market_hours_tools.get_market_status` reads the
+static exchange registry in `core.market_hours` and joins it against
+the broker's current positions. No HTTP, no broker writes, no
+filesystem touches outside the journal row.
 
-**AiService calls on forecaster_deep:**
-| Function | When | Returns |
-|----------|------|---------|
-| `fit_and_predict(universe_data, horizons, on_progress)` | After statistical (step 4b) | `Dict[str, List[ForecasterSignal]]` — ticker → signals per horizon |
-| `is_available` (property) | Before calling fit | `bool` — whether PyTorch is installed |
+**Tool surface:**
+| Tool | Returns |
+|------|---------|
+| `get_market_status()` | `{exchanges: [{code, name, country, timezone, is_open, next_open, next_close, local_now, positions_count, position_tickers}], open_count, total_positions, unmapped_tickers}` |
 
 **Invariants:**
-- N-BEATS architecture: 2 generic stacks × 3 blocks with FC layers
-- Trains on pooled cross-sectional return windows across all tickers
-- Caches trained models to `models/deep/nbeats_h{horizon}.pt`
-- Graceful degradation: returns empty dict if torch not installed
-- `is_available` returns False when torch is missing — never raises
+- Exchange registry is **regular hours only** — weekends are closed,
+  holidays are *not* modelled. The broker is the source of truth for
+  "the market rejected my order".
+- `exchange_for_ticker` covers every Trading 212 retail UK suffix
+  (`_US_EQ`, `_UK_EQ`/`_GB_EQ`/lowercase-l London, `_DE_EQ`, `_FR_EQ`,
+  `_NL_EQ`, `_ES_EQ`, `_IT_EQ`, `_CH_EQ`, `_SE_EQ`, `_NO_EQ`,
+  `_DK_EQ`, `_FI_EQ`, `_IL_EQ`). Unknown suffixes land under
+  `unmapped_tickers`.
+- All times are emitted in the exchange's local timezone (ISO,
+  minute precision). `zoneinfo` handles DST.
+- The standing rule in `prompts.py` tells Claude to call this tool
+  early and feed `next_check_in_minutes` from the longest "next
+  open" gap when its positions' markets are closed.
 
 ---
 
-## AiService ↔ meta_ensemble
+## Tool bus ↔ historical backtest sim
 
-**Access pattern:** AiService calls MetaEnsemble to combine three model families.
+**Access pattern:** `backtest_tools.simulate_stop_target` calls
+`data_loader.fetch_ticker_data` (the same yfinance path the rest of
+the app uses) and runs an in-process loop. No engine, no ML imports,
+no parallelism. Cheap.
 
-**AiService calls on meta_ensemble:**
-| Function | When | Returns |
-|----------|------|---------|
-| `combine(ml_probs, stat_signals, deep_signals, horizons)` | After all forecasters (step 4c) | `Dict[str, MetaEnsembleResult]` |
-| `to_model_signals(stat_signals, deep_signals)` | Converting for consensus engine | `Dict[str, List[ModelSignal]]` |
-
-**MetaEnsembleResult structure:**
-```
-{
-  "ticker": str,
-  "probability": float,        # Weighted-average P(up)
-  "confidence": float,
-  "ml_probability": float,
-  "stat_probability": float,
-  "deep_probability": float,   # 0.5 if unavailable
-  "family_weights": Dict[str, float]
-}
-```
+**Tool surface:**
+| Tool | Returns |
+|------|---------|
+| `simulate_stop_target(ticker, stop_pct, target_pct, hold_days, lookback_days)` | `{ticker, stop_pct, target_pct, hold_days, lookback_days, bars_used, first_bar, last_bar, n_trades, wins, losses, flats, win_rate, avg_return_pct, expectancy_pct, best_trade_pct, worst_trade_pct}` or `{error, ticker}` |
 
 **Invariants:**
-- Default weights: ML=50%, Statistical=25%, Deep=25%
-- When deep unavailable: auto-redistribute → ML≈67%, Statistical≈33%
-- `to_model_signals()` output is compatible with consensus engine's `all_model_signals` format
-- All probabilities clamped to [0.0, 1.0]
+- Long-only. Entry simulated at each bar's close; exit on first of
+  stop, target, or `hold_days` bars (close-out at that point).
+- Same-bar stop/target collisions resolve to the **stop** (pessimistic).
+- `stop_pct` clamped to `[0.1, 50]`, `target_pct` to `[0.1, 200]`,
+  `hold_days` to `[1, 30]`, `lookback_days` to `[30, 730]`.
+- Does **not** revive `backtesting/engine.py` — that module's lazy
+  imports still reference deleted ML files (`features_advanced`,
+  `ensemble`, `strategy_selector`, `strategy_profiles`) and will
+  raise at runtime. Treat the engine as dead code until/unless we
+  either rewrite or delete it.
 
 ---
 
-## AiService ↔ PipelineTracker
+## Risk Manager ↔ tool bus
 
-**Access pattern:** AiService pushes progress updates; TUI polls for state snapshots.
+**Access pattern:** `risk_tools.size_position` is the only
+tool-exposed entry point. `RiskManager.generate_risk_enhanced_orders`
+was deleted in Phase 3 along with the ML pipeline.
 
-**AiService calls on PipelineTracker:**
-| Function | When | Returns |
-|----------|------|---------|
-| `begin()` | Start of signal generation | None — resets all 10 stages to pending |
-| `start_stage(name, total)` | Entering a pipeline stage | None |
-| `update_stage(name, current, detail)` | Per-model/ticker progress | None |
-| `complete_stage(name, detail)` | Stage finished | None |
-| `skip_stage(name, reason)` | Optional stage skipped | None |
-| `end()` | Pipeline complete | None — records duration, sets is_running=False |
-| `update_dashboard_stats(family_stats)` | After pipeline completes | None — updates idle dashboard data |
-
-**TUI calls on PipelineTracker:**
-| Function | When | Returns |
-|----------|------|---------|
-| `get_state()` | Every 250ms poll | `PipelineState` deep-copy snapshot |
-
-**11 Pipeline Stages (in order):**
-1. `data_fetch` — Downloading OHLCV data
-2. `features` — Computing 31 V2 features
-3. `regime` — Detecting market regime
-4. `ml_ensemble` — 12 models × 3 horizons
-5. `statistical` — ARIMA/ETS per ticker
-6. `deep_learning` — N-BEATS per ticker (skippable)
-7. `meta_blend` — Three-family combination
-8. `mirofish` — 1000-agent Monte Carlo simulation (all CPU cores)
-9. `claude_personas` — 5 Claude analyst personas
-10. `consensus` — Investment committee aggregation
-11. `risk` — Position sizing
+**Tool surface:**
+| Tool | Returns |
+|------|---------|
+| `size_position(ticker, conviction, stop_loss_pct)` | `{ticker, suggested_qty, dollar_amount, rationale}` |
 
 **Invariants:**
-- All methods are thread-safe (protected by threading.Lock)
-- `get_state()` always returns a deep copy — safe to read from another thread
-- Stages can only transition: pending → running → done/error, or pending → skipped
-- `begin()` always resets all stages — safe to call multiple times
+- `conviction` is in `[0.0, 1.0]`.
+- `size_position` never places an order — only the agent (via
+  `place_order`) can do that.
 
 ---
 
-## AiService ↔ MiroFish
+## DesktopApp ↔ config.json
 
-**Access pattern:** AiService calls MiroFishOrchestrator to run multi-agent simulations per ticker.
+**Access pattern:** `MainWindow.config` is loaded at boot by
+`desktop/state.py:load_config`, and written back on every mutation
+via `_save_config`. The agent runner reads `config.json` fresh on
+every iteration so cadence/cap changes take effect live.
 
-**AiService calls on MiroFish:**
-| Function | When | Returns |
-|----------|------|---------|
-| `MiroFishOrchestrator.from_config_dict(raw)` | Lazy init | Configured orchestrator instance |
-| `run_universe(universe_data, features_df, regime, ensemble_probs, news_data, on_progress)` | After meta-blend (step 4d) | `Dict[str, MiroFishSignal]` — ticker → simulation signal |
-
-**MiroFishSignal structure:**
-```
-{
-  "ticker": str,
-  "net_sentiment": float,         # [-1, 1] mean agent belief
-  "sentiment_momentum": float,    # Rate of belief change
-  "agreement_index": float,       # [0, 1] agent consensus
-  "volatility_prediction": float, # Expected volatility
-  "order_flow": float,            # [-1, 1] net buy/sell pressure
-  "narrative_direction": str,     # "bullish" / "bearish" / "uncertain"
-  "probability": float,           # P(up) in [0, 1]
-  "confidence": float,            # [0, 1]
-  "n_simulations": int,
-  "n_agents": int,
-  "convergence_rate": float       # How fast beliefs settled
-}
-```
+**Required sections:**
+- `agent.*` — runner cadence, caps, paper mode, risk knobs
+- `broker.*` — type, practice flag, env var names
+- `watchlists.<name>` — list of tickers
+- `active_watchlist` — key into `watchlists`
+- `news.refresh_interval_minutes`, `news.scraper_cadence_seconds`
 
 **Invariants:**
-- 9 agent types: momentum (200), mean_reversion (150), sentiment (150), fundamental (100), noise (100), contrarian (100), institutional (50), algorithmic (100), llm_seeded (50) = 1000 total
-- Monte Carlo: 16 simulations per ticker with different random seeds
-- All simulations run in parallel via ProcessPoolExecutor (all CPU cores)
-- MiroFish signals converted to ModelSignal via `mirofish_signals_to_model_signals()` for consensus
-- Each ticker produces 3 ModelSignals: sentiment, flow, momentum
-- Graceful degradation: returns empty dict if all simulations fail
-- Falls back to serial execution if multiprocessing fails (Windows compatibility)
-
----
-
-## AiService ↔ consensus
-
-**Access pattern:** AiService calls ConsensusEngine to aggregate signals into unified recommendation.
-
-**AiService calls on consensus:**
-| Function | When | Returns |
-|----------|------|---------|
-| `compute_all(ensemble_probs, personas_signals, regime, timeframe_signals) → Dict[str, ConsensusResult]` | Signal generation | `{ticker: ConsensusResult}` |
-
-**ConsensusResult structure:**
-```
-{
-  "ticker": str,
-  "consensus_prob": float,      # Weighted average [0.0, 1.0]
-  "confidence": float,          # [0.0, 1.0]
-  "ensemble_weight": float,     # Contribution of ensemble
-  "personas_weight": float,     # Contribution of Claude personas
-  "regime_adjusted": bool,      # Whether regime weighting applied
-  "component_breakdown": Dict   # Per-source probabilities for debugging
-}
-```
-
-**Invariants:**
-- Meta-ensemble (ML + Statistical + Deep models) ≈ 50% weight
-- Claude personas (5 analysts) ≈ 30% weight
-- Regime context applied as multiplier (0.8–1.2)
-- Final `consensus_prob` always in [0.0, 1.0]
-- Output sorted by consensus_prob descending
-
----
-
-## AiService ↔ risk_manager
-
-**Access pattern:** AiService calls RiskManager to generate position sizes before strategy signal conversion.
-
-**AiService calls on risk_manager:**
-| Function | When | Returns |
-|----------|------|---------|
-| `generate_risk_enhanced_orders(consensus_signals, portfolio, config) → Dict[str, float]` | Order generation | `{ticker: position_size}` |
-
-**Invariants:**
-- Position size is always non-negative
-- Kelly criterion: f* = (p × b - q) / b, capped to max_kelly_fraction
-- Volatility adjustment: size ∝ 1 / volatility
-- Portfolio concentration check: no single position > max_concentration_pct
-- Sum of all positions ≤ available_capital
-
----
-
-## AiService ↔ strategy_selector + strategy
-
-**Access pattern:** AiService creates a `StrategySelector`, calls `select_strategies()` to get per-ticker `StrategyAssignment`s, converts them to per-ticker `StrategyConfig`s, then passes those to `generate_signals()`.
-
-**AiService calls on strategy_selector:**
-| Function | When | Returns |
-|----------|------|---------|
-| `StrategySelector.select_strategies(regime, consensus, volatility)` | Signal generation (step 7) | `Dict[str, StrategyAssignment]` |
-| `StrategySelector.to_strategy_config(profile)` | Per-ticker conversion | `StrategyConfig` |
-
-**AiService calls on strategy:**
-| Function | When | Returns |
-|----------|------|---------|
-| `generate_signals(prob_up, meta_latest, config, held_tickers, protected_tickers, per_ticker_configs)` | Signal generation | `DataFrame` with columns [ticker, date, prob_up, signal] |
-
-**Invariants:**
-- `signal` is always one of: `"buy"`, `"sell"`, `"hold"`
-- Buy signals limited to `config.max_positions` count (global cap)
-- Sell signals only emitted for tickers in `held_tickers`
-- Output sorted by `prob_up` descending
-- When `per_ticker_configs` is None, behaviour is identical to the legacy single-config path
-- When `strategy_profiles.enabled` is False in config, no per-ticker selection occurs
-
----
-
-## TradingTerminalApp ↔ BrokerService
-
-**Access pattern:** App calls BrokerService facade; never touches Broker directly.
-
-**App calls on BrokerService:**
-| Function | When | Returns |
-|----------|------|---------|
-| `get_positions()` | Each refresh | `List[Dict]` with keys: ticker, quantity, avg_price, current_price, unrealised_pnl |
-| `get_account_info()` | Each refresh | `Dict` with keys: free, invested, result, total |
-| `submit_order(ticker, side, quantity, order_type, ...)` | Trade execution | `Dict` with keys: ticker, side, quantity, status |
-| `get_pending_orders()` | Each refresh | `List[Dict]` |
-| `cancel_order(order_id)` | User action | `bool` |
-
-**Invariants:**
-- BrokerService falls back to LogBroker if Trading 212 API key is missing
-- `side` is always `"BUY"` or `"SELL"` (uppercase)
-- `order_type` is one of: `"market"`, `"limit"`, `"stop"`, `"stop_limit"`
-- Failed orders return `status: "FAILED"` with `error` key, never raise
-
----
-
-## AutoEngine ↔ AiService + BrokerService
-
-**Access pattern:** AutoEngine calls AiService for signals, then BrokerService for execution.
-
-**Invariants:**
-- AutoEngine only runs when `state.mode == "full_auto_limited"`
-- Daily loss check: if unrealised PnL < -(capital × max_daily_loss), skip all orders
-- Orders are always market orders with quantity 1.0
-
----
-
-## NewsAgent ↔ ClaudeClient
-
-**Access pattern:** NewsAgent calls `claude_client.analyze_news()` for sentiment scoring.
-
-**Invariants:**
-- NewsAgent runs on a daemon thread — no guarantee of clean shutdown
-- `sentiment` is always in [-1.0, 1.0]
-- Headlines capped at 15 per ticker
-- News data stored as `TickerNews` dataclass instances
-
----
-
-## terminal/app ↔ terminal/state
-
-**Access pattern:** App writes to AppState; views read from AppState.
-
-**Invariants:**
-- Only `terminal/app.py` mutates AppState (via `_update_state_and_views`)
-- Views only read from state in `refresh_view()` — never mutate
-- `signals` can be `None` before first refresh completes
-- `chat_history` entries always have keys: `role` ("user" or "ai"), `text`
-- AppState now includes: `regime_state`, `consensus_signals`, `ensemble_metadata`, `meta_ensemble_data`, `statistical_model_count`, `deep_model_available`, `pipeline_last_duration`
-
----
-
-## BacktestRunner ↔ backtesting modules
-
-**Access pattern:** `BacktestRunner.run()` orchestrates the full pipeline; `BacktestEngine` runs individual folds.
-
-**BacktestRunner calls:**
-| Function | When | Returns |
-|----------|------|---------|
-| `data_loader.fetch_universe_data(tickers, start, end)` | Data loading | `Dict[str, DataFrame]` |
-| `data_prep.prepare_backtest_data(universe, config)` | Feature pre-computation | `(features_by_ticker, labels_by_ticker)` |
-| `data_prep.generate_walk_forward_splits(features, config)` | Split generation | `List[WalkForwardSplit]` |
-| `BacktestEngine.run_fold(split, features, labels, universe)` | Per-fold execution | `FoldResult` |
-| `metrics.compute_metrics(folds, config)` | Aggregation | `PerformanceMetrics` |
-
-**BacktestEngine per-fold pipeline:**
-1. `data_prep.split_data_for_fold()` — slice features/labels for train/test
-2. Train ensemble (EnsembleModel or SimpleEnsemble fallback)
-3. Predict test period — per-day per-ticker P(up)
-4. (Full mode) `TradeSimulator.process_day()` — day-by-day with stops, slippage, sizing
-
-**TradeSimulator invariants:**
-- Position sizing: `equity × position_size_fraction`, capped to 95% of cash
-- Slippage: buy at `close × (1 + slippage_pct)`, sell at `close × (1 - slippage_pct)`
-- Stop-loss: `entry - ATR × atr_stop_multiplier` (checked against intraday low)
-- Take-profit: `entry + ATR × atr_profit_multiplier` (checked against intraday high)
-- `exit_reason` is one of: `"signal"`, `"stop_loss"`, `"take_profit"`, `"end_of_fold"`
-- All positions force-closed at fold end
-
-**PerformanceMetrics invariants:**
-- Sharpe/Sortino require ≥10 daily returns, else 0.0
-- `drawdown_curve` values are percentages (0–100)
-- `per_source_accuracy` groups by signal probability bands: >0.70, 0.55–0.70, 0.50–0.55
-- `equity_curve` and `equity_dates` are parallel arrays
-
-**CLI entry point:** `python backtest.py [--fast|--full] [--ticker SYM...] [--folds] [--json]`
-
----
-
-## BacktestRunner ↔ cpu_config
-
-**Access pattern:** BacktestRunner calls `cpu_config` helpers to determine parallelism limits for walk-forward fold execution.
-
-**BacktestRunner calls on cpu_config:**
-| Function | When | Returns |
-|----------|------|---------|
-| `get_cpu_cores() → int` | Runner init | Number of CPU cores available for parallel work |
-| `get_max_parallel_folds() → int` | Before fold dispatch | Maximum number of folds to run simultaneously |
-| `get_n_jobs_per_fold() → int` | Per-fold ensemble training | Number of sklearn `n_jobs` threads per fold |
-
-**Environment variable overrides:**
-- `AUTOCONFIG_CPU_CORES` — override detected core count
-- `AUTOCONFIG_MAX_FOLDS` — override max parallel folds
-
-**Invariants:**
-- `max_parallel_folds` is capped at `cpu_cores // 2` to avoid memory exhaustion
-- When env vars are set, they take precedence over auto-detected values
-- All return values are positive integers (minimum 1)
+- `agent.paper_mode = true` always forces `broker.type = "log"` at
+  runtime (enforced in `AgentRunner._force_paper_config`).
+- The legacy `strategy`, `consensus`, `regime`, `timeframe`,
+  `strategy_profiles`, `claude_personas`, `forecasters`, `pipeline`
+  sections are **gone**. Loading an old config that still has them
+  is tolerated (they're ignored).

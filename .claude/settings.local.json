@@ -92,7 +92,13 @@
       "Bash(xargs -I {} basename {})",
       "Bash(curl -sS -o /dev/null -w \"health: %{http_code}\\\\n\" https://blan-api.onrender.com/api/health --max-time 90)",
       "Bash(curl -sS -o /dev/null -w \"root: %{http_code}\\\\n\" https://blan-api.onrender.com/ --max-time 90)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(build.bat)",
+      "Bash(cmd.exe //c build.bat)",
+      "Bash(cmd.exe //c \"E:\\\\Coding\\\\StockMarketAI\\\\build.bat\")",
+      "Bash(cmd.exe //c \"start /b E:\\\\Coding\\\\StockMarketAI\\\\dist\\\\blank.exe & timeout /t 6 /nobreak > nul & taskkill /im blank.exe /f\")",
+      "Bash(SSL_CERT_FILE=$\\(python -c \"import certifi; print\\(certifi.where\\(\\)\\)\"\\) python -c \"import requests; r = requests.get\\('https://example.com/', timeout=10\\); print\\(r.status_code, len\\(r.text\\)\\)\")",
+      "Bash(gh auth:*)"
     ]
   }
 }

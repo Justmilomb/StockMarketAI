@@ -3,172 +3,184 @@
 ```
 StockMarketAI/
 │
-│  ── Entry Points ──────────────────────────────────────────────────────
-├── backtest.py                    ← CLI entry point for walk-forward backtesting
+│  ── Entry points ──────────────────────────────────────────────────────
+├── backtest.py                    CLI walk-forward backtester (legacy, not
+│                                  wired to the agent yet)
 │
-│  ── Core AI / ML Pipeline ─────────────────────────────────────────────
+│  ── Core ──────────────────────────────────────────────────────────────
 ├── core/
 │   ├── __init__.py
-│   ├── ai_service.py              ← Hub: 1000-analyst ensemble orchestrator
-│   ├── accuracy_tracker.py        ← Sliding-window hit-rate tracking
-│   ├── asset_registry.py          ← Factory registry mapping AssetClass → modules
-│   ├── auto_engine.py             ← Signal → risk-managed order execution
-│   ├── broker.py                  ← Broker ABC + LogBroker (JSONL)
-│   ├── broker_service.py          ← Broker-agnostic facade
-│   ├── claude_client.py           ← Claude CLI wrapper (signals, sentiment, chat)
-│   ├── claude_personas.py         ← 5 Claude analyst personas
-│   ├── consensus.py               ← Investment committee signal aggregator
-│   ├── cpu_config.py              ← Centralised CPU core caps
-│   ├── data_loader.py             ← yfinance OHLCV download + CSV cache
-│   ├── database.py                ← SQLite persistence (snapshots, positions, PnL, chat)
-│   ├── ensemble.py                ← 12-model ML ensemble (RF, XGB, LGB, LR, SVM, KNN)
-│   ├── features.py                ← Base technical indicators + label creation
-│   ├── features_advanced.py       ← 31 V2 features × 6 analyst specialties
-│   ├── features_intraday.py       ← Intraday OHLC aggregation features
-│   ├── forecaster_statistical.py  ← ARIMA(1,1,1) + Holt-Winters ETS baselines
-│   ├── intraday_data.py           ← Sub-daily bar fetching
-│   ├── model.py                   ← Legacy RandomForest train/load/predict
-│   ├── news_agent.py              ← Background RSS + Claude batch sentiment
-│   ├── pipeline_tracker.py        ← Thread-safe progress tracking
-│   ├── regime.py                  ← Market regime detector (bull/bear/range/high-vol)
-│   ├── risk_manager.py            ← Kelly criterion + ATR sizing + portfolio limits
-│   ├── strategy.py                ← Probability → buy/sell/hold signal conversion
-│   ├── strategy_profiles.py       ← Trading-style profiles (conservative, swing, etc.)
-│   ├── strategy_selector.py       ← Regime-aware per-ticker profile assignment
-│   ├── timeframe.py               ← Multi-horizon ensemble (1d / 5d / 20d)
-│   ├── trading212.py              ← Trading 212 REST API v0 client
-│   └── types_shared.py            ← Shared dataclasses (ModelSignal, ConsensusResult, etc.)
+│   ├── agent/                     Claude-native agent runtime
+│   │   ├── runner.py              AgentRunner QThread (asyncio inside)
+│   │   ├── mcp_server.py          create_sdk_mcp_server wiring
+│   │   ├── prompts.py             autonomous PM system prompt
+│   │   ├── context.py             per-iteration AgentContext
+│   │   └── tools/                 Typed MCP-exposed tool bus
+│   │       ├── broker_tools.py    get_portfolio, place_order, cancel_order,
+│   │       │                      get_pending_orders, get_order_history
+│   │       ├── market_tools.py    get_live_price, get_intraday_bars,
+│   │       │                      get_daily_bars, search_instrument
+│   │       ├── risk_tools.py      size_position (Kelly + ATR)
+│   │       ├── memory_tools.py    read/write_memory, read/append_journal
+│   │       ├── watchlist_tools.py get/add/remove_from_watchlist
+│   │       ├── news_tools.py      get_news, subscribe_news, get_scraper_health
+│   │       ├── social_tools.py    get_social_buzz, get_market_buzz
+│   │       └── flow_tools.py      end_iteration, sleep_until
+│   ├── scrapers/                  24/7 news + social feeds
+│   │   ├── base.py                ScraperBase, ScrapedItem, ScraperHealth
+│   │   ├── runner.py              Background daemon thread
+│   │   ├── google_news.py
+│   │   ├── yahoo_finance.py
+│   │   ├── bbc.py
+│   │   ├── bloomberg.py
+│   │   ├── marketwatch.py
+│   │   ├── youtube.py
+│   │   ├── stocktwits.py
+│   │   ├── reddit.py
+│   │   └── x_via_gnews.py
+│   ├── asset_registry.py          AssetClass → modules factory
+│   ├── broker.py                  Broker ABC + LogBroker
+│   ├── broker_service.py          Broker-agnostic facade
+│   ├── trading212.py              Trading 212 REST v0 client
+│   ├── risk_manager.py            Kelly + ATR sizing (size_position)
+│   ├── data_loader.py             yfinance OHLCV + CSV cache
+│   ├── database.py                SQLite persistence
+│   ├── news_agent.py              Legacy panel sentiment helper
+│   ├── claude_client.py           Chat + ticker-search helper for panels
+│   ├── cpu_config.py              Central CPU core caps
+│   └── types_shared.py            Shared dataclasses
 │
-│  ── Desktop App (PySide6) — Two Editions ──────────────────────────────
+│  ── Desktop app (PySide6 Bloomberg edition) ────────────────────────────
 ├── desktop/
-│   ├── __init__.py
-│   ├── main.py                    ← Shared bootstrap: license, wizard, launch(mode)
-│   ├── main_bloomberg.py          ← Entry point: Bloomberg edition
-│   ├── main_simple.py             ← Entry point: Simple edition
-│   ├── app.py                     ← Hub: MainWindow — Bloomberg-dark layout
-│   ├── state.py                   ← Qt-aware AppState wrapper
-│   ├── theme.py                   ← Bloomberg-dark QSS + mode overlays
-│   ├── license.py                 ← License validation client
-│   ├── updater.py                 ← Auto-update checker
-│   ├── workers.py                 ← QThread background workers
+│   ├── main.py                    Shared bootstrap (license, wizard, launch)
+│   ├── main_bloomberg.py          Entry point
+│   ├── app.py                     Hub: MainWindow
+│   ├── state.py                   DEFAULT_CONFIG + init_state
+│   ├── theme.py                   Bloomberg-dark QSS
+│   ├── design.py                  Palette / typography tokens
+│   ├── license.py                 License validation client
+│   ├── updater.py                 Auto-update checker
+│   ├── workers.py                 Leftover generic QThread helpers
 │   ├── assets/
-│   │   └── icon.ico               ← App icon
+│   │   └── icon.ico
 │   ├── panels/
-│   │   ├── chart.py               ← Candlestick + volume chart
-│   │   ├── chat.py                ← Claude chat panel
-│   │   ├── news.py                ← News sentiment feed
-│   │   ├── orders.py              ← Open orders + history
-│   │   ├── pipeline.py            ← AI pipeline progress
-│   │   ├── polymarket_markets.py  ← Polymarket markets panel
-│   │   ├── positions.py           ← Portfolio positions + PnL
-│   │   ├── settings.py            ← Settings editor
-│   │   └── watchlist.py           ← Watchlist with signal columns
-│   ├── dialogs/
-│   │   ├── about.py               ← About dialog
-│   │   ├── add_ticker.py          ← Add ticker input
-│   │   ├── ai_recommend.py        ← AI recommendation dialog
-│   │   ├── help.py                ← Keyboard shortcuts
-│   │   ├── history.py             ← Signal history modal
-│   │   ├── instruments.py         ← Instrument search
-│   │   ├── license.py             ← License key entry dialog
-│   │   ├── mode_selector.py       ← Stocks/Polymarket/Simple selector
-│   │   ├── pies.py                ← T212 pies management
-│   │   ├── search_ticker.py       ← Ticker search
-│   │   ├── setup_wizard.py        ← First-run setup wizard
-│   │   └── trade.py               ← Place trade dialog
-│   └── simple/                    ← Simple edition (website aesthetic)
-│       ├── __init__.py
-│       ├── app.py                 ← SimpleWindow — card-based layout
-│       ├── theme.py               ← Outfit font, black/green minimal QSS
-│       └── widgets/
-│           ├── header.py          ← Header bar with title + buttons
-│           └── ticker_card.py     ← Stock card widget
+│   │   ├── agent_log.py           Live agent feed + start/stop/kill
+│   │   ├── chart.py               Candlestick + volume chart
+│   │   ├── chat.py                User chat → agent loop
+│   │   ├── news.py                News sentiment feed
+│   │   ├── orders.py              Open orders + history
+│   │   ├── polymarket_markets.py  Polymarket markets (on ice)
+│   │   ├── positions.py           Portfolio positions + PnL
+│   │   ├── settings.py            Account + agent status readout
+│   │   └── watchlist.py           Active tickers
+│   └── dialogs/
+│       ├── about.py
+│       ├── add_ticker.py
+│       ├── ai_recommend.py
+│       ├── help.py
+│       ├── history.py
+│       ├── instruments.py
+│       ├── license.py
+│       ├── mode_selector.py
+│       ├── pies.py
+│       ├── search_ticker.py
+│       ├── setup_wizard.py
+│       └── trade.py
 │
-│  ── TUI Terminal (Textual, dev-only) ──────────────────────────────────
-├── terminal/
-│   ├── app.py                     ← TradingTerminalApp — Textual lifecycle
-│   ├── state.py                   ← AppState dataclass
-│   ├── views.py                   ← UI panels
-│   ├── pipeline_view.py           ← Pipeline progress view
-│   ├── history_views.py           ← History modals
-│   ├── charts.py                  ← Sparkline charts
-│   └── terminal.css               ← Bloomberg-dark Textual CSS
+│  ── TUI terminal (Textual, dev-only) ──────────────────────────────────
+├── terminal/                      Legacy Textual TUI, kept for dev only
 │
-│  ── Server & Website ──────────────────────────────────────────────────
+│  ── Server & website ──────────────────────────────────────────────────
 ├── server/
-│   ├── app.py                     ← FastAPI license server + admin API
-│   └── blank.db                   ← SQLite license database
+│   ├── app.py                     FastAPI license server + admin API
+│   └── blank.db                   License database
 │
 ├── website/
-│   ├── index.html                 ← Landing page (Outfit font, minimal)
-│   └── admin.html                 ← Admin panel (config, users, system status)
+│   ├── index.html                 Landing page
+│   └── admin.html                 Admin panel
 │
-│  ── Backtesting Engine ────────────────────────────────────────────────
+│  ── Backtesting engine (legacy) ───────────────────────────────────────
 ├── backtesting/
-│   ├── types.py                   ← BacktestConfig, TradeRecord, PerformanceMetrics
-│   ├── data_prep.py               ← Feature pre-computation + walk-forward splits
-│   ├── engine.py                  ← Per-fold: train → predict → simulate
-│   ├── simulator.py               ← Trade execution: stops, slippage, sizing
-│   ├── metrics.py                 ← Sharpe, Sortino, Calmar, drawdown, attribution
-│   └── runner.py                  ← Parallel fold executor
+│   ├── types.py                   BacktestConfig, TradeRecord, PerformanceMetrics
+│   ├── data_prep.py               Feature pre-compute + walk-forward split
+│   ├── engine.py                  Per-fold: train → predict → simulate
+│   ├── simulator.py               Trade execution simulation
+│   ├── metrics.py                 Sharpe, Sortino, Calmar, drawdown
+│   └── runner.py                  Parallel fold executor
 │
-│  ── Multi-Asset Packages ──────────────────────────────────────────────
-├── crypto/                        ← Crypto asset pipeline (8 files)
-├── polymarket/                    ← Polymarket prediction pipeline (10 files)
+│  ── Multi-asset packages (on ice) ─────────────────────────────────────
+├── crypto/                        Crypto asset pipeline
+├── polymarket/                    Polymarket prediction pipeline
 │
-│  ── Research (separate git repos) ─────────────────────────────────────
-├── research/                      ← Autonomous strategy research
-├── research_polymarket/           ← Polymarket edge research
+│  ── Research (separate git repo, unrelated) ───────────────────────────
+├── research/                      Autonomous strategy research side-project
 │
-│  ── Autoconfig ────────────────────────────────────────────────────────
+│  ── Helpers ───────────────────────────────────────────────────────────
 ├── autoconfig/
-│   └── universe.py                ← Ticker universe definitions for backtesting
+│   └── universe.py                Ticker universe helper (used by research/)
 │
-│  ── Build & Distribution ──────────────────────────────────────────────
+│  ── Build & distribution ──────────────────────────────────────────────
 ├── installer/
-│   ├── bloomberg.spec             ← PyInstaller spec: blank.exe
-│   └── bloomberg.iss              ← Inno Setup: BlankSetup.exe
-├── build.bat                      ← Builds blank.exe + BlankSetup.exe
-├── version_info.py                ← PyInstaller Windows version resource
+│   ├── bloomberg.spec             PyInstaller spec
+│   └── bloomberg.iss              Inno Setup script
+├── build.bat                      Builds blank.exe + BlankSetup.exe
+├── version_info.py                PyInstaller version resource
 │
-│  ── Tests & Scripts ───────────────────────────────────────────────────
+│  ── Tests & scripts ───────────────────────────────────────────────────
 ├── tests/
-│   ├── conftest.py                ← pytest fixtures
-│   └── test_features.py           ← Feature engineering tests
+│   ├── conftest.py                pytest fixtures
+│   └── test_features.py           Feature engineering regression
 ├── scripts/
-│   └── generate_icon.py           ← Icon generation utility
+│   ├── agent_repl.py              One-iteration smoke harness
+│   └── generate_icon.py           Icon generation utility
 │
-│  ── Config & Documentation ────────────────────────────────────────────
-├── config.json                    ← Runtime configuration
-├── requirements.txt               ← Python dependencies
-├── .env.example                   ← API key template
-├── CLAUDE.md                      ← AI agent instructions
-├── README.md                      ← Project readme
-├── LICENSE                        ← Licence file
+│  ── Config & docs ─────────────────────────────────────────────────────
+├── config.json                    Runtime configuration
+├── requirements.txt               Python dependencies
+├── .env.example                   Env var template
+├── CLAUDE.md                      AI agent instructions
+├── README.md                      Project readme
+├── LICENSE                        Licence file
 │
-│  ── Runtime Artifacts (git-ignored) ───────────────────────────────────
-├── data/                          ← Cached OHLCV CSV files
-├── models/                        ← Trained model artifacts
-├── logs/                          ← LogBroker order logs
-├── dist/                          ← Built executables + installers
-└── docs/                          ← Markdown documentation
-    ├── ARCHITECTURE.md
+│  ── Runtime artifacts (git-ignored) ───────────────────────────────────
+├── data/                          Cached OHLCV CSVs + terminal_history.db
+├── logs/                          LogBroker order logs
+├── dist/                          Built executables + installers
+└── docs/
+    ├── ARCHITECTURE.md            System diagram + data flow invariants
     ├── CHANGELOG.md
     ├── CODING_STANDARDS.md
-    ├── CONTRACTS.md
-    ├── CURRENT_TASKS.md
-    ├── DIRECTORY_STRUCTURE.md     ← This file
-    ├── SYSTEM_OVERVIEW.md
+    ├── CONTRACTS.md               Inter-subsystem interface contracts
+    ├── CURRENT_TASKS.md           Phase tracker + up-next list
+    ├── DIRECTORY_STRUCTURE.md     This file
+    ├── SYSTEM_OVERVIEW.md         High-level runtime lifecycle
     ├── CODE_SIGNING.md
-    └── systems/                   ← Per-module documentation
+    ├── AGENT_WORKFLOW.md
+    └── systems/                   Per-module documentation
+        ├── agent-runner.md
+        ├── scrapers.md
+        ├── desktop-app.md
+        ├── broker.md
+        ├── claude-client.md
+        ├── cpu-config.md
+        ├── data-loader.md
+        ├── database.md
+        ├── news-agent.md
+        ├── risk-manager.md
+        ├── backtesting.md
+        └── terminal.md
 ```
 
 ## Rules
 
-- Core ML/AI modules live in `core/`. All entry points add `core/` to `sys.path`.
-- TUI-specific code lives in `terminal/`; PySide6 desktop code lives in `desktop/`.
-- Two separate installers: Bloomberg edition (stocks/polymarket) and Simple edition.
-- Multi-asset packages (crypto/, polymarket/) mirror core module patterns.
-- One class/module per file (hub files are the explicit exception).
-- `data/`, `models/`, `logs/`, `dist/` are runtime artifacts — never commit.
-- `research/` and `research_polymarket/` are independent git repos.
+- `core/agent/` owns everything Claude-native. All SDK calls live in
+  `runner.py` and `mcp_server.py`; a version bump only touches two
+  files.
+- `core/scrapers/` is UI-framework agnostic — no PySide6 imports.
+- `desktop/` is the only place Qt lives. Panels are one file per
+  concern; the hub is `app.py`.
+- `research/` is a separate git repo; never touch it from this codebase.
+- `data/`, `logs/`, `dist/` are runtime artifacts — never commit.
+- Hub files (`desktop/app.py`, `core/agent/runner.py`, `config.json`,
+  `requirements.txt`) are Boss-owned; feature agents must not edit
+  them without dispatching back.

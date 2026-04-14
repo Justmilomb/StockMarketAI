@@ -1,0 +1,74 @@
+"""create_sdk_mcp_server wiring for the agent tool bus.
+
+Every tool module exports a ``*_TOOLS`` list of decorated callables.
+This module flattens those lists into a single in-process MCP server
+that the runner passes to ``ClaudeAgentOptions(mcp_servers=...)``.
+
+Phase 8 tool coverage:
+    broker_tools, market_tools, risk_tools, memory_tools,
+    watchlist_tools, flow_tools, news_tools, social_tools,
+    browser_tools, market_hours_tools, backtest_tools
+"""
+from __future__ import annotations
+
+from typing import Any, List
+
+from claude_agent_sdk import create_sdk_mcp_server
+
+from core.agent.tools.backtest_tools import BACKTEST_TOOLS
+from core.agent.tools.broker_tools import BROKER_TOOLS
+from core.agent.tools.browser_tools import BROWSER_TOOLS
+from core.agent.tools.flow_tools import FLOW_TOOLS
+from core.agent.tools.market_hours_tools import MARKET_HOURS_TOOLS
+from core.agent.tools.market_tools import MARKET_TOOLS
+from core.agent.tools.memory_tools import MEMORY_TOOLS
+from core.agent.tools.news_tools import NEWS_TOOLS
+from core.agent.tools.risk_tools import RISK_TOOLS
+from core.agent.tools.social_tools import SOCIAL_TOOLS
+from core.agent.tools.watchlist_tools import WATCHLIST_TOOLS
+
+
+#: Every tool the agent sees this phase.
+ALL_TOOLS: List[Any] = [
+    *BROKER_TOOLS,
+    *MARKET_TOOLS,
+    *MARKET_HOURS_TOOLS,
+    *RISK_TOOLS,
+    *MEMORY_TOOLS,
+    *WATCHLIST_TOOLS,
+    *NEWS_TOOLS,
+    *SOCIAL_TOOLS,
+    *BROWSER_TOOLS,
+    *BACKTEST_TOOLS,
+    *FLOW_TOOLS,
+]
+
+
+#: MCP server name — referenced by the allowed_tools list as "mcp__blank__*".
+SERVER_NAME: str = "blank"
+
+
+def build_mcp_server() -> Any:
+    """Register every tool against a fresh in-process MCP server."""
+    return create_sdk_mcp_server(
+        name=SERVER_NAME,
+        version="0.1.0",
+        tools=ALL_TOOLS,
+    )
+
+
+def allowed_tool_names() -> List[str]:
+    """The ``allowed_tools`` list the runner passes to ClaudeAgentOptions.
+
+    claude-agent-sdk expects tool names prefixed as ``mcp__<server>__<tool>``.
+    Each decorated tool exposes its name under ``.name``.
+    """
+    names: List[str] = []
+    for t in ALL_TOOLS:
+        tool_name = getattr(t, "name", None)
+        if tool_name is None:
+            # Fallback for older SDK versions that stash it on __name__
+            tool_name = getattr(t, "__name__", "")
+        if tool_name:
+            names.append(f"mcp__{SERVER_NAME}__{tool_name}")
+    return names

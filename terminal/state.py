@@ -106,6 +106,16 @@ class AppState:
     regime_by_asset: Dict[AssetClass, str] = field(default_factory=dict)
     positions_by_asset: Dict[AssetClass, List[Dict[str, Any]]] = field(default_factory=dict)
 
+    # ── Agent runner state (Phase 4) ───────────────────────────────────
+    # Populated by core.agent.runner.AgentRunner as it streams events
+    # back to the UI. Panels read these in refresh_view(state).
+    agent_running: bool = False
+    agent_paper_mode: bool = True
+    last_iteration_ts: Optional[datetime] = None
+    last_summary: str = ""
+    recent_tool_calls: List[Dict[str, Any]] = field(default_factory=list)
+    agent_journal_tail: List[str] = field(default_factory=list)
+
     def switch_asset_class(self, asset_class: AssetClass) -> None:
         """Switch the active asset class, swapping cached data in/out."""
         if asset_class == self.active_asset_class:
