@@ -742,21 +742,21 @@
                     <p id="rel-status" class="rel-status"></p>
                 </div>
 
-                <p class="section-title" style="margin-top:2.5rem;">schedule notification</p>
-                <div class="release-form">
-                    <div class="form-row">
-                        <label>message — shown as a prompt on every terminal at the scheduled time</label>
-                        <textarea id="notif-msg" rows="3" placeholder="e.g. A new update is available. Please restart blank to install v2.0.2."></textarea>
+                <div class="release-form" style="margin-top:1.5rem;">
+                    <div class="form-row form-row-inline" style="margin-bottom:0;">
+                        <div class="toggle-row">
+                            <div id="notif-toggle" class="toggle" onclick="toggleSchedule()"></div>
+                            <span>schedule this update</span>
+                        </div>
                     </div>
-                    <div class="form-row">
-                        <label>send at (your local time)</label>
-                        <input id="notif-at" type="datetime-local" style="width:100%; background:#000; color:var(--text); border:1px solid var(--border); padding:0.6rem 0.875rem; font-family:'Outfit',sans-serif; font-size:0.8125rem; font-weight:300; outline:none; color-scheme:dark;">
+                    <div id="notif-datetime-row" style="display:none; margin-top:1rem;">
+                        <label style="display:block; font-size:0.6875rem; font-weight:300; color:var(--text-dim); letter-spacing:0.08em; margin-bottom:0.4rem;">send at (your local time)</label>
+                        <div style="display:flex; gap:0.75rem; align-items:center;">
+                            <input id="notif-at" type="datetime-local" style="flex:1; background:#000; color:var(--text); border:1px solid var(--border); padding:0.6rem 0.875rem; font-family:'Outfit',sans-serif; font-size:0.8125rem; font-weight:300; outline:none; color-scheme:dark;">
+                            <button onclick="scheduleNotification()" style="background:var(--glow-dim); color:var(--glow); border:1px solid rgba(0,255,135,0.25); padding:0.6rem 1.25rem; font-family:'Outfit',sans-serif; font-size:0.75rem; letter-spacing:0.06em; cursor:pointer; white-space:nowrap;">schedule update</button>
+                        </div>
                     </div>
-                    <div style="display:flex; justify-content:space-between; align-items:center; margin-top:0.25rem;">
-                        <button id="btn-clear-notif" onclick="clearNotification()" style="background:none; color:var(--text-dim); border:1px solid var(--border); padding:0.5rem 1rem; font-family:'Outfit',sans-serif; font-size:0.75rem; cursor:pointer;">clear</button>
-                        <button id="btn-schedule-notif" onclick="scheduleNotification()" style="background:var(--glow-dim); color:var(--glow); border:1px solid rgba(0,255,135,0.25); padding:0.5rem 1.25rem; font-family:'Outfit',sans-serif; font-size:0.75rem; letter-spacing:0.06em; cursor:pointer;">schedule notification</button>
-                    </div>
-                    <p id="notif-status" class="rel-status"></p>
+                    <p id="notif-status" class="rel-status" style="margin-top:0.75rem;"></p>
                 </div>
 
                 <p class="section-title" style="margin-top:2.5rem;">release history</p>
@@ -1097,12 +1097,20 @@
             s.className = 'rel-status' + (kind ? ' ' + kind : '');
         }
 
+        function toggleSchedule() {
+            const toggle = document.getElementById('notif-toggle');
+            const row = document.getElementById('notif-datetime-row');
+            const on = toggle.classList.toggle('on');
+            row.style.display = on ? 'block' : 'none';
+            if (!on) clearNotification();
+        }
+
         async function scheduleNotification() {
-            const msg = document.getElementById('notif-msg').value.trim();
             const atRaw = document.getElementById('notif-at').value;
-            if (!msg) { setNotifStatus('message is required', 'err'); return; }
-            if (!atRaw) { setNotifStatus('send time is required', 'err'); return; }
-            // Convert local datetime-local value to UTC ISO string
+            if (!atRaw) { setNotifStatus('pick a date and time first', 'err'); return; }
+            const version = document.getElementById('rel-version').value.trim()
+                || 'latest';
+            const msg = `A new update (v${version}) is available. Restart blank to install it.`;
             const notifyAt = new Date(atRaw).toISOString();
             setNotifStatus('scheduling\u2026', '');
             try {
@@ -1111,9 +1119,9 @@
                     body: JSON.stringify({ message: msg, notify_at: notifyAt }),
                 });
                 if (result && result.status === 'scheduled') {
-                    setNotifStatus('scheduled \u2014 terminals will show the message at ' + new Date(notifyAt).toLocaleString('en-GB'), 'ok');
+                    setNotifStatus('scheduled for ' + new Date(notifyAt).toLocaleString('en-GB'), 'ok');
                 } else {
-                    setNotifStatus((result && result.detail) || 'scheduling failed', 'err');
+                    setNotifStatus((result && result.detail) || 'failed', 'err');
                 }
             } catch (e) {
                 setNotifStatus('error: ' + String(e), 'err');
@@ -1121,15 +1129,11 @@
         }
 
         async function clearNotification() {
-            setNotifStatus('clearing\u2026', '');
             try {
                 await api('/api/admin/notifications', { method: 'DELETE' });
-                document.getElementById('notif-msg').value = '';
                 document.getElementById('notif-at').value = '';
-                setNotifStatus('cleared', 'ok');
-            } catch (e) {
-                setNotifStatus('error: ' + String(e), 'err');
-            }
+                setNotifStatus('', '');
+            } catch (e) { /* silent */ }
         }
 
         async function retractRelease(version) {
