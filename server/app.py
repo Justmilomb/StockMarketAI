@@ -242,7 +242,7 @@ def version_info(
 
     if not row:
         return {
-            "version": "2.0.1",
+            "version": "2.1.0",
             "download_url": "https://github.com/Justmilomb/StockMarketAI/releases/latest/download/BlankSetup.exe",
             "sha256": "",
             "notes": "",

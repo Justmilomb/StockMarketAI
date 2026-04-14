@@ -101,7 +101,9 @@
       "Bash(gh auth:*)",
       "Bash(xargs head:*)",
       "Bash(e:/Coding/StockMarketAI/.venv/Scripts/python.exe:*)",
-      "Bash(e:/Coding/StockMarketAI/.venv/Scripts/pip.exe install:*)"
+      "Bash(e:/Coding/StockMarketAI/.venv/Scripts/pip.exe install:*)",
+      "mcp__plugin_playwright_playwright__browser_resize",
+      "mcp__plugin_playwright_playwright__browser_navigate"
     ]
   }
 }

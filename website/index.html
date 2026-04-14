@@ -87,7 +87,7 @@
         main {
             position: relative;
             z-index: 10;
-            flex: 1;
+            min-height: 100vh;
             display: flex;
             flex-direction: column;
             align-items: center;
@@ -195,6 +195,138 @@
             }
         }
 
+        /* scroll hint at the bottom of the hero */
+        .scroll-hint {
+            position: absolute;
+            bottom: 2.25rem;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.75rem;
+            font-size: 0.625rem;
+            font-weight: 300;
+            color: var(--text-dim);
+            letter-spacing: 0.2em;
+            text-decoration: none;
+            text-transform: uppercase;
+            opacity: 0;
+            animation: fadeUp 1s var(--ease-out) 1.1s forwards;
+            transition: color 0.4s var(--ease-out);
+        }
+
+        .scroll-hint:hover {
+            color: var(--glow);
+        }
+
+        .scroll-hint .arrow {
+            display: block;
+            width: 1px;
+            height: 1.75rem;
+            background: currentColor;
+            transform-origin: top;
+            animation: scrollPulse 2.2s var(--ease-out) infinite;
+        }
+
+        @keyframes scrollPulse {
+            0%, 100% { transform: scaleY(0.3); opacity: 0.25; }
+            50%      { transform: scaleY(1);   opacity: 1; }
+        }
+
+        /* changelog */
+        .changelog {
+            position: relative;
+            z-index: 10;
+            max-width: 42rem;
+            margin: 0 auto;
+            padding: 6rem 2rem 5rem;
+        }
+
+        .changelog-title {
+            font-size: 0.6875rem;
+            font-weight: 300;
+            letter-spacing: 0.3em;
+            text-transform: uppercase;
+            color: var(--text-dim);
+            text-align: center;
+            margin-bottom: 4rem;
+            padding-bottom: 1.5rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        .releases {
+            list-style: none;
+            display: flex;
+            flex-direction: column;
+            gap: 3.5rem;
+        }
+
+        .release {
+            opacity: 0;
+            transform: translateY(20px);
+            transition:
+                opacity 0.8s var(--ease-out),
+                transform 0.8s var(--ease-out);
+        }
+
+        .release.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .release-head {
+            display: flex;
+            align-items: baseline;
+            gap: 1rem;
+            margin-bottom: 1.375rem;
+        }
+
+        .release .version {
+            font-size: 1.0625rem;
+            font-weight: 400;
+            letter-spacing: 0.02em;
+            color: var(--text);
+        }
+
+        .release.latest .version {
+            color: var(--glow);
+        }
+
+        .release .date {
+            font-size: 0.625rem;
+            font-weight: 300;
+            letter-spacing: 0.14em;
+            color: var(--text-dim);
+            text-transform: uppercase;
+        }
+
+        .release-notes {
+            list-style: none;
+            display: flex;
+            flex-direction: column;
+            gap: 0.625rem;
+        }
+
+        .release-notes li {
+            position: relative;
+            padding-left: 1.25rem;
+            font-size: 0.875rem;
+            font-weight: 300;
+            line-height: 1.7;
+            color: var(--text-mid);
+        }
+
+        .release-notes li::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 0.8em;
+            width: 0.4375rem;
+            height: 1px;
+            background: var(--text-dim);
+        }
+
         /* footer */
         footer {
             position: relative;
@@ -216,7 +348,9 @@
         @media (prefers-reduced-motion: reduce) {
             body::before { animation: none; }
             .title span { opacity: 1; transform: none; animation: none; }
-            .desc, .download-wrap, footer { opacity: 1; animation: none; }
+            .desc, .download-wrap, .scroll-hint, footer { opacity: 1; animation: none; }
+            .scroll-hint .arrow { animation: none; }
+            .release { opacity: 1; transform: none; transition: none; }
         }
 
         @media (max-width: 480px) {
@@ -237,7 +371,64 @@
         <div class="download-wrap">
             <a id="download-btn" href="https://github.com/Justmilomb/StockMarketAI/releases/latest/download/BlankSetup.exe" class="download">download</a>
         </div>
+
+        <a class="scroll-hint" href="#changelog" aria-label="scroll for update log">
+            <span>update log</span>
+            <span class="arrow" aria-hidden="true"></span>
+        </a>
     </main>
+
+    <section id="changelog" class="changelog">
+        <h2 class="changelog-title">update log</h2>
+        <ol class="releases">
+            <li class="release latest">
+                <div class="release-head">
+                    <span class="version">v2.1.0</span>
+                    <span class="date">april 2026</span>
+                </div>
+                <ul class="release-notes">
+                    <li>chat replies are instant, even while the agent is trading</li>
+                    <li>ask blank several things at once — answers come back in parallel</li>
+                    <li>chat now acts on plain-english commands — trades, watchlist edits, settings, portfolio tweaks, anything the agent can do</li>
+                    <li>paper mode is impossible to miss: gold banner, watermark, one-click flip to live</li>
+                    <li>paper positions and cash save between sessions instead of resetting</li>
+                    <li>smarter ai picks — fast model for info, careful model for real trade decisions</li>
+                    <li>removed the invisible thinking-time cap so the ai can finish its work</li>
+                </ul>
+            </li>
+            <li class="release">
+                <div class="release-head">
+                    <span class="version">v2.0.1</span>
+                    <span class="date">april 2026</span>
+                </div>
+                <ul class="release-notes">
+                    <li>in-app notifications when the server is down for maintenance</li>
+                    <li>website polish</li>
+                </ul>
+            </li>
+            <li class="release">
+                <div class="release-head">
+                    <span class="version">v2.0.0</span>
+                    <span class="date">april 2026</span>
+                </div>
+                <ul class="release-notes">
+                    <li>first public release under the blank brand</li>
+                    <li>bloomberg-style dark desktop interface</li>
+                    <li>setup wizard, license activation, auto-updater</li>
+                    <li>live trading via trading 212</li>
+                </ul>
+            </li>
+            <li class="release">
+                <div class="release-head">
+                    <span class="version">v1.0.0</span>
+                    <span class="date">earlier</span>
+                </div>
+                <ul class="release-notes">
+                    <li>original terminal prototype (internal build)</li>
+                </ul>
+            </li>
+        </ol>
+    </section>
 
     <footer>
         <p class="credit">certified random</p>
@@ -269,6 +460,24 @@
             fetch(window.location.origin + '/api/download', { method: 'POST' })
                 .finally(function() { window.location.href = href; });
         });
+
+        // reveal each release card on scroll
+        (function revealReleases() {
+            var releases = document.querySelectorAll('.release');
+            if (!('IntersectionObserver' in window)) {
+                releases.forEach(function (r) { r.classList.add('visible'); });
+                return;
+            }
+            var io = new IntersectionObserver(function (entries) {
+                entries.forEach(function (entry) {
+                    if (entry.isIntersecting) {
+                        entry.target.classList.add('visible');
+                        io.unobserve(entry.target);
+                    }
+                });
+            }, { threshold: 0.15 });
+            releases.forEach(function (r) { io.observe(r); });
+        })();
     </script>
 </body>
 </html>
