@@ -112,60 +112,58 @@ def _init_db(conn: psycopg2.extensions.connection) -> None:
         seed_releases = [
             (
                 "1.0.0",
-                "2025-10-14",
+                "2026-03-15",
                 False,
-                "- first public release — ai-powered stock analysis in a bloomberg-style terminal\n"
-                "- live prices, candlestick charts, and full portfolio tracking from day one\n"
-                "- ask the ai anything: earnings, macro, sector rotation, your own positions\n"
-                "- paper trading mode so you can test strategies without real money on the line",
+                "- first version that ran end-to-end: live price in, ml signal out, paper order placed\n"
+                "- raw terminal output only — no charts, no panels, just text\n"
+                "- claude handled the market commentary; the ml model handled the actual signal\n"
+                "- only worked reliably on large-cap s&p 500 stocks — crashed on most else",
             ),
             (
                 "1.0.1",
                 "2026-03-20",
                 False,
-                "- fixed the chart freezing when switching tickers quickly\n"
-                "- ai responses no longer cut off mid-sentence on slow connections\n"
-                "- installer no longer requires admin rights\n"
-                "- startup is roughly 40% faster on cold boot",
+                "- ran the first full autoconfig: claude optimised every parameter across 23 experiments overnight\n"
+                "- had to run it on a 32-core cloud vm — too slow to run locally\n"
+                "- fixed the cpu over-subscription that was making parallel backtests crawl\n"
+                "- expanded the stock universe beyond large caps for the first time",
             ),
             (
                 "1.1.0",
-                "2026-03-25",
+                "2026-03-27",
                 False,
-                "- portfolio heat map: all your positions at a glance, colour-coded by gain/loss\n"
-                "- watchlist now persists across sessions\n"
-                "- ai now reads full earnings transcripts, not just headlines\n"
-                "- added keyboard shortcuts for the most common chart actions",
+                "- 1000-analyst ensemble: a thousand ai agents each with a different risk profile vote on every trade\n"
+                "- added crypto and polymarket alongside stocks\n"
+                "- first desktop gui — still very rough but no longer a terminal\n"
+                "- regime detection so the ai knows whether it is in a bull, bear, or sideways market",
             ),
             (
                 "1.2.0",
                 "2026-03-30",
                 False,
-                "- multi-timeframe forecasts: 1-day, 5-day, and 20-day outlooks run in parallel\n"
-                "- five specialised analyst personas now debate every trade before a signal fires\n"
-                "- regime detection — the ai knows whether we are in bull, bear, or sideways conditions\n"
-                "- backtesting engine: replay any strategy against up to five years of history",
+                "- packaged as a proper windows installer for the first time\n"
+                "- walk-forward backtesting across multiple time periods now runs in parallel\n"
+                "- polymarket research swarm: agents study prediction markets to find edge\n"
+                "- fixed persistent out-of-memory crashes on multi-fold backtests",
             ),
             (
                 "2.0.0",
-                "2026-04-03",
+                "2026-04-07",
                 False,
-                "- complete ui rebuild — faster, sharper, more bloomberg than bloomberg\n"
-                "- live trading via trading 212 alongside paper mode\n"
-                "- ai ensemble: twelve machine-learning models vote on every trade simultaneously\n"
-                "- risk manager: kelly criterion sizing, atr-based stops, portfolio drawdown limits\n"
-                "- background news scanner feeds the ai real-time rss sentiment around the clock",
+                "- rebranded to blank — full bloomberg-style dark ui rebuilt from scratch\n"
+                "- license server added so distribution can be controlled\n"
+                "- live trading via trading 212 went in alongside paper mode\n"
+                "- news scrapers run in the background and feed the ai sentiment around the clock\n"
+                "- claude now picks between different trading strategies depending on market conditions",
             ),
             (
                 "2.0.1",
-                "2026-04-06",
+                "2026-04-08",
                 False,
-                "- fixed positions panel showing stale prices after market close\n"
-                "- chat no longer hangs if the ai takes more than 30 seconds to respond\n"
-                "- portfolio value now updates in real time instead of on the next price tick\n"
-                "- fixed a crash when opening the app with no internet connection\n"
-                "- blank now installs updates automatically — no manual reinstall required\n"
-                "- maintenance messages from the team appear inside the app without restarting",
+                "- migrated from sqlite to postgresql — fixes the corrupted-database crashes on long sessions\n"
+                "- blank now checks for updates and installs them silently in the background\n"
+                "- maintenance mode lets the team push messages to all running clients without a new release\n"
+                "- chat can now execute trades directly from plain-english commands",
             ),
             (
                 "2.1.0",
