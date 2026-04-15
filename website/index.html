@@ -352,6 +352,21 @@
             letter-spacing: 0.08em;
         }
 
+        .footer-links {
+            margin-top: 0.75rem;
+            font-size: 0.6875rem;
+            letter-spacing: 0.08em;
+        }
+
+        .footer-links a {
+            color: var(--text-dim);
+            text-decoration: none;
+            margin: 0 0.5rem;
+            transition: color 0.2s ease;
+        }
+
+        .footer-links a:hover { color: var(--glow); }
+
         /* reduced motion */
         @media (prefers-reduced-motion: reduce) {
             body::before { animation: none; }
@@ -406,6 +421,9 @@
 
     <footer>
         <p class="credit">certified random</p>
+        <p class="footer-links">
+            <a href="/privacy">privacy</a>
+        </p>
     </footer>
 
     <script>

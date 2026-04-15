@@ -11,6 +11,9 @@
       "NVDA"
     ]
   },
+  "watchlists_paper": {
+    "Trading 212": []
+  },
   "protected_tickers": [
     "CCCX_US_EQ"
   ],
@@ -41,7 +44,7 @@
   "paper_broker": {
     "state_path": "data/paper_state.json",
     "audit_path": "logs/paper_orders.jsonl",
-    "starting_cash": 100000.0
+    "starting_cash": 100.0
   },
   "ai": {
     "sklearn_weight": 0.5,

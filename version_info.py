@@ -4,8 +4,8 @@
 
 VSVersionInfo(
     ffi=FixedFileInfo(
-        filevers=(2, 1, 2, 0),
-        prodvers=(2, 1, 2, 0),
+        filevers=(2, 1, 3, 0),
+        prodvers=(2, 1, 3, 0),
         mask=0x3F,
         flags=0x0,
         OS=0x40004,
@@ -18,13 +18,13 @@ VSVersionInfo(
             StringTable("040904B0", [
                 StringStruct("CompanyName", "Certified Random"),
                 StringStruct("FileDescription", "Blank Trading Terminal"),
-                StringStruct("FileVersion", "2.1.2"),
+                StringStruct("FileVersion", "2.1.3"),
                 StringStruct("InternalName", "blank"),
                 StringStruct("LegalCopyright",
                              "Copyright (C) 2026 Certified Random. All rights reserved."),
                 StringStruct("OriginalFilename", "blank.exe"),
                 StringStruct("ProductName", "Blank"),
-                StringStruct("ProductVersion", "2.1.2"),
+                StringStruct("ProductVersion", "2.1.3"),
             ]),
         ]),
         VarFileInfo([VarStruct("Translation", [1033, 1200])]),

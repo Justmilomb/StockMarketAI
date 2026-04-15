@@ -6,12 +6,21 @@ Routing:
 
 Intraday bars come from yfinance; 1m resolution is limited to the last
 seven days by yfinance's own rules.
+
+``search_instrument`` has a two-tier lookup: it asks the active broker
+service first (which works in live mode), and if that comes back empty
+it falls back to a direct Trading 212 metadata call using whatever
+credentials are in the environment. This matters in paper mode, where
+the session-wide ``PaperBroker`` inherits the base broker's empty
+``get_instruments`` implementation and would otherwise leave the agent
+with no way to discover tickers by name.
 """
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime, timedelta
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from claude_agent_sdk import tool
 
@@ -22,6 +31,60 @@ from core.agent.context import get_agent_context
 
 def _text_result(data: Any) -> Dict[str, Any]:
     return {"content": [{"type": "text", "text": json.dumps(data, default=str)}]}
+
+
+#: Process-lifetime cache for the Trading 212 instrument catalogue.
+#: Populated on first successful fetch and reused for the rest of the
+#: session — the ~15k-row list rarely changes and is ~2 MB on the wire.
+_INSTRUMENT_CACHE: Optional[List[Dict[str, Any]]] = None
+
+
+def _load_instruments_with_fallback() -> List[Dict[str, Any]]:
+    """Return the broker's instrument catalogue, with a paper-mode fallback.
+
+    Order of attempts:
+
+    1. The active broker service (``ctx.broker_service``). In live mode
+       this goes straight to ``Trading212Broker.get_instruments``; in
+       paper mode it hits the inherited empty list and returns ``[]``.
+    2. A direct ``Trading212Broker`` instantiation using ``T212_API_KEY``
+       / ``T212_SECRET_KEY`` from the environment. This lets paper-mode
+       sessions still resolve tickers by name as long as the user has
+       live creds configured.
+    3. Empty list — cached so we don't keep hitting the network.
+    """
+    global _INSTRUMENT_CACHE
+    if _INSTRUMENT_CACHE is not None:
+        return _INSTRUMENT_CACHE
+
+    try:
+        ctx = get_agent_context()
+        primary = ctx.broker_service.get_instruments() or []
+    except Exception:
+        primary = []
+    if primary:
+        _INSTRUMENT_CACHE = primary
+        return primary
+
+    api_key = os.getenv("T212_API_KEY", "")
+    secret_key = os.getenv("T212_SECRET_KEY", "")
+    if not api_key:
+        _INSTRUMENT_CACHE = []
+        return []
+
+    try:
+        from trading212 import Trading212Broker, Trading212BrokerConfig
+        cfg = Trading212BrokerConfig(
+            api_key=api_key,
+            secret_key=secret_key,
+            base_url="https://live.trading212.com",
+            practice=False,
+        )
+        broker = Trading212Broker(cfg)
+        _INSTRUMENT_CACHE = broker.get_instruments() or []
+    except Exception:
+        _INSTRUMENT_CACHE = []
+    return _INSTRUMENT_CACHE
 
 
 def _held_current_price(ticker: str) -> float | None:
@@ -167,33 +230,43 @@ async def get_daily_bars(args: Dict[str, Any]) -> Dict[str, Any]:
 
 @tool(
     "search_instrument",
-    "Search the broker's instrument catalogue for tickers matching a query. "
-    "Useful when the agent wants to trade a name it has not held before.",
+    "Search the Trading 212 instrument catalogue for tickers matching a query. "
+    "Matches against both the ticker symbol and the company name. Works in "
+    "both live and paper mode (paper mode falls back to a direct metadata "
+    "fetch using the configured T212 credentials).",
     {"query": str, "limit": int},
 )
 async def search_instrument(args: Dict[str, Any]) -> Dict[str, Any]:
-    ctx = get_agent_context()
     query = str(args.get("query", "")).strip().lower()
     limit = int(args.get("limit", 20) or 20)
     if not query:
         return _text_result({"matches": []})
 
     try:
-        instruments = ctx.broker_service.get_instruments() or []
+        instruments = _load_instruments_with_fallback()
     except Exception as e:
         return _text_result({"error": str(e), "matches": []})
+
+    if not instruments:
+        return _text_result({
+            "query": query,
+            "count": 0,
+            "matches": [],
+            "note": "instrument catalogue unavailable — check T212 credentials",
+        })
 
     matches: List[Dict[str, Any]] = []
     for i in instruments:
         if not isinstance(i, dict):
             continue
-        hay = " ".join(str(v) for v in i.values()).lower()
-        if query in hay:
+        ticker = str(i.get("ticker", "")).lower()
+        name = str(i.get("name", "")).lower()
+        if query in ticker or query in name:
             matches.append({
                 "ticker": i.get("ticker", ""),
                 "name": i.get("name", ""),
                 "type": i.get("type", ""),
-                "currencyCode": i.get("currencyCode", ""),
+                "currencyCode": i.get("currencyCode", "") or i.get("currency", ""),
             })
             if len(matches) >= limit:
                 break

@@ -119,9 +119,9 @@ async def get_order_history(args: Dict[str, Any]) -> Dict[str, Any]:
 @tool(
     "place_order",
     "Submit an order. Before sending, the tool re-fetches the portfolio and "
-    "refuses sells when quantity > held, buys when cost > free cash, and "
-    "enforces the max_position_pct / max_trades_per_hour config caps. "
-    "Always supply a short `reason` — it is written to the agent journal.",
+    "refuses sells when quantity > held and buys when cost > free cash — "
+    "these are the only gates. Supply a short `reason`; it is written to "
+    "the agent journal.",
     {
         "ticker": str,
         "side": str,
@@ -194,29 +194,6 @@ async def place_order(args: Dict[str, Any]) -> Dict[str, Any]:
                 {"tool": "place_order", "ticker": ticker, "side": side_raw,
                  "quantity": quantity, "est_cost": est_cost, "free": free_cash, "reason": reason},
                 tags=["safety", "cash"],
-            )
-            return _text_result({"status": "rejected", "reason": msg})
-
-        # Max position cap (from agent config)
-        agent_cfg = ctx.config.get("agent", {}) or {}
-        max_pct = float(agent_cfg.get("max_position_pct", 20.0)) / 100.0
-        equity = float(account.get("total", 0.0))
-        current_exposure = sum(
-            float(p.get("quantity", 0) or 0) * float(p.get("current_price", 0) or 0)
-            for p in positions if p.get("ticker") == ticker
-        )
-        new_exposure = current_exposure + est_cost
-        if equity > 0 and new_exposure / equity > max_pct:
-            msg = (
-                f"refused: {ticker} position would be "
-                f"{new_exposure / equity:.1%} of equity (cap {max_pct:.0%})"
-            )
-            _journal(
-                "order_refused",
-                {"tool": "place_order", "ticker": ticker, "side": side_raw,
-                 "quantity": quantity, "new_exposure": new_exposure,
-                 "equity": equity, "cap_pct": max_pct, "reason": reason},
-                tags=["safety", "concentration"],
             )
             return _text_result({"status": "rejected", "reason": msg})
 

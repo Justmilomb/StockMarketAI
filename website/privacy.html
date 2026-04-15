@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>blank — privacy</title>
+    <meta name="description" content="privacy policy for blank, the autonomous ai trading terminal by certified random.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@200;300;400;700&display=swap" rel="stylesheet">
+    <style>
+        *, *::before, *::after {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --bg: #000000;
+            --text: #ffffff;
+            --text-mid: rgba(255, 255, 255, 0.55);
+            --text-dim: rgba(255, 255, 255, 0.25);
+            --glow: #00ff87;
+            --rule: rgba(255, 255, 255, 0.08);
+        }
+
+        html { font-size: 16px; -webkit-font-smoothing: antialiased; }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: 'Outfit', sans-serif;
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        body::before {
+            content: '';
+            position: fixed;
+            inset: -50%;
+            z-index: 1000;
+            pointer-events: none;
+            opacity: 0.04;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 512 512' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+            background-repeat: repeat;
+            background-size: 256px 256px;
+        }
+
+        main {
+            position: relative;
+            z-index: 10;
+            max-width: 720px;
+            margin: 0 auto;
+            padding: 5rem 2rem 4rem;
+        }
+
+        .back {
+            display: inline-block;
+            font-size: 0.75rem;
+            color: var(--text-dim);
+            text-decoration: none;
+            letter-spacing: 0.1em;
+            text-transform: lowercase;
+            margin-bottom: 3rem;
+            transition: color 0.2s ease;
+        }
+
+        .back:hover { color: var(--glow); }
+
+        h1 {
+            font-size: 2.25rem;
+            font-weight: 200;
+            letter-spacing: 0.02em;
+            margin-bottom: 0.5rem;
+        }
+
+        .updated {
+            font-size: 0.75rem;
+            color: var(--text-dim);
+            letter-spacing: 0.08em;
+            margin-bottom: 3rem;
+        }
+
+        h2 {
+            font-size: 1rem;
+            font-weight: 400;
+            color: var(--glow);
+            letter-spacing: 0.04em;
+            text-transform: lowercase;
+            margin-top: 2.5rem;
+            margin-bottom: 0.75rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid var(--rule);
+        }
+
+        p, li {
+            font-size: 0.9375rem;
+            font-weight: 300;
+            line-height: 1.7;
+            color: var(--text-mid);
+            margin-bottom: 0.9rem;
+        }
+
+        p strong, li strong {
+            color: var(--text);
+            font-weight: 400;
+        }
+
+        ul {
+            margin-left: 1.25rem;
+            margin-bottom: 1rem;
+        }
+
+        li { margin-bottom: 0.4rem; }
+
+        a { color: var(--glow); text-decoration: none; }
+        a:hover { text-decoration: underline; }
+
+        footer {
+            position: relative;
+            z-index: 10;
+            padding: 2.5rem 2rem;
+            text-align: center;
+        }
+
+        .credit {
+            font-size: 0.6875rem;
+            font-weight: 300;
+            color: var(--text-dim);
+            letter-spacing: 0.08em;
+        }
+
+        .footer-links {
+            margin-top: 0.75rem;
+            font-size: 0.6875rem;
+            letter-spacing: 0.08em;
+        }
+
+        .footer-links a {
+            color: var(--text-dim);
+            margin: 0 0.5rem;
+        }
+
+        .footer-links a:hover { color: var(--glow); }
+    </style>
+</head>
+<body>
+    <main>
+        <a href="/" class="back">&larr; back</a>
+        <h1>privacy policy</h1>
+        <p class="updated">last updated: 15 april 2026</p>
+
+        <p>
+            this page explains what data <strong>blank</strong> (the desktop
+            trading terminal by certified random) collects, where it goes, and
+            what it is used for. the short version: almost everything stays on
+            your own machine. the backend server only sees what it needs to
+            validate your licence, serve you updates, and keep the thing alive.
+        </p>
+
+        <h2>who we are</h2>
+        <p>
+            <strong>certified random</strong> is the publisher of blank. you
+            can reach us at
+            <a href="mailto:milomilomilomb@gmail.com">milomilomilomb@gmail.com</a>.
+            the backend service is hosted on render and the installer is
+            distributed through github releases.
+        </p>
+
+        <h2>what we collect on the server</h2>
+        <p>the backend at <code>blan-api.onrender.com</code> stores:</p>
+        <ul>
+            <li>
+                <strong>licence data</strong> — your licence key, a hashed
+                machine fingerprint (so one licence can't be shared across
+                dozens of PCs), and the last time that key was seen.
+            </li>
+            <li>
+                <strong>download events</strong> — when someone clicks the
+                download button on this site, we record the ip address, the
+                user-agent string, and a timestamp. this is used to count
+                installs and is not linked to any individual.
+            </li>
+            <li>
+                <strong>crash / error logs</strong> — if the desktop client
+                encounters an error, it can post the error level and message
+                to the server, tagged with the licence key. these are used to
+                spot bugs. we do not include your portfolio, trades, api
+                keys, or personal files in these reports.
+            </li>
+            <li>
+                <strong>update checks</strong> — the app polls our version
+                endpoint every ~30 minutes. these requests are anonymous
+                (no licence key, no personal identifier).
+            </li>
+        </ul>
+
+        <h2>what stays on your machine</h2>
+        <p>
+            everything else blank handles stays on your own pc and is never
+            transmitted to us:
+        </p>
+        <ul>
+            <li>your trading 212 api keys and any broker credentials</li>
+            <li>your portfolio, positions, orders, and trade history</li>
+            <li>your watchlist and strategy configuration</li>
+            <li>agent journals, memory scratchpads, and chat history</li>
+            <li>the sqlite database the app writes in its user-data folder</li>
+            <li>any notes, tags, or protected-ticker lists you set</li>
+        </ul>
+
+        <h2>third parties the app talks to (directly, not through us)</h2>
+        <p>
+            when you use blank, your local copy of the app makes direct
+            requests to the following services under <em>your own</em>
+            credentials or public endpoints. we do not proxy, log, or store
+            any of this traffic:
+        </p>
+        <ul>
+            <li>
+                <strong>anthropic (claude api)</strong> — for the ai analyst
+                and agent features. requests go straight from your machine
+                to anthropic under your own api key or subscription.
+                see <a href="https://www.anthropic.com/privacy" target="_blank" rel="noopener">anthropic's privacy policy</a>.
+            </li>
+            <li>
+                <strong>trading 212</strong> — only if you configure live
+                trading. your api key lives in your local config file and
+                is sent directly to trading 212. see
+                <a href="https://www.trading212.com/legal/privacy-policy" target="_blank" rel="noopener">trading 212's privacy policy</a>.
+            </li>
+            <li>
+                <strong>market data &amp; news feeds</strong> — yfinance,
+                google news rss, bbc, bloomberg via google news, marketwatch,
+                reddit, youtube, stocktwits, and others. these are public
+                feeds. the app fetches them over plain https with a
+                browser-style user-agent.
+            </li>
+            <li>
+                <strong>github</strong> — the installer and its updates are
+                downloaded from github releases. see
+                <a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement" target="_blank" rel="noopener">github's privacy statement</a>.
+            </li>
+            <li>
+                <strong>render</strong> — our backend is hosted on render,
+                which acts as our infrastructure provider. see
+                <a href="https://render.com/privacy" target="_blank" rel="noopener">render's privacy policy</a>.
+            </li>
+        </ul>
+
+        <h2>cookies &amp; tracking</h2>
+        <p>
+            this website does not use cookies. there is no analytics script,
+            no advertising pixel, and no third-party tracker embedded on the
+            landing page or on this privacy page. the only outgoing request
+            the site makes is a <code>post /api/download</code> when you
+            click the download button — described above.
+        </p>
+
+        <h2>how long we keep your data</h2>
+        <ul>
+            <li>licence rows are kept for as long as the licence is active.</li>
+            <li>download events are kept for up to 12 months, then aggregated.</li>
+            <li>
+                crash logs are kept for up to 90 days. you can request
+                earlier deletion by emailing us.
+            </li>
+        </ul>
+
+        <h2>your rights</h2>
+        <p>
+            if you are in the uk or eu, you have rights under the uk gdpr and
+            gdpr to access, correct, or delete the personal data we hold
+            about you, and to object to processing. email us at
+            <a href="mailto:milomilomilomb@gmail.com">milomilomilomb@gmail.com</a>
+            with your licence key (or the email used to buy it) and we will
+            action the request within 30 days.
+        </p>
+
+        <h2>children</h2>
+        <p>
+            blank is not intended for anyone under 18. we do not knowingly
+            collect data from children. if you believe a minor has provided
+            us with personal data, contact us and we will delete it.
+        </p>
+
+        <h2>disclaimer</h2>
+        <p>
+            blank is a tool for informational and educational purposes. it is
+            not investment advice. trading carries risk, including the loss
+            of capital. any decision you make using the app — paper or live
+            — is your own. certified random is not liable for trading
+            outcomes, broker errors, missed orders, or downtime of third
+            parties the app depends on.
+        </p>
+
+        <h2>changes to this policy</h2>
+        <p>
+            we may update this policy from time to time. the date at the top
+            of this page always reflects the last revision. material changes
+            will be announced in the in-app update log.
+        </p>
+    </main>
+
+    <footer>
+        <p class="credit">certified random</p>
+        <p class="footer-links">
+            <a href="/">home</a>
+            <a href="/privacy">privacy</a>
+        </p>
+    </footer>
+</body>
+</html>

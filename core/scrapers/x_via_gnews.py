@@ -6,8 +6,10 @@ entries and exposes them via RSS with no auth. We search each ticker
 through Google News with a ``site:x.com`` / ``site:twitter.com``
 filter and return the matching entries.
 
-Results are tagged ``source='x'`` so consumers can treat them as
-social buzz rather than news.
+When the caller supplies an empty watchlist we fall back to a handful
+of broad market-chatter queries so the cache still fills on a fresh
+install. Results are tagged ``source='x'`` so consumers can treat them
+as social buzz rather than news.
 """
 from __future__ import annotations
 
@@ -29,14 +31,26 @@ class XViaGoogleNewsScraper(ScraperBase):
 
     MAX_PER_TICKER: int = 15
 
+    #: Broad-mode queries for when the watchlist is empty.
+    FALLBACK_QUERIES: List[str] = [
+        "stocks",
+        "earnings",
+        "trading",
+        "breakout",
+        "squeeze",
+        "fda approval",
+    ]
+
     def fetch(
         self,
         tickers: Optional[List[str]] = None,
         since_minutes: int = 60,
     ) -> List[ScrapedItem]:
-        if not tickers:
-            return []
+        if tickers:
+            return self._fetch_per_ticker(tickers)
+        return self._fetch_broad()
 
+    def _fetch_per_ticker(self, tickers: List[str]) -> List[ScrapedItem]:
         items: List[ScrapedItem] = []
         for raw_ticker in tickers:
             clean = self.clean_ticker(raw_ticker)
@@ -59,5 +73,28 @@ class XViaGoogleNewsScraper(ScraperBase):
                     ts=self.parse_rss_date(entry),
                     summary=(entry.get("summary") or "")[:500],
                     meta={"via": "google_news"},
+                ))
+        return items
+
+    def _fetch_broad(self) -> List[ScrapedItem]:
+        items: List[ScrapedItem] = []
+        for query in self.FALLBACK_QUERIES:
+            encoded = quote_plus(query)
+            url = self.FEED_URL.format(q=encoded)
+            entries = self.fetch_rss(url)
+            for entry in entries[: self.MAX_PER_TICKER]:
+                title = (entry.get("title") or "").strip()
+                link = (entry.get("link") or "").strip()
+                if not title:
+                    continue
+                items.append(ScrapedItem(
+                    source=self.name,
+                    kind=self.kind,
+                    title=title,
+                    url=link,
+                    ticker=None,
+                    ts=self.parse_rss_date(entry),
+                    summary=(entry.get("summary") or "")[:500],
+                    meta={"via": "google_news", "query": query, "mode": "broad"},
                 ))
         return items

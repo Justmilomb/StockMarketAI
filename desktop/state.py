@@ -19,6 +19,7 @@ from terminal.state import AppState
 # are gone. The agent is the brain and owns its own risk rules.
 DEFAULT_CONFIG: Dict[str, Any] = {
     "watchlists": {"Default": []},
+    "watchlists_paper": {"Default": []},
     "protected_tickers": [],
     "active_watchlist": "Default",
     "data_dir": "data",
@@ -139,4 +140,8 @@ def load_config(config_path: Path | str = "config.json") -> Dict[str, Any]:
         return dict(DEFAULT_CONFIG)
 
     with path.open("r", encoding="utf-8") as f:
-        return json.load(f)
+        data = json.load(f)
+    # Backfill paper watchlists if missing (migration for existing configs).
+    if "watchlists_paper" not in data:
+        data["watchlists_paper"] = {name: [] for name in data.get("watchlists", {})}
+    return data

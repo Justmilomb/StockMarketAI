@@ -59,12 +59,16 @@ class AgentPool(QObject):
         config_path: Path | str,
         live_broker_service: Any,
         db_path: str = "data/terminal_history.db",
+        force_paper: bool = False,
         parent: Any = None,
     ) -> None:
         super().__init__(parent)
         self._config_path: Path = Path(config_path)
         self._live_broker: Any = live_broker_service
         self._db_path: str = db_path
+        # When True the pool is locked to paper mode regardless of what
+        # config.json says — used by the dedicated paper trading window.
+        self._force_paper: bool = force_paper
 
         # Supervisor is built lazily on first start (keeps boot cheap
         # and lets the app render before the SDK loads).
@@ -84,7 +88,14 @@ class AgentPool(QObject):
     def _load_config(self) -> Dict[str, Any]:
         import json
         with self._config_path.open("r", encoding="utf-8") as f:
-            return json.load(f)
+            cfg = json.load(f)
+        # The pool's force_paper flag is the single source of truth for
+        # which mode its agents run in. We override agent.paper_mode in
+        # both directions so a stale config.json value can never bleed
+        # across windows — live pools are always live, paper pools are
+        # always paper.
+        cfg.setdefault("agent", {})["paper_mode"] = self._force_paper
+        return cfg
 
     def _max_chat_workers(self) -> int:
         try:

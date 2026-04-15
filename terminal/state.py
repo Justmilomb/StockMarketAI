@@ -42,6 +42,11 @@ class AppState:
     # News agent data
     news_sentiment: Dict[str, Any] = field(default_factory=dict)
 
+    # Market-wide news from the scraper runner (populated even when the
+    # watchlist is empty so the NewsPanel always has something to show).
+    # Each entry is a ``scraper_items`` row dict from ``HistoryManager``.
+    market_news: List[Dict[str, Any]] = field(default_factory=list)
+
     # Chart data (list of close prices for selected ticker)
     chart_data: List[float] = field(default_factory=list)
 

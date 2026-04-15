@@ -67,11 +67,15 @@ class MainWindow(QMainWindow):
         self,
         config_path: Path | str = "config.json",
         initial_asset: str = "stocks",
+        forced_paper_mode: bool = False,
     ) -> None:
         super().__init__()
+        # When True this window is permanently locked to paper trading —
+        # it is its own isolated universe with no live broker access.
+        self._forced_paper_mode: bool = forced_paper_mode
+
         self.config_path = resolve_config_path(config_path)
         self.config: Dict[str, Any] = load_config(self.config_path)
-        self._is_fresh_config = self._detect_fresh_config()
         self.state = init_state(self.config)
         self.state.active_asset_class = initial_asset
 
@@ -79,7 +83,34 @@ class MainWindow(QMainWindow):
         from broker_service import BrokerService
         from news_agent import NewsAgent
 
-        self.broker_service = BrokerService(self.config)
+        if forced_paper_mode:
+            # Paper window gets its own isolated broker that always uses
+            # PaperBroker for stocks — never touches the live T212 API.
+            from paper_broker import PaperBroker
+            paper_cfg = dict(self.config)
+            paper_cfg["broker"] = {
+                **(self.config.get("broker", {}) or {}),
+                "type": "log",
+            }
+            self.broker_service = BrokerService(config=paper_cfg)
+            paper_broker_cfg = self.config.get("paper_broker") or {}
+            # Always start fresh — delete any previous paper state so
+            # every paper session opens at £100.
+            state_path = Path(paper_broker_cfg.get("state_path", "data/paper_state.json"))
+            if state_path.exists():
+                state_path.unlink()
+            self.broker_service.register_broker(
+                "stocks",
+                PaperBroker(
+                    state_path=state_path,
+                    audit_path=Path(paper_broker_cfg.get("audit_path", "logs/paper_orders.jsonl")),
+                    starting_cash=float(paper_broker_cfg.get("starting_cash", 100.0)),
+                ),
+            )
+            self.state.agent_paper_mode = True
+            self.state.broker_is_live = False
+        else:
+            self.broker_service = BrokerService(self.config)
 
         self._claude_client: Optional[Any] = None
         self.news_agent: Optional[NewsAgent] = None
@@ -98,7 +129,13 @@ class MainWindow(QMainWindow):
 
             from database import HistoryManager
             from desktop.paths import db_path as _user_db_path
-            self.history_manager = HistoryManager(db_path=str(_user_db_path()))
+            _base_db = _user_db_path()
+            _hist_db = (
+                _base_db.parent / "paper_chat_history.db"
+                if self._forced_paper_mode
+                else _base_db
+            )
+            self.history_manager = HistoryManager(db_path=str(_hist_db))
             self.state.history_manager = self.history_manager
 
             news_interval = self.config.get("news", {}).get(
@@ -120,8 +157,10 @@ class MainWindow(QMainWindow):
         # The pool is built eagerly (cheap), but the supervisor runner
         # inside it is only created lazily when Start Agent is clicked.
         self.agent_pool: Optional[AgentPool] = None
-        agent_cfg = self.config.get("agent", {}) or {}
-        self.state.agent_paper_mode = bool(agent_cfg.get("paper_mode", False))
+        # Live windows are always live, paper windows are always paper —
+        # mode is window-scoped, not config-scoped. See _open_paper_window.
+        if not self._forced_paper_mode:
+            self.state.agent_paper_mode = False
 
         # Chat worker bookkeeping — we track active worker IDs so we
         # can show "AI thinking (2)" when many workers are alive and
@@ -143,20 +182,24 @@ class MainWindow(QMainWindow):
         self._setup_shortcuts()
         self._setup_timers()
         self._restore_state()
-        self._init_update_service()
+        # Paper windows skip update management — the live window owns
+        # the session's single UpdateService so we don't end up with
+        # two poll loops, two banners, or duplicate install flows.
+        if not self._forced_paper_mode:
+            self._init_update_service()
 
     def _build_ui(self) -> None:
         """Create dockable panel layout with Bloomberg-style arrangement."""
-        self.setWindowTitle("blank")
+        if self._forced_paper_mode:
+            self.setWindowTitle("blank — Paper Trading")
+        else:
+            self.setWindowTitle("blank")
         self.setMinimumSize(1280, 720)
         self.setDockNestingEnabled(True)
 
         menu_bar = self.menuBar()
 
         file_menu = menu_bar.addMenu("&File")
-        file_menu.addAction("Import Config...", self._import_config)
-        file_menu.addAction("Export Config...", self._export_config)
-        file_menu.addSeparator()
         file_menu.addAction("Main Menu  (M)", self.action_main_menu)
         file_menu.addSeparator()
         file_menu.addAction("Quit  (Q)", self.close)
@@ -177,11 +220,18 @@ class MainWindow(QMainWindow):
         )
         self._agent_kill_action.setEnabled(False)
         agent_menu.addSeparator()
-        self._agent_paper_action = agent_menu.addAction(
-            "Paper Mode", self._toggle_agent_paper_mode,
-        )
-        self._agent_paper_action.setCheckable(True)
-        self._agent_paper_action.setChecked(self.state.agent_paper_mode)
+        if self._forced_paper_mode:
+            # Paper window is permanently paper — show a disabled label
+            # so the user knows there's no toggle here.
+            paper_label = agent_menu.addAction("Paper Mode (locked)")
+            paper_label.setEnabled(False)
+        else:
+            # Live windows have no paper toggle — paper trading is only
+            # reachable via a dedicated paper window so the two modes
+            # can never share state.
+            agent_menu.addAction(
+                "Open Paper Trading Window", self._open_paper_window,
+            )
 
         mode_str = "AUTO" if self.state.mode == "full_auto_limited" else "ADVISOR"
         asset_str = self.state.active_asset_class.upper()
@@ -210,7 +260,8 @@ class MainWindow(QMainWindow):
         self.mandatory_overlay = MandatoryUpdateOverlay(self)
         self.mode_banner = ModeBanner(self)
         self.mode_banner.set_mode(self.state.agent_paper_mode)
-        self.mode_banner.mode_clicked.connect(self._toggle_agent_paper_mode)
+        # Mode banner is read-only — paper/live is window-scoped, so
+        # there is nothing to toggle from the banner.
         central_layout.addWidget(self.update_banner)
         central_layout.addWidget(self.mode_banner)
         central_layout.addWidget(self.chart_panel, 1)
@@ -460,11 +511,6 @@ class MainWindow(QMainWindow):
         for key, slot in shortcuts:
             QShortcut(QKeySequence(key), self, slot)
 
-        # Power-user shortcut: flip paper/live instantly from anywhere.
-        QShortcut(
-            QKeySequence("Ctrl+Shift+P"), self, self._toggle_agent_paper_mode,
-        )
-
     def _setup_timers(self) -> None:
         """Start all periodic background timers."""
         interval_ms = self.state.refresh_interval_seconds * 1000
@@ -472,11 +518,6 @@ class MainWindow(QMainWindow):
         self._refresh_timer = QTimer(self)
         self._refresh_timer.timeout.connect(self.action_refresh_data)
         self._refresh_timer.start(interval_ms)
-
-    def _detect_fresh_config(self) -> bool:
-        """True if config was just created with defaults (no real tickers)."""
-        watchlists = self.config.get("watchlists", {})
-        return all(len(v) == 0 for v in watchlists.values())
 
     def _restore_state(self) -> None:
         """Load chat history, wire signals, trigger initial broker refresh."""
@@ -509,9 +550,6 @@ class MainWindow(QMainWindow):
                 pass
 
         self._populate_placeholder_signals()
-
-        if self._is_fresh_config:
-            QTimer.singleShot(500, self._prompt_first_run_import)
 
         QTimer.singleShot(100, self.action_refresh_data)
 
@@ -707,8 +745,49 @@ class MainWindow(QMainWindow):
         No more two-phase pipeline: the ML signal generator is gone.
         Phase 4 will let the agent trigger its own reads via MCP tools.
         """
+        # Sync watchlists from disk so agent mutations (clear, add, remove)
+        # are visible in the UI without a full app restart.
+        self._reload_watchlists_from_disk()
         self.statusBar().showMessage("Fetching broker data...", 30000)
         self._run_background(self._fetch_broker_data, self._on_broker_data_loaded)
+
+    def _reload_watchlists_from_disk(self) -> None:
+        """Re-read both watchlist keys from config.json into self.config.
+
+        The agent writes watchlist changes directly to disk — this call
+        keeps the UI's in-memory config in sync so panels show the
+        latest state without requiring an app restart.
+
+        If the active watchlist's ticker set has changed, ``state.signals``
+        is cleared so ``_populate_placeholder_signals`` rebuilds from the
+        new ticker list rather than showing stale rows.
+        """
+        try:
+            import json
+            with self.config_path.open("r", encoding="utf-8") as f:
+                on_disk = json.load(f)
+
+            # Snapshot current tickers before applying disk state.
+            wl_key = self._watchlist_config_key()
+            active = self.state.active_watchlist
+            old_tickers = set(
+                self.config.get(wl_key, {}).get(active, [])
+            )
+
+            for key in ("watchlists", "watchlists_paper", "active_watchlist"):
+                if key in on_disk:
+                    self.config[key] = on_disk[key]
+
+            new_tickers = set(
+                self.config.get(wl_key, {}).get(active, [])
+            )
+
+            # If the ticker set changed, drop stale signals so the panel
+            # rebuilds from the updated watchlist on the next refresh.
+            if old_tickers != new_tickers:
+                self.state.signals = None
+        except Exception:
+            pass  # Never crash the refresh cycle over a config read
 
     def _fetch_broker_data(self) -> Dict[str, Any]:
         """Background: fetch broker positions, account, orders, and prices."""
@@ -762,7 +841,7 @@ class MainWindow(QMainWindow):
                 live_data[t] = {"price": cur, "change_pct": change_pct}
 
         watchlist_name = getattr(self.state, "active_watchlist", "Default")
-        tickers = self.config.get("watchlists", {}).get(watchlist_name, [])
+        tickers = self.config.get(self._watchlist_config_key(), {}).get(watchlist_name, [])
         missing = [t for t in tickers if t not in live_data]
         if missing:
             try:
@@ -814,6 +893,9 @@ class MainWindow(QMainWindow):
 
         self._calculate_pnl()
         self._refresh_all_panels()
+        # Rebuild watchlist rows if signals was cleared by a watchlist
+        # change detected during _reload_watchlists_from_disk.
+        self._populate_placeholder_signals()
 
         if errors:
             self.statusBar().showMessage(
@@ -851,6 +933,16 @@ class MainWindow(QMainWindow):
             self.orders_panel.refresh_view(self.state)
             if self.news_agent and self.news_agent.news_data:
                 self.state.news_sentiment = self.news_agent.news_data
+            # Market-wide scraper feed — populated even when the watchlist
+            # is empty so the panel always has something to show. The
+            # agent reads the full table via its own ``get_news`` tool.
+            if self.history_manager:
+                try:
+                    self.state.market_news = self.history_manager.get_scraper_items(
+                        kinds=["news"], since_minutes=240, limit=15,
+                    )
+                except Exception:
+                    self.state.market_news = []
             self.news_panel.refresh_view(self.state)
 
         self._update_header()
@@ -1075,23 +1167,24 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("Agent killed", 3000)
 
     @Slot()
-    def _toggle_agent_paper_mode(self) -> None:
-        """Flip agent.paper_mode, persist it, and re-tint the chrome.
+    def _open_paper_window(self) -> None:
+        """Spawn the paper trading window as a completely separate instance.
 
-        The pool reads ``agent.paper_mode`` fresh on every supervisor
-        iteration and chat worker spawn, so a flip takes effect on the
-        *next* agent turn automatically — no restart needed.
+        The paper window is its own blank slate — separate agent, separate
+        broker, separate watchlist, always starting fresh at £100.
+        ``self._paper_window`` holds the reference so Qt does not
+        garbage-collect the window while the live window is still open.
         """
-        new_value = not self.state.agent_paper_mode
-        self.state.agent_paper_mode = new_value
-        self._save_config_key("agent.paper_mode", new_value)
-        self._agent_paper_action.setChecked(new_value)
-        self.agent_log_panel.refresh_view(self.state)
-        self._apply_mode_tint(new_value)
-        mode_str = "PAPER" if new_value else "LIVE"
-        self.statusBar().showMessage(
-            f"Agent mode: {mode_str} (applies next iteration)", 5000,
+        self._paper_window = MainWindow(
+            config_path=self.config_path,
+            initial_asset=self.state.active_asset_class,
+            forced_paper_mode=True,
         )
+        self._paper_window.showMaximized()
+
+    def _watchlist_config_key(self) -> str:
+        """Return the config key for the currently active mode's watchlists."""
+        return "watchlists_paper" if self.state.agent_paper_mode else "watchlists"
 
     def _start_scraper_runner(self) -> None:
         """Spin up the background scraper thread.
@@ -1132,13 +1225,19 @@ class MainWindow(QMainWindow):
         if self.agent_pool is not None:
             return
         from desktop.paths import db_path as _user_db_path
-        db_path = self.config.get("database", {}).get(
-            "path", str(_user_db_path()),
-        )
+        if self._forced_paper_mode:
+            # Paper window uses a completely separate history DB so its
+            # journal and memory never bleed into the live agent's context.
+            db_path = str(_user_db_path().parent / "paper_history.db")
+        else:
+            db_path = self.config.get("database", {}).get(
+                "path", str(_user_db_path()),
+            )
         self.agent_pool = AgentPool(
             config_path=self.config_path,
             live_broker_service=self.broker_service,
             db_path=db_path,
+            force_paper=self._forced_paper_mode,
             parent=self,
         )
         # Lazily-created supervisor: we connect its signals the first
@@ -1411,10 +1510,11 @@ class MainWindow(QMainWindow):
         dlg = AddTickerDialog(self)
         if dlg.exec() and dlg.ticker:
             watchlist_name = self.state.active_watchlist
-            wl = self.config.get("watchlists", {}).get(watchlist_name, [])
+            wl_key = self._watchlist_config_key()
+            wl = self.config.get(wl_key, {}).get(watchlist_name, [])
             if dlg.ticker not in wl:
                 wl.append(dlg.ticker)
-                self._save_config_key(f"watchlists.{watchlist_name}", wl)
+                self._save_config_key(f"{wl_key}.{watchlist_name}", wl)
                 self.statusBar().showMessage(f"Added {dlg.ticker}", 3000)
                 self.action_refresh_data()
 
@@ -1428,10 +1528,11 @@ class MainWindow(QMainWindow):
         if not ticker:
             return
         watchlist_name = self.state.active_watchlist
-        wl = self.config.get("watchlists", {}).get(watchlist_name, [])
+        wl_key = self._watchlist_config_key()
+        wl = self.config.get(wl_key, {}).get(watchlist_name, [])
         if ticker in wl:
             wl.remove(ticker)
-            self._save_config_key(f"watchlists.{watchlist_name}", wl)
+            self._save_config_key(f"{wl_key}.{watchlist_name}", wl)
             self.statusBar().showMessage(f"Removed {ticker}", 3000)
             self.action_refresh_data()
 
@@ -1457,7 +1558,7 @@ class MainWindow(QMainWindow):
         asset = self.state.active_asset_class
         tickers: set[str] = set()
         if asset == "stocks":
-            for wl in self.config.get("watchlists", {}).values():
+            for wl in self.config.get(self._watchlist_config_key(), {}).values():
                 tickers.update(wl)
         else:
             for wl in self.config.get(asset, {}).get("watchlists", {}).values():
@@ -1475,7 +1576,7 @@ class MainWindow(QMainWindow):
             return
         asset = self.state.active_asset_class
         if asset == "stocks":
-            watchlists = self.config.get("watchlists", {})
+            watchlists = self.config.get(self._watchlist_config_key(), {})
         else:
             watchlists = self.config.get(asset, {}).get("watchlists", {})
         active = self.state.active_watchlist
@@ -1495,7 +1596,7 @@ class MainWindow(QMainWindow):
             return False
         asset = self.state.active_asset_class
         if asset == "stocks":
-            watchlists = self.config.get("watchlists", {})
+            watchlists = self.config.get(self._watchlist_config_key(), {})
         else:
             watchlists = self.config.get(asset, {}).get("watchlists", {})
         active = self.state.active_watchlist
@@ -1588,20 +1689,6 @@ class MainWindow(QMainWindow):
         )
         self.watchlist_panel.refresh_view(self.state)
 
-    def _prompt_first_run_import(self) -> None:
-        """On first launch with an empty default config, ask user to import."""
-        from PySide6.QtWidgets import QMessageBox
-        reply = QMessageBox.question(
-            self,
-            "Welcome to Blank",
-            "No config.json was found, so a default was created.\n\n"
-            "Would you like to import your config now?\n"
-            "(You can also do this later via File > Import Config)",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-        )
-        if reply == QMessageBox.StandardButton.Yes:
-            self._import_config()
-
     def _require_stocks(self) -> bool:
         """Return True if in stocks mode. Show message and return False otherwise."""
         if self.state.active_asset_class == "stocks":
@@ -1623,40 +1710,6 @@ class MainWindow(QMainWindow):
         """Save the full config dict to config.json."""
         with self.config_path.open("w", encoding="utf-8") as f:
             json.dump(self.config, f, indent=2)
-
-    def _import_config(self) -> None:
-        """Import a config.json file via file picker."""
-        from PySide6.QtWidgets import QFileDialog, QMessageBox
-        path, _ = QFileDialog.getOpenFileName(self, "Import Config", "", "JSON Files (*.json)")
-        if not path:
-            return
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                new_config = json.load(f)
-            if "watchlists" not in new_config:
-                QMessageBox.warning(self, "Invalid Config", "Config must contain 'watchlists' key.")
-                return
-            with self.config_path.open("w", encoding="utf-8") as f:
-                json.dump(new_config, f, indent=2)
-            self.config = new_config
-            self.state = init_state(self.config)
-            self._refresh_all_panels()
-            self.statusBar().showMessage("Config imported successfully", 5000)
-        except Exception as e:
-            QMessageBox.critical(self, "Import Error", str(e))
-
-    def _export_config(self) -> None:
-        """Export current config.json via file picker."""
-        from PySide6.QtWidgets import QFileDialog
-        path, _ = QFileDialog.getSaveFileName(self, "Export Config", "config.json", "JSON Files (*.json)")
-        if not path:
-            return
-        try:
-            import shutil
-            shutil.copy2(self.config_path, path)
-            self.statusBar().showMessage(f"Config exported to {path}", 5000)
-        except Exception as e:
-            self.statusBar().showMessage(f"Export error: {e}", 5000)
 
     def _save_config_key(self, dotpath: str, value: Any) -> None:
         """Update a single key in config.json using dot notation."""
@@ -1751,17 +1804,14 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
 
-        # Shut the Claude agent runner down cleanly. Soft-stop first so
-        # the current iteration can unwind, then give it a few seconds
-        # to exit; only terminate if it's genuinely stuck.
-        if self.agent_runner is not None and self.agent_runner.isRunning():
+        # Shut the Claude agent pool down cleanly. cancel_all_chat_workers()
+        # signals every live chat worker; kill_supervisor() soft-stops then
+        # hard-terminates the supervisor if it doesn't exit within 2s.
+        if self.agent_pool is not None:
             try:
-                self.agent_runner.request_stop()
-                if not self.agent_runner.wait(3000):
-                    self.agent_runner.terminate()
-                    self.agent_runner.wait(1000)
+                self.agent_pool.shutdown()
             except Exception:
-                pass
+                logger.exception("closeEvent: agent_pool.shutdown failed")
 
         # Phase 5 scraper runner is a daemon thread so it dies with
         # the process, but request a clean stop so the current cycle

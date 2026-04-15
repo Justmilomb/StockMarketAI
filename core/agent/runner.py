@@ -144,8 +144,10 @@ class AgentRunner(QThread):
     # ── iteration plumbing ───────────────────────────────────────────
 
     def _load_config(self) -> Dict[str, Any]:
-        with self._config_path.open("r", encoding="utf-8") as f:
-            return json.load(f)
+        # Delegate to the pool so the force_paper override is applied —
+        # live pools always see paper_mode=False, paper pools always
+        # see paper_mode=True, regardless of what's on disk.
+        return self._pool._load_config()
 
     def _compute_wait_seconds(self) -> float:
         try:

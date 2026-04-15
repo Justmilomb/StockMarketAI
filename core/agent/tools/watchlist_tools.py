@@ -39,10 +39,13 @@ def _active_watchlist_name() -> str:
 
 def _watchlists_root() -> Dict[str, Any]:
     ctx = get_agent_context()
-    wl = ctx.config.setdefault("watchlists", {})
+    # Paper and live mode maintain separate watchlists so agent mutations in
+    # one mode never bleed into the other.
+    config_key = "watchlists_paper" if ctx.paper_mode else "watchlists"
+    wl = ctx.config.setdefault(config_key, {})
     if not isinstance(wl, dict):
         wl = {}
-        ctx.config["watchlists"] = wl
+        ctx.config[config_key] = wl
     return wl
 
 
@@ -141,13 +144,20 @@ async def clear_watchlist_except(args: Dict[str, Any]) -> Dict[str, Any]:
     name = _active_watchlist_name()
     tickers = list(wl_root.get(name, []) or [])
 
+    # Normalise both sides to their root symbol (strip broker suffixes like
+    # "_US_EQ", "_EQ") so "VUKG" matches "VUKG_EQ" and vice-versa.
+    def _normalise(t: str) -> str:
+        return t.strip().upper().split("_", 1)[0]
+
+    keep_normalised = {_normalise(k) for k in keep_raw if str(k).strip()}
+
     def _matches(ticker: str) -> bool:
         t_up = ticker.upper()
+        # Exact match first (handles identical formats).
         if t_up in keep_upper:
             return True
-        # Broker-suffixed match: "NVDA_US_EQ" matches "NVDA".
-        head = t_up.split("_", 1)[0]
-        return head in keep_upper
+        # Normalised match: covers "VUKG" vs "VUKG_EQ" in either direction.
+        return _normalise(ticker) in keep_normalised
 
     kept = [t for t in tickers if _matches(t)]
     removed = [t for t in tickers if not _matches(t)]

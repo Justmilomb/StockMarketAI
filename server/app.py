@@ -413,6 +413,14 @@ def admin_page() -> HTMLResponse:
     return HTMLResponse(content=html)
 
 
+@app.get("/privacy", response_class=HTMLResponse)
+def privacy_page() -> HTMLResponse:
+    """Static privacy policy — linked from the landing page footer."""
+    with open(os.path.join(WEBSITE_DIR, "privacy.html"), encoding="utf-8") as f:
+        html = f.read()
+    return HTMLResponse(content=html)
+
+
 # ── Health / version (public) ────────────────────────────────────────────
 
 @app.get("/api/health")
@@ -458,7 +466,7 @@ def version_info(
 
     if not row:
         return {
-            "version": "2.1.2",
+            "version": "2.1.3",
             "download_url": "https://github.com/Justmilomb/StockMarketAI/releases/latest/download/BlankSetup.exe",
             "sha256": "",
             "notes": "",
