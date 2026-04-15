@@ -167,7 +167,7 @@ def _init_db(conn: psycopg2.extensions.connection) -> None:
             ),
             (
                 "2.1.0",
-                "2026-04-07",
+                "2026-04-14",
                 True,
                 "- chat replies come back in seconds, not at the end of the next iteration\n"
                 "- ask blank several questions at once — answers come back in parallel\n"
