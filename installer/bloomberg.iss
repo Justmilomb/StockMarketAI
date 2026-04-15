@@ -17,7 +17,7 @@
 
 [Setup]
 AppName=blank
-AppVersion=2.1.3
+AppVersion=1.0.0
 AppPublisher=Certified Random
 AppCopyright=Copyright (C) 2026 Certified Random
 AppMutex=BlankTradingTerminalMutex_v2
@@ -46,6 +46,17 @@ Source: "dist\blank.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "config.json"; DestDir: "{app}"; Flags: ignoreversion onlyifdoesntexist
 Source: ".env.example"; DestDir: "{app}"; Flags: ignoreversion onlyifdoesntexist
 
+; Bundled AI engine: portable Node runtime + pre-installed
+; @anthropic-ai/claude-code CLI. These are staged by
+; scripts/prepare_engine.py before the installer is compiled. The
+; recursive copy lays them down under {app}\engine\... where
+; core\agent\paths.py knows to find them. Missing-file errors here
+; mean the release build skipped the engine prep step.
+Source: "build\engine\node\*"; DestDir: "{app}\engine\node"; \
+    Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "build\engine\cli\*"; DestDir: "{app}\engine\cli"; \
+    Flags: ignoreversion recursesubdirs createallsubdirs
+
 [InstallDelete]
 ; Wipe stale bytecode from a previous install before laying down the
 ; new exe, so PyInstaller's onefile bootstrap can't accidentally pick
@@ -66,7 +77,10 @@ Filename: "{app}\blank.exe"; Description: "Launch blank"; Flags: nowait postinst
 
 [UninstallDelete]
 ; User state lives in %LOCALAPPDATA%\blank\ now — never touch it here.
-; These entries only clean transient cruft inside the install dir.
+; These entries only clean transient cruft inside the install dir plus
+; the bundled engine tree (which was created by the installer, not
+; the user).
 Type: filesandordirs; Name: "{app}\__pycache__"
+Type: filesandordirs; Name: "{app}\engine"
 Type: files; Name: "{app}\*.log"
 Type: files; Name: "{app}\*.pyc"

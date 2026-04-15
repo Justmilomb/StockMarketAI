@@ -20,11 +20,12 @@ from PySide6.QtGui import QColor, QFont, QPainter, QPaintEvent
 from PySide6.QtWidgets import QWidget
 
 
-# Alpha chosen to be visible on the black chrome without drowning the
-# candles. Gold for paper, red for live — same colours as the banner
-# so the two read as a single visual system.
+# Paper is the one that screams — the whole point of the watermark is
+# to remind the user the money is fake even when the top banner is
+# hidden. Live mode paints nothing at all (see ``paintEvent``): a pro
+# trader staring at real orders doesn't need a giant diagonal LIVE
+# bleeding through every candle.
 _PAPER_RGBA = (255, 215, 0, 28)
-_LIVE_RGBA = (255, 0, 0, 32)
 
 
 class ModeWatermark(QWidget):
@@ -60,8 +61,12 @@ class ModeWatermark(QWidget):
     # ── painting ─────────────────────────────────────────────────────
 
     def paintEvent(self, event: QPaintEvent) -> None:  # noqa: N802 — Qt API
-        text = "PAPER" if self._paper else "LIVE"
-        rgba = _PAPER_RGBA if self._paper else _LIVE_RGBA
+        # Live mode: no watermark. The user explicitly opened the live
+        # window, a gigantic translucent LIVE over the chart is just noise.
+        if not self._paper:
+            return
+        text = "PAPER"
+        rgba = _PAPER_RGBA
         painter = QPainter(self)
         try:
             painter.setRenderHint(QPainter.Antialiasing, True)

@@ -55,6 +55,17 @@ def _held_qty(positions: List[Dict[str, Any]], ticker: str) -> float:
 
 # ── tools ──────────────────────────────────────────────────────────────
 
+_CURRENCY_SYMBOLS: Dict[str, str] = {
+    "USD": "$", "GBP": "£", "EUR": "€", "CHF": "CHF ",
+    "JPY": "¥", "NOK": "kr ", "SEK": "kr ", "DKK": "kr ",
+    "CAD": "C$", "AUD": "A$", "HKD": "HK$", "ILS": "₪",
+}
+
+
+def _currency_symbol(code: str) -> str:
+    return _CURRENCY_SYMBOLS.get((code or "USD").upper(), "$")
+
+
 @tool(
     "get_portfolio",
     "Return the broker's current cash, total equity, and every open position. "
@@ -66,18 +77,33 @@ async def get_portfolio(args: Dict[str, Any]) -> Dict[str, Any]:
     svc = ctx.broker_service
     positions = svc.get_positions()
     account = svc.get_account_info()
+    currency = str(account.get("currency", "USD") or "USD").upper()
     result = {
         "cash_free": float(account.get("free", 0.0)),
         "invested": float(account.get("invested", 0.0)),
         "equity": float(account.get("total", 0.0)),
         "unrealised_pnl": float(account.get("result", 0.0)),
+        # Attribution: how much of the P&L came from price moves vs FX
+        "unrealised_trading_pnl": float(account.get("unrealised_trading_pnl", 0.0) or 0.0),
+        "unrealised_fx_pnl": float(account.get("unrealised_fx_pnl", 0.0) or 0.0),
+        "realised_pnl": float(account.get("realised_pnl", 0.0) or 0.0),
+        "realised_trading_pnl": float(account.get("realised_trading_pnl", 0.0) or 0.0),
+        "realised_fx_pnl": float(account.get("realised_fx_pnl", 0.0) or 0.0),
+        "currency": currency,
+        "currency_symbol": _currency_symbol(currency),
         "positions": [
             {
                 "ticker": str(p.get("ticker", "")),
                 "quantity": float(p.get("quantity", 0.0) or 0.0),
                 "avg_price": float(p.get("avg_price", 0.0) or 0.0),
                 "current_price": float(p.get("current_price", 0.0) or 0.0),
+                "native_currency": str(p.get("currency", "USD") or "USD").upper(),
+                "fx_rate": float(p.get("fx_rate", 1.0) or 1.0),
+                "cost_basis_acct": float(p.get("cost_basis_acct", 0.0) or 0.0),
+                "market_value_acct": float(p.get("market_value", 0.0) or 0.0),
                 "unrealised_pnl": float(p.get("unrealised_pnl", 0.0) or 0.0),
+                "unrealised_trading_pnl": float(p.get("unrealised_trading_pnl", 0.0) or 0.0),
+                "unrealised_fx_pnl": float(p.get("unrealised_fx_pnl", 0.0) or 0.0),
             }
             for p in positions
         ],
@@ -85,7 +111,8 @@ async def get_portfolio(args: Dict[str, Any]) -> Dict[str, Any]:
         "paper_mode_flag": ctx.paper_mode,
     }
     _journal("tool_call", {"tool": "get_portfolio", "result_summary": {
-        "equity": result["equity"], "positions": len(result["positions"])}})
+        "equity": result["equity"], "currency": currency,
+        "positions": len(result["positions"])}})
     return _text_result(result)
 
 
@@ -185,14 +212,28 @@ async def place_order(args: Dict[str, Any]) -> Dict[str, Any]:
                     px_hint = float(live.get(ticker, {}).get("price", 0.0)) or None
                 except Exception:
                     px_hint = None
-        est_cost = (px_hint or 0.0) * quantity
+        # Price hint is in the ticker's native currency; free cash is
+        # in the account's currency. Convert before comparing or a
+        # £100 GBP account will silently reject a £70-equivalent
+        # $100 TSLA trade because 100 > 100 by the naked number.
+        account_ccy = str(account.get("currency", "USD") or "USD").upper()
+        from fx import fx_rate, ticker_currency
+        native_ccy = ticker_currency(ticker, default="USD")
+        rate = fx_rate(native_ccy, account_ccy)
+        est_cost_native = (px_hint or 0.0) * quantity
+        est_cost_acct = est_cost_native * rate
         free_cash = float(account.get("free", 0.0))
-        if px_hint is not None and est_cost > free_cash + 1e-6:
-            msg = f"refused: buy cost ~${est_cost:.2f} exceeds free cash ${free_cash:.2f}"
+        if px_hint is not None and est_cost_acct > free_cash + 1e-6:
+            sym = _currency_symbol(account_ccy)
+            msg = (
+                f"refused: buy cost ~{sym}{est_cost_acct:.2f} "
+                f"exceeds free cash {sym}{free_cash:.2f}"
+            )
             _journal(
                 "order_refused",
                 {"tool": "place_order", "ticker": ticker, "side": side_raw,
-                 "quantity": quantity, "est_cost": est_cost, "free": free_cash, "reason": reason},
+                 "quantity": quantity, "est_cost_acct": est_cost_acct,
+                 "free": free_cash, "reason": reason},
                 tags=["safety", "cash"],
             )
             return _text_result({"status": "rejected", "reason": msg})

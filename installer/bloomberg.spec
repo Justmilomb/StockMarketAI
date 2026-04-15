@@ -66,7 +66,7 @@ a = Analysis(
         'yfinance', 'feedparser', 'requests',
         # Core modules — post Phase-3 rebuild
         'broker_service', 'broker', 'trading212', 'news_agent',
-        'claude_client', 'database', 'data_loader',
+        'ai_client', 'database', 'data_loader',
         'risk_manager', 'types_shared', 'asset_registry', 'cpu_config',
         'market_hours', 'core.market_hours',
         'desktop.panels.exchanges',

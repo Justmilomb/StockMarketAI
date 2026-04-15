@@ -80,27 +80,29 @@ _INFO_RE: re.Pattern[str] = re.compile(
 )
 
 
-def _claude_cfg(config: Dict[str, Any]) -> Dict[str, Any]:
-    return (config or {}).get("claude", {}) or {}
+def _ai_cfg(config: Dict[str, Any]) -> Dict[str, Any]:
+    cfg = config or {}
+    return cfg.get("ai") or cfg.get("claude") or {}
 
 
 def supervisor_model(config: Dict[str, Any]) -> str:
     """The supervisor always gets the heaviest model.
 
-    Reads ``claude.model_complex`` with an Opus fallback so a partial
-    config still lands on the right tier.
+    Reads ``ai.model_complex`` with an Opus fallback so a partial config
+    still lands on the right tier. Falls back to the legacy ``claude``
+    key for backward compatibility with older configs.
     """
-    cfg = _claude_cfg(config)
+    cfg = _ai_cfg(config)
     return str(cfg.get("model_complex") or "claude-opus-4-6")
 
 
 def _opus_model(config: Dict[str, Any]) -> str:
-    cfg = _claude_cfg(config)
+    cfg = _ai_cfg(config)
     return str(cfg.get("model_complex") or "claude-opus-4-6")
 
 
 def _sonnet_model(config: Dict[str, Any]) -> str:
-    cfg = _claude_cfg(config)
+    cfg = _ai_cfg(config)
     return str(
         cfg.get("model_medium")
         or cfg.get("model")

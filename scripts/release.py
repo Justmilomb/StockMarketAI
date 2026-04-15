@@ -6,11 +6,12 @@ Usage:
 Steps:
     1. Show current version, ask for new version
     2. Bump all four version sources
-    3. Run build.bat (PyInstaller + Inno Setup if available)
-    4. Pause for manual Inno Setup compile if needed
-    5. Compute SHA256 of dist/BlankSetup.exe
-    6. Push to GitHub Releases
-    7. Print exact admin-panel values to publish the update
+    3. Stage the bundled AI engine (portable Node + claude-code CLI)
+    4. Run build.bat (PyInstaller + Inno Setup if available)
+    5. Pause for manual Inno Setup compile if needed
+    6. Compute SHA256 of dist/BlankSetup.exe
+    7. Push to GitHub Releases
+    8. Print exact admin-panel values to publish the update
 """
 from __future__ import annotations
 
@@ -49,6 +50,39 @@ def _run(cmd: list[str], **kwargs) -> None:  # type: ignore[type-arg]
         raise SystemExit(f"\nCommand failed (exit {result.returncode}): {' '.join(cmd)}")
 
 
+def _release_exists(tag: str) -> bool:
+    """Probe GitHub for a release with this tag.
+
+    ``gh release view`` exits non-zero when the release is missing; we
+    swallow that and return False. Any other non-zero exit (auth, rate
+    limit) is treated as 'unknown → assume absent' since the subsequent
+    ``gh release create`` will surface the real error with a better
+    message than we could fabricate here.
+    """
+    result = subprocess.run(
+        ["gh", "release", "view", tag, "--repo", "Justmilomb/StockMarketAI"],
+        capture_output=True,
+        text=True,
+    )
+    return result.returncode == 0
+
+
+def _delete_release(tag: str) -> None:
+    """Delete an existing GitHub release *and* its tag.
+
+    ``--cleanup-tag`` removes the underlying git tag too, otherwise
+    ``gh release create`` would refuse to recreate it. ``--yes`` skips
+    the interactive confirmation — we've already asked the user at the
+    outer level.
+    """
+    _run([
+        "gh", "release", "delete", tag,
+        "--repo", "Justmilomb/StockMarketAI",
+        "--cleanup-tag",
+        "--yes",
+    ])
+
+
 def main() -> None:
     current = _current_version()
 
@@ -68,7 +102,15 @@ def main() -> None:
     else:
         _run([sys.executable, str(ROOT / "scripts" / "bump_version.py"), new_version])
 
-    # ── 2. Build ─────────────────────────────────────────────────────────
+    # ── 2. Stage the bundled AI engine ───────────────────────────────────
+    # Downloads Node + runs `npm install @anthropic-ai/claude-code`
+    # into build/engine/, which bloomberg.iss then bundles into
+    # {app}/engine/. Idempotent: re-runs are cheap (it skips the
+    # Node download when the extracted runtime already exists).
+    print()
+    _run([sys.executable, str(ROOT / "scripts" / "prepare_engine.py")])
+
+    # ── 3. Build ─────────────────────────────────────────────────────────
     print()
     print("── Building exe ────────────────────────────────────────────────")
     _run(["cmd", "/c", str(ROOT / "build.bat")], cwd=str(ROOT))
@@ -102,6 +144,22 @@ def main() -> None:
         notes = f"blank v{new_version}"
 
     tag = f"v{new_version}"
+
+    # If a release already exists for this tag, offer to replace it.
+    # Without this the flow crashes at the end of a long build with an
+    # unhelpful "release already exists" from gh — awful UX when you
+    # just want to re-publish v1.0.0 after a fix.
+    if _release_exists(tag):
+        print(f"  ⚠  Release {tag} already exists on GitHub.")
+        choice = input("  Delete and re-create it? [y/N]: ").strip().lower()
+        if choice != "y":
+            raise SystemExit(
+                f"Aborting: {tag} already exists. "
+                f"Bump to a new version or re-run and confirm the replace.",
+            )
+        print(f"  Deleting existing release {tag}...")
+        _delete_release(tag)
+
     _run([
         "gh", "release", "create", tag,
         str(installer),

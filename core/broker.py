@@ -133,6 +133,7 @@ class LogBroker(Broker):
             "invested": 0.0,
             "result": 0.0,
             "total": 100000.0,
+            "currency": "USD",
         }
 
     def get_pending_orders(self) -> List[Dict[str, Any]]:

@@ -38,7 +38,7 @@ class PolymarketConfig:
             min_liquidity=float(strat.get("min_liquidity", 500)),
             max_markets=int(poly.get("max_markets", 20)),
             edge_threshold=float(strat.get("min_edge_pct", 5.0)),
-            use_claude=bool(model.get("use_claude", True)),
+            use_claude=bool(model.get("use_ai", model.get("use_claude", True))),
             max_resolution_days=float(strat.get("max_resolution_days", 90)),
             categories=poly.get("categories", [
                 "crypto", "politics", "sports", "science",

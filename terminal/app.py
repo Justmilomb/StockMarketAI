@@ -8,7 +8,10 @@ import sys
 os.environ["PYTHONUTF8"] = "1"
 os.environ["PYTHONIOENCODING"] = "utf-8"
 if sys.platform == "win32":
-    os.system("chcp 65001 >nul 2>&1")
+    # The old codepage flip via a chcp shell call flashed a black console
+    # window at every desktop launch. PYTHONUTF8 / PYTHONIOENCODING above
+    # already give Python UTF-8 stdio without spawning a subprocess, and
+    # the desktop app doesn't depend on the legacy codepage path.
     try:
         sys.stdout.reconfigure(encoding='utf-8')
     except Exception:
@@ -106,10 +109,10 @@ class TradingTerminalApp(App):  # type: ignore[misc]
         self._claude_client: Optional[Any] = None
         self.news_agent: Optional[NewsAgent] = None
         try:
-            from claude_client import ClaudeClient, ClaudeConfig
-            claude_cfg_raw = self.config.get("claude", {})
+            from ai_client import ClaudeClient, ClaudeConfig
+            ai_cfg_raw = self.config.get("ai", {})
             ccfg = ClaudeConfig(
-                model=claude_cfg_raw.get("model", "claude-sonnet-4-20250514"),
+                model=ai_cfg_raw.get("model", "claude-sonnet-4-20250514"),
             )
             self._claude_client = ClaudeClient(ccfg)
 

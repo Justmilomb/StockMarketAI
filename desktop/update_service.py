@@ -1,8 +1,15 @@
 """Auto-update service for the blank desktop app.
 
-Polls the remote manifest endpoint on a timer. When a newer version is
-published, emits ``update_available`` — the banner UI subscribes to that
-signal to show the user an actionable banner.
+Polls the remote heartbeat endpoint on a 60-second timer. One round-
+trip carries three signals:
+
+* **Update available** — new release in the manifest → emit
+  ``update_available`` and let the banner UI react.
+* **Maintenance mode** — server flipped the switch → emit
+  ``maintenance_changed`` so the main window can show a block dialog.
+* **Last-online** — the POST also bumps ``licenses.last_active`` on
+  the server so the admin panel's "who's online" column never lags
+  by more than a minute.
 
 On ``install_now(manifest)``, downloads the installer to ``%TEMP%`` in a
 worker thread (emitting ``update_download_progress``), verifies the
@@ -38,15 +45,20 @@ from desktop import __version__
 
 logger = logging.getLogger(__name__)
 
-#: Where the desktop app fetches its update manifest from. Matches the
-#: ``/api/version`` endpoint served by ``server/app.py``.
-DEFAULT_MANIFEST_URL = "https://blan-api.onrender.com/api/version"
+#: Where the desktop app sends its heartbeat. Matches the
+#: ``/api/heartbeat`` endpoint in ``server/app.py`` — a POST that
+#: returns the same manifest as ``/api/version`` *and* updates
+#: ``licenses.last_active`` for the caller's licence key.
+DEFAULT_MANIFEST_URL = "https://blan-api.onrender.com/api/heartbeat"
 
-#: Default polling interval for the manifest endpoint when the config
-#: doesn't override it. 30 minutes is chosen so the server doesn't get
-#: hammered and a busy dev cycle (publish → test on a client) sees
-#: updates within half an hour without any manual refresh button.
-DEFAULT_CHECK_INTERVAL_MINUTES = 30
+#: Default polling interval in seconds. The launch-day spec pins
+#: this at 60s so a published release or a flipped maintenance toggle
+#: reaches every running client inside one minute, and the admin
+#: panel's "last seen" column is at most one minute stale. The
+#: server is sized to handle this — one HTTP call per user per
+#: minute is well inside Render's free-tier budget for the planned
+#: user count.
+DEFAULT_CHECK_INTERVAL_SECONDS = 60
 
 #: How often the schedule watchdog wakes to check whether a pending
 #: install has come due. 60 s is fine-grained enough that the worst-case
@@ -177,9 +189,20 @@ class UpdateService(QObject):
         if not settings.get("auto_check", True):
             logger.info("update service: auto-check disabled by config")
             return
-        interval_min = int(settings.get("check_interval_minutes") or DEFAULT_CHECK_INTERVAL_MINUTES)
-        interval_min = max(5, interval_min)  # prevent a user typo from DoSing the server
-        self._check_timer.start(interval_min * 60_000)
+        # Config can override with either ``check_interval_seconds``
+        # (new, wins if present) or legacy ``check_interval_minutes``.
+        # Minimum clamp is 30 s so a typo can't DoS the server.
+        interval_s_raw = settings.get("check_interval_seconds")
+        if interval_s_raw is None:
+            legacy_min = settings.get("check_interval_minutes")
+            if legacy_min is not None:
+                interval_s = int(legacy_min) * 60
+            else:
+                interval_s = DEFAULT_CHECK_INTERVAL_SECONDS
+        else:
+            interval_s = int(interval_s_raw)
+        interval_s = max(30, interval_s)
+        self._check_timer.start(interval_s * 1_000)
         self._schedule_timer.start(POLL_PENDING_INSTALL_SECONDS * 1000)
         # Kick off an immediate check shortly after startup so the user
         # doesn't have to wait a full interval on first boot.
@@ -250,13 +273,50 @@ class UpdateService(QObject):
         self.update_available.emit(manifest)
 
     def _fetch_manifest(self) -> Optional[dict[str, Any]]:
+        """POST a heartbeat and return the server's manifest reply.
+
+        Carries the caller's licence key so the server can stamp
+        ``last_active``. If there's no stored key yet (setup wizard
+        is still open), we still send the POST with empty strings —
+        the server tolerates that and returns the manifest anyway so
+        maintenance banners reach pre-activation clients.
+
+        Any network/HTTP failure returns ``None``. We intentionally
+        swallow these quietly because the heartbeat fires every 60 s
+        and a single missed beat is normal network weather.
+        """
         try:
-            req = Request(self._manifest_url, headers={"User-Agent": f"blank/{__version__}"})
+            # Import here rather than at module scope so a licence
+            # module import cycle (or a desktop.license refactor)
+            # can't break app startup. ``_read_stored_key`` is a
+            # single stat + file read, cheap per minute.
+            from desktop.license import _machine_id, _read_stored_key
+            license_key = _read_stored_key() or ""
+            machine_id = _machine_id()
+        except Exception:
+            license_key = ""
+            machine_id = ""
+
+        payload = json.dumps({
+            "license_key": license_key,
+            "version": __version__,
+            "machine_id": machine_id,
+        }).encode("utf-8")
+        try:
+            req = Request(
+                self._manifest_url,
+                data=payload,
+                method="POST",
+                headers={
+                    "User-Agent": f"blank/{__version__}",
+                    "Content-Type": "application/json",
+                },
+            )
             with urlopen(req, timeout=MANIFEST_TIMEOUT_SECONDS) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
             return data if isinstance(data, dict) else None
         except Exception as exc:  # noqa: BLE001 — network errors are many and boring
-            logger.debug("manifest fetch failed: %s", exc)
+            logger.debug("heartbeat fetch failed: %s", exc)
             return None
 
     # ─── install ────────────────────────────────────────────────────────

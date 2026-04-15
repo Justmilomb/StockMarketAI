@@ -109,16 +109,27 @@ class AgentPool(QObject):
     def get_broker_for_mode(self, paper_mode: bool) -> Any:
         """Return the BrokerService every agent should use this iteration.
 
-        One session-wide ``BrokerService`` is built lazily on the first
-        paper-mode request and cached for the rest of the session, so
-        supervisor + chat workers share one paper portfolio. The
-        stocks slot is overridden with a stateful ``PaperBroker`` —
-        the stateless ``LogBroker`` that comes from a `"type": "log"`
-        config would show every agent an empty portfolio, defeating the
-        point of paper trading. Live mode hands back the main
-        ``BrokerService`` the desktop app already built at boot.
+        Routing rules:
+
+        * **Live mode** — hand back the main ``BrokerService`` the
+          desktop app already built at boot.
+        * **Paper mode, window-locked** (``force_paper=True``) — the
+          MainWindow already built a paper ``BrokerService`` and
+          handed it to us as ``live_broker_service``. Reuse it. This
+          is critical: if we built our own here the UI and the agent
+          pool would see two different paper portfolios, which is
+          exactly the v2.1.3 "UI says £100, agent says $100k" bug.
+        * **Paper mode, live window** — the live ``BrokerService`` is
+          real money; we build a session-wide paper broker lazily on
+          first request so the agent can still trade paper while the
+          user watches live prices in the UI. Kept for the
+          config-toggles-paper-in-a-live-window edge case.
         """
         if not paper_mode:
+            return self._live_broker
+
+        # Window-locked paper mode: reuse the MainWindow's paper broker.
+        if self._force_paper:
             return self._live_broker
 
         if self._paper_broker is None:
@@ -147,19 +158,25 @@ class AgentPool(QObject):
             audit_path = _Path(
                 paper_cfg.get("audit_path", "logs/paper_orders.jsonl"),
             )
-            starting_cash = float(paper_cfg.get("starting_cash", 100000.0))
+            # Defaults deliberately small: paper mode in blank is a
+            # £100 sandbox, never a $100k toy. A missing config key
+            # should degrade safely, not silently hand the agent 1000x
+            # its intended buying power.
+            starting_cash = float(paper_cfg.get("starting_cash", 100.0))
+            currency = str(paper_cfg.get("currency", "GBP") or "GBP")
             service.register_broker(
                 "stocks",
                 PaperBroker(
                     state_path=state_path,
                     audit_path=audit_path,
                     starting_cash=starting_cash,
+                    currency=currency,
                 ),
             )
             self._paper_broker = service
             logger.info(
-                "AgentPool built session-wide paper broker (state=%s)",
-                state_path,
+                "AgentPool built session-wide paper broker (state=%s, currency=%s)",
+                state_path, currency,
             )
         return self._paper_broker
 
@@ -261,6 +278,18 @@ class AgentPool(QObject):
             self._chat_workers[worker_id] = worker
         self.worker_spawned.emit(worker_id)
         worker.start()
+
+        # Wake the supervisor early so it re-reads state right after
+        # the chat worker touches the journal / broker / memory. Without
+        # this, a user could ask blank to open a position in the chat
+        # panel and the supervisor would keep sleeping for another
+        # minute-and-a-half before noticing a new position exists.
+        sup = self._supervisor
+        if sup is not None and sup.isRunning():
+            try:
+                sup.notify_chat_activity()
+            except Exception:
+                logger.debug("failed to wake supervisor on chat spawn", exc_info=True)
 
     def _on_worker_done(self, worker_id: str, summary: str) -> None:
         """Cleanup hook: drop the worker, drain the queue if possible."""

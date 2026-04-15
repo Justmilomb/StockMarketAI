@@ -54,6 +54,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from broker import Broker
+from fx import fx_rate, ticker_currency
 from market_hours import exchange_for_ticker, status
 
 logger = logging.getLogger(__name__)
@@ -67,8 +68,10 @@ _PRICE_TTL_SECONDS = 30.0
 # against a closed market, to absorb weekend gap-up risk.
 _GAP_BUFFER = 1.15
 
-# Default starting cash for a brand-new paper account.
-_DEFAULT_STARTING_CASH = 100_000.0
+# Default starting cash for a brand-new paper account. Kept small so a
+# missing or corrupted config can never silently hand the agent a
+# $100k toy account — paper mode in blank is a £100 sandbox by design.
+_DEFAULT_STARTING_CASH = 100.0
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -77,19 +80,44 @@ _DEFAULT_STARTING_CASH = 100_000.0
 
 @dataclass
 class _Position:
-    """One open position. ``avg_price`` tracks weighted cost basis."""
+    """One open position.
+
+    ``avg_price`` is stored in the ticker's *native* currency so the
+    displayed number matches what the user sees on Yahoo / the broker
+    UI (TSLA avg at $305, not £243.17). ``cost_basis_acct`` is the
+    weighted *account-currency* cost — what we actually debited from
+    ``cash_free`` on the fills, across whatever FX rates were in force
+    at each entry. Both numbers are needed for clean P&L attribution:
+    native tells you the trading decision, account tells you the
+    ledger truth including FX drift.
+    """
 
     quantity: float = 0.0
     avg_price: float = 0.0
+    currency: str = "USD"
+    cost_basis_acct: float = 0.0
 
     def to_dict(self) -> Dict[str, Any]:
-        return {"quantity": self.quantity, "avg_price": self.avg_price}
+        return {
+            "quantity": self.quantity,
+            "avg_price": self.avg_price,
+            "currency": self.currency,
+            "cost_basis_acct": self.cost_basis_acct,
+        }
 
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "_Position":
+        qty = float(d.get("quantity", 0.0) or 0.0)
+        avg = float(d.get("avg_price", 0.0) or 0.0)
+        # Legacy state files predate cost_basis_acct — if we're missing
+        # it, fall back to ``avg * qty`` (assumes no FX move since entry,
+        # which is the best guess we have without the original rate).
+        cost_basis = float(d.get("cost_basis_acct", avg * qty) or 0.0)
         return cls(
-            quantity=float(d.get("quantity", 0.0) or 0.0),
-            avg_price=float(d.get("avg_price", 0.0) or 0.0),
+            quantity=qty,
+            avg_price=avg,
+            currency=str(d.get("currency", "USD") or "USD"),
+            cost_basis_acct=cost_basis,
         )
 
 
@@ -144,23 +172,40 @@ class _Order:
 
 @dataclass
 class _State:
-    """Everything persisted to disk for a paper account."""
+    """Everything persisted to disk for a paper account.
+
+    The realised-P&L counters are cumulative across the account's
+    lifetime (reset on ``PaperBroker.reset()``). They let the agent
+    see how much of its closed-trade P&L came from price moves vs
+    currency moves — a £100 GBP account that trades US stocks can
+    easily see its "trading wins" eaten by a weakening dollar, and
+    the attribution exposes that without the agent having to guess.
+    """
 
     cash_free: float = _DEFAULT_STARTING_CASH
+    currency: str = "USD"
     positions: Dict[str, _Position] = field(default_factory=dict)
     pending_orders: List[_Order] = field(default_factory=list)
+    realised_pnl_acct: float = 0.0
+    realised_trading_acct: float = 0.0
+    realised_fx_acct: float = 0.0
 
     def to_dict(self) -> Dict[str, Any]:
         return {
             "cash_free": self.cash_free,
+            "currency": self.currency,
             "positions": {k: v.to_dict() for k, v in self.positions.items()},
             "pending_orders": [o.to_dict() for o in self.pending_orders],
+            "realised_pnl_acct": self.realised_pnl_acct,
+            "realised_trading_acct": self.realised_trading_acct,
+            "realised_fx_acct": self.realised_fx_acct,
         }
 
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "_State":
         return cls(
             cash_free=float(d.get("cash_free", _DEFAULT_STARTING_CASH) or 0.0),
+            currency=str(d.get("currency", "USD") or "USD"),
             positions={
                 str(k): _Position.from_dict(v)
                 for k, v in (d.get("positions", {}) or {}).items()
@@ -168,6 +213,9 @@ class _State:
             pending_orders=[
                 _Order.from_dict(o) for o in (d.get("pending_orders", []) or [])
             ],
+            realised_pnl_acct=float(d.get("realised_pnl_acct", 0.0) or 0.0),
+            realised_trading_acct=float(d.get("realised_trading_acct", 0.0) or 0.0),
+            realised_fx_acct=float(d.get("realised_fx_acct", 0.0) or 0.0),
         )
 
 
@@ -211,6 +259,7 @@ class PaperBroker(Broker):
         state_path: Optional[Path] = None,
         audit_path: Optional[Path] = None,
         starting_cash: float = _DEFAULT_STARTING_CASH,
+        currency: str = "USD",
     ) -> None:
         self._state_path = Path(state_path or Path("data") / "paper_state.json")
         self._audit_path = Path(audit_path or Path("logs") / "paper_orders.jsonl")
@@ -218,21 +267,108 @@ class PaperBroker(Broker):
         self._audit_path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
         self._prices = _PriceCache()
-        self._state: _State = self._load_state(starting_cash)
+        # Remember the config values so reset() can rebuild from them
+        # without re-reading config.json.
+        self._starting_cash = float(starting_cash)
+        self._currency = str(currency or "USD")
+        self._state: _State = self._load_state(self._starting_cash, self._currency)
 
     # ── persistence ──────────────────────────────────────────────────
 
-    def _load_state(self, starting_cash: float) -> _State:
-        if self._state_path.exists():
+    def _load_state(self, starting_cash: float, currency: str) -> _State:
+        """Load state from disk, rebuilding from config if the disk is stale.
+
+        Stale-state detection: if the persisted file's ``starting_cash``
+        or ``currency`` no longer matches the config the caller just
+        handed us — and the account has not yet been traded — the
+        config wins. This fixes the "edit config.json to £100 but the
+        agent still sees the $100k the file was born with" bug: the
+        previous loader silently preserved the disk's cash on reload.
+        We only rebuild when the portfolio is empty; a user who has
+        actually traded on a stale account keeps their positions and
+        just has the currency stamped on if it's missing.
+        """
+        if not self._state_path.exists():
+            return _State(cash_free=starting_cash, currency=currency)
+        try:
+            with self._state_path.open("r", encoding="utf-8") as f:
+                raw = json.load(f)
+        except Exception as e:
+            logger.warning(
+                "paper: state file corrupt, starting fresh: %s", e,
+            )
+            return _State(cash_free=starting_cash, currency=currency)
+
+        disk_cash = float(raw.get("cash_free", 0.0) or 0.0)
+        disk_currency = str(raw.get("currency", "") or "")
+        has_trading = bool(raw.get("positions")) or bool(raw.get("pending_orders"))
+
+        cash_stale = (
+            starting_cash > 0
+            and abs(disk_cash - starting_cash) > max(0.01 * starting_cash, 1e-6)
+        )
+        currency_stale = (
+            bool(currency) and bool(disk_currency) and disk_currency != currency
+        )
+        missing_currency = bool(currency) and not disk_currency
+
+        if not has_trading and (cash_stale or currency_stale or missing_currency):
+            logger.warning(
+                "paper: state file stale (disk cash=%s ccy=%s, "
+                "config cash=%s ccy=%s) — rebuilding from config",
+                disk_cash, disk_currency or "<none>", starting_cash, currency,
+            )
+            return _State(cash_free=starting_cash, currency=currency)
+
+        try:
+            state = _State.from_dict(raw)
+        except Exception as e:
+            logger.warning(
+                "paper: state parse failed, starting fresh: %s", e,
+            )
+            return _State(cash_free=starting_cash, currency=currency)
+
+        # Back-fill currency on a pre-currency state file so legacy
+        # users don't silently get "USD" once the field starts existing.
+        # ``from_dict`` defaults missing currency to "USD", so we check
+        # the raw dict directly to distinguish "was stamped USD" from
+        # "had no currency at all".
+        if "currency" not in raw and currency:
+            state.currency = currency
+        return state
+
+    def reset(self) -> None:
+        """Wipe the paper account and rebuild from the config values.
+
+        Removes the persisted state file and reconstructs in-memory
+        state with the ``starting_cash`` and ``currency`` handed to
+        ``__init__``. Safe to call concurrently with read traffic —
+        takes the broker lock.
+        """
+        with self._lock:
             try:
-                with self._state_path.open("r", encoding="utf-8") as f:
-                    raw = json.load(f)
-                return _State.from_dict(raw)
+                self._state_path.unlink()
+            except FileNotFoundError:
+                pass
             except Exception as e:
                 logger.warning(
-                    "paper: state file corrupt, starting fresh: %s", e,
+                    "paper: reset failed to delete state file: %s", e,
                 )
-        return _State(cash_free=starting_cash)
+            self._state = _State(
+                cash_free=self._starting_cash,
+                currency=self._currency,
+            )
+            self._save_state()
+            self._audit({
+                "timestamp": datetime.now(tz=timezone.utc).isoformat(),
+                "status": "RESET",
+                "cash_free": self._state.cash_free,
+                "currency": self._state.currency,
+            })
+            logger.info(
+                "paper: account reset to %s %.2f",
+                self._state.currency, self._state.cash_free,
+            )
 
     def _save_state(self) -> None:
         tmp = self._state_path.with_suffix(".json.tmp")
@@ -304,28 +440,78 @@ class PaperBroker(Broker):
     # ── fills ────────────────────────────────────────────────────────
 
     def _fill_order(self, order: _Order, fill_price: float) -> None:
-        """Mutate cash + positions to reflect a fill. No locking — caller owns it."""
+        """Mutate cash + positions to reflect a fill. No locking — caller owns it.
+
+        ``fill_price`` is in the ticker's native currency (yfinance
+        gives us whatever the exchange quotes). All cash moves on
+        ``self._state.cash_free`` must be in the account's own
+        currency, so we convert at the rate prevailing at fill time
+        and store both legs for Task N's P&L attribution.
+        """
         ticker = order.ticker
         qty = order.quantity
         side = order.side.upper()
-        cost = fill_price * qty
+        native_ccy = ticker_currency(ticker, default="USD")
+        account_ccy = self._state.currency
+        rate = fx_rate(native_ccy, account_ccy)
+        native_cost = fill_price * qty
+        acct_cost = native_cost * rate
+
+        realised_pnl_acct = 0.0
+        realised_trading_acct = 0.0
+        realised_fx_acct = 0.0
 
         if side == "BUY":
             # Refund / top-up cash reservation to match actual fill.
-            refund = order.reserved_cash - cost
-            self._state.cash_free += refund  # may be negative on gap-up overrun
-            pos = self._state.positions.get(ticker, _Position())
+            # Both ``reserved_cash`` and ``acct_cost`` are in account
+            # currency — the reservation path does the conversion at
+            # queue time so this subtraction is FX-consistent.
+            refund = order.reserved_cash - acct_cost
+            self._state.cash_free += refund  # may be negative on gap-up or FX overrun
+            pos = self._state.positions.get(ticker)
+            if pos is None:
+                pos = _Position(currency=native_ccy)
             new_qty = pos.quantity + qty
             if new_qty > 0:
                 pos.avg_price = (
                     (pos.avg_price * pos.quantity) + (fill_price * qty)
                 ) / new_qty
             pos.quantity = new_qty
+            pos.cost_basis_acct += acct_cost
+            pos.currency = native_ccy
             self._state.positions[ticker] = pos
         elif side == "SELL":
-            self._state.cash_free += cost
+            self._state.cash_free += acct_cost
             pos = self._state.positions.get(ticker)
-            if pos is not None:
+            if pos is not None and pos.quantity > 0:
+                # Proportionally drop cost basis and split the
+                # realised P&L into trading vs FX components. The
+                # average entry FX rate for this position is implicit
+                # in ``cost_basis_acct / (avg_price * qty_held)`` —
+                # that's the rate that maps the native cost to the
+                # account cost we actually paid across all entries.
+                sold_fraction = min(qty / pos.quantity, 1.0)
+                cost_out = pos.cost_basis_acct * sold_fraction
+                realised_pnl_acct = acct_cost - cost_out
+                # Entry rate (weighted across top-ups) for the slice
+                # being sold: cost_out is in account ccy, native cost
+                # of the slice is pos.avg_price * qty.
+                native_cost_slice = pos.avg_price * qty
+                entry_rate = (
+                    cost_out / native_cost_slice if native_cost_slice > 0 else rate
+                )
+                # Trading P&L: price move valued at entry FX rate (so
+                # FX drift is excluded). FX P&L: whatever is left over
+                # — the residual captures both the pure FX component
+                # and the small price×FX cross term.
+                realised_trading_acct = (
+                    (fill_price - pos.avg_price) * qty * entry_rate
+                )
+                realised_fx_acct = realised_pnl_acct - realised_trading_acct
+                self._state.realised_pnl_acct += realised_pnl_acct
+                self._state.realised_trading_acct += realised_trading_acct
+                self._state.realised_fx_acct += realised_fx_acct
+                pos.cost_basis_acct -= cost_out
                 pos.quantity -= qty
                 if pos.quantity <= 1e-9:
                     self._state.positions.pop(ticker, None)
@@ -342,7 +528,14 @@ class PaperBroker(Broker):
             "side": side,
             "quantity": qty,
             "fill_price": fill_price,
-            "cost": cost,
+            "native_currency": native_ccy,
+            "account_currency": account_ccy,
+            "fx_rate": rate,
+            "native_cost": native_cost,
+            "account_cost": acct_cost,
+            "realised_pnl_acct": realised_pnl_acct,
+            "realised_trading_acct": realised_trading_acct,
+            "realised_fx_acct": realised_fx_acct,
             "reserved_cash": order.reserved_cash,
             "queue_reason": order.queue_reason,
             "status": "FILLED",
@@ -389,18 +582,45 @@ class PaperBroker(Broker):
                 return []
             tickers = list(self._state.positions.keys())
             prices = self._current_prices(tickers)
+            account_ccy = self._state.currency
             out: List[Dict[str, Any]] = []
             for ticker, pos in self._state.positions.items():
-                px = prices.get(ticker, 0.0) or pos.avg_price
-                market_value = px * pos.quantity
-                cost_basis = pos.avg_price * pos.quantity
+                px_native = prices.get(ticker, 0.0) or pos.avg_price
+                market_value_native = px_native * pos.quantity
+                rate = fx_rate(pos.currency, account_ccy)
+                market_value_acct = market_value_native * rate
+                unrealised_acct = market_value_acct - pos.cost_basis_acct
+
+                # Attribution split. Entry rate is implicit in the
+                # ratio of account-currency cost to native-currency
+                # cost for the position. Trading P&L uses entry rate
+                # so it excludes FX drift; FX P&L is everything else.
+                native_cost_total = pos.avg_price * pos.quantity
+                entry_rate = (
+                    pos.cost_basis_acct / native_cost_total
+                    if native_cost_total > 0 else rate
+                )
+                unrealised_trading = (
+                    (px_native - pos.avg_price) * pos.quantity * entry_rate
+                )
+                unrealised_fx = unrealised_acct - unrealised_trading
+
                 out.append({
                     "ticker": ticker,
                     "quantity": pos.quantity,
+                    # Native-currency view (what the exchange prints)
                     "avg_price": pos.avg_price,
-                    "current_price": px,
-                    "market_value": market_value,
-                    "unrealised_pnl": market_value - cost_basis,
+                    "current_price": px_native,
+                    "currency": pos.currency,
+                    # Account-currency view (what our ledger uses)
+                    "account_currency": account_ccy,
+                    "fx_rate": rate,
+                    "entry_fx_rate": entry_rate,
+                    "cost_basis_acct": pos.cost_basis_acct,
+                    "market_value": market_value_acct,
+                    "unrealised_pnl": unrealised_acct,
+                    "unrealised_trading_pnl": unrealised_trading,
+                    "unrealised_fx_pnl": unrealised_fx,
                 })
             return out
 
@@ -409,20 +629,44 @@ class PaperBroker(Broker):
             self._reconcile_pending()
             tickers = list(self._state.positions.keys())
             prices = self._current_prices(tickers) if tickers else {}
-            invested = 0.0
-            unrealised = 0.0
+            account_ccy = self._state.currency
+            invested_acct = 0.0
+            unrealised_acct = 0.0
+            unrealised_trading = 0.0
+            unrealised_fx = 0.0
             for ticker, pos in self._state.positions.items():
-                px = prices.get(ticker, 0.0) or pos.avg_price
-                market_value = px * pos.quantity
-                cost_basis = pos.avg_price * pos.quantity
-                invested += market_value
-                unrealised += market_value - cost_basis
-            total = self._state.cash_free + invested
+                px_native = prices.get(ticker, 0.0) or pos.avg_price
+                market_value_native = px_native * pos.quantity
+                rate = fx_rate(pos.currency, account_ccy)
+                market_value_acct = market_value_native * rate
+                invested_acct += market_value_acct
+                unrealised_acct += market_value_acct - pos.cost_basis_acct
+
+                native_cost_total = pos.avg_price * pos.quantity
+                entry_rate = (
+                    pos.cost_basis_acct / native_cost_total
+                    if native_cost_total > 0 else rate
+                )
+                trading_leg = (
+                    (px_native - pos.avg_price) * pos.quantity * entry_rate
+                )
+                unrealised_trading += trading_leg
+                unrealised_fx += (market_value_acct - pos.cost_basis_acct) - trading_leg
+
+            total = self._state.cash_free + invested_acct
             return {
                 "free": self._state.cash_free,
-                "invested": invested,
-                "result": unrealised,
+                "invested": invested_acct,
+                "result": unrealised_acct,
                 "total": total,
+                "currency": account_ccy,
+                # Attribution of unrealised P&L on open positions
+                "unrealised_trading_pnl": unrealised_trading,
+                "unrealised_fx_pnl": unrealised_fx,
+                # Cumulative realised P&L since account reset
+                "realised_pnl": self._state.realised_pnl_acct,
+                "realised_trading_pnl": self._state.realised_trading_acct,
+                "realised_fx_pnl": self._state.realised_fx_acct,
             }
 
     def get_pending_orders(self) -> List[Dict[str, Any]]:
@@ -506,58 +750,70 @@ class PaperBroker(Broker):
                     order_type, limit_price,
                 )
 
+            # Every cash move goes through the account's own currency.
+            # ``reservation_px`` is what the exchange quotes the ticker
+            # in (USD for TSLA, GBP for VOD.L), so we FX-convert before
+            # touching ``cash_free`` — otherwise a £100 account would
+            # silently compare a $300 reservation to £100 and look
+            # under-funded even though it has enough buying power.
+            native_ccy = ticker_currency(ticker, default="USD")
+            account_ccy = self._state.currency
+            rate = fx_rate(native_ccy, account_ccy)
+
             # Closed market → queue with gap-buffered reservation
             if not is_open:
-                reserved = reservation_px * quantity * _GAP_BUFFER
-                if reserved > self._state.cash_free + 1e-6:
+                reserved_native = reservation_px * quantity * _GAP_BUFFER
+                reserved_acct = reserved_native * rate
+                if reserved_acct > self._state.cash_free + 1e-6:
                     return self._reject(
                         order_id, ticker, side_upper, quantity,
-                        f"buy reservation ${reserved:.2f} > free "
-                        f"${self._state.cash_free:.2f}",
+                        f"buy reservation {reserved_acct:.2f} {account_ccy} "
+                        f"> free {self._state.cash_free:.2f} {account_ccy}",
                         order_type, limit_price,
                     )
-                self._state.cash_free -= reserved
+                self._state.cash_free -= reserved_acct
                 return self._enqueue_order(
                     order_id, ticker, side_upper, quantity,
                     order_type, limit_price, stop_price,
-                    created_at, reserved_cash=reserved,
+                    created_at, reserved_cash=reserved_acct,
                     queue_reason=self._queue_reason(ticker) or "market closed",
                 )
 
             # Open market: limit buy that can't fill right now still queues.
             if order_type == "limit" and limit_price is not None and reservation_px > float(limit_price):
-                # Price is above the limit — queue it.
-                reserved = float(limit_price) * quantity
-                if reserved > self._state.cash_free + 1e-6:
+                reserved_native = float(limit_price) * quantity
+                reserved_acct = reserved_native * rate
+                if reserved_acct > self._state.cash_free + 1e-6:
                     return self._reject(
                         order_id, ticker, side_upper, quantity,
-                        f"limit reservation ${reserved:.2f} > free "
-                        f"${self._state.cash_free:.2f}",
+                        f"limit reservation {reserved_acct:.2f} {account_ccy} "
+                        f"> free {self._state.cash_free:.2f} {account_ccy}",
                         order_type, limit_price,
                     )
-                self._state.cash_free -= reserved
+                self._state.cash_free -= reserved_acct
                 return self._enqueue_order(
                     order_id, ticker, side_upper, quantity,
                     order_type, limit_price, stop_price,
-                    created_at, reserved_cash=reserved,
+                    created_at, reserved_cash=reserved_acct,
                     queue_reason="limit buy above market",
                 )
 
             # Market open, fillable now — commit immediately.
-            actual_cost = reservation_px * quantity
-            if actual_cost > self._state.cash_free + 1e-6:
+            actual_native_cost = reservation_px * quantity
+            actual_acct_cost = actual_native_cost * rate
+            if actual_acct_cost > self._state.cash_free + 1e-6:
                 return self._reject(
                     order_id, ticker, side_upper, quantity,
-                    f"cost ${actual_cost:.2f} > free "
-                    f"${self._state.cash_free:.2f}",
+                    f"cost {actual_acct_cost:.2f} {account_ccy} "
+                    f"> free {self._state.cash_free:.2f} {account_ccy}",
                     order_type, limit_price,
                 )
-            self._state.cash_free -= actual_cost  # reservation = cost
+            self._state.cash_free -= actual_acct_cost  # reservation = cost
             order = _Order(
                 order_id=order_id, ticker=ticker, side=side_upper,
                 quantity=quantity, order_type=order_type,
                 limit_price=limit_price, stop_price=stop_price,
-                reserved_cash=actual_cost, created_at=created_at,
+                reserved_cash=actual_acct_cost, created_at=created_at,
                 queue_reason="",
             )
             self._fill_order(order, reservation_px)
@@ -566,6 +822,10 @@ class PaperBroker(Broker):
                 "order_id": order_id, "status": "FILLED",
                 "ticker": ticker, "side": side_upper,
                 "quantity": quantity, "fill_price": reservation_px,
+                "native_currency": native_ccy,
+                "account_currency": account_ccy,
+                "fx_rate": rate,
+                "cost_account_ccy": actual_acct_cost,
             }
 
     def cancel_order(self, order_id: str) -> bool:

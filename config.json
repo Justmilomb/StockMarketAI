@@ -44,7 +44,8 @@
   "paper_broker": {
     "state_path": "data/paper_state.json",
     "audit_path": "logs/paper_orders.jsonl",
-    "starting_cash": 100.0
+    "starting_cash": 100.0,
+    "currency": "GBP"
   },
   "ai": {
     "sklearn_weight": 0.5,
@@ -53,7 +54,7 @@
     "retrain_on_start": true,
     "retrain_interval_hours": 24
   },
-  "claude": {
+  "ai": {
     "model": "claude-sonnet-4-20250514",
     "model_complex": "claude-opus-4-6",
     "model_medium": "claude-sonnet-4-20250514",
@@ -217,7 +218,7 @@
       }
     }
   },
-  "claude_personas": {
+  "ai_personas": {
     "enabled": true,
     "personas": [
       "technical",
@@ -352,7 +353,7 @@
     ],
     "model": {
       "calibration_method": "platt_scaling",
-      "use_claude": true
+      "use_ai": true
     },
     "mirofish": {
       "n_agents": 500,

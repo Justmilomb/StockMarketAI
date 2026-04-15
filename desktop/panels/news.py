@@ -29,7 +29,7 @@ class NewsPanel(QGroupBox):
             return False
 
     def set_ai_available(self, available: bool) -> None:
-        """Update whether the AI backend (Claude CLI) is reachable."""
+        """Update whether the AI backend is reachable."""
         self._ai_available = available
 
     def refresh_view(self, state: Any) -> None:
@@ -48,9 +48,10 @@ class NewsPanel(QGroupBox):
             if not self._ai_available:
                 self._text.setHtml(
                     '<p style="color:#ff5555; font-weight:bold;">AI UNAVAILABLE</p>'
-                    '<p style="color:#888888;">Install Claude CLI to enable news '
-                    'sentiment analysis.</p>'
-                    '<p style="color:#555555;">https://docs.anthropic.com/en/docs/claude-cli</p>'
+                    '<p style="color:#888888;">AI engine is offline -- news '
+                    'sentiment is disabled.</p>'
+                    '<p style="color:#555555;">See the setup wizard or '
+                    'help.blank.app/setup.</p>'
                 )
             else:
                 self._text.setHtml(

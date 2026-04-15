@@ -105,6 +105,7 @@ class MainWindow(QMainWindow):
                     state_path=state_path,
                     audit_path=Path(paper_broker_cfg.get("audit_path", "logs/paper_orders.jsonl")),
                     starting_cash=float(paper_broker_cfg.get("starting_cash", 100.0)),
+                    currency=str(paper_broker_cfg.get("currency", "GBP") or "GBP"),
                 ),
             )
             self.state.agent_paper_mode = True
@@ -117,13 +118,13 @@ class MainWindow(QMainWindow):
         self.history_manager: Optional[Any] = None
 
         try:
-            from claude_client import ClaudeClient, ClaudeConfig
-            claude_cfg_raw = self.config.get("claude", {})
+            from ai_client import ClaudeClient, ClaudeConfig
+            ai_cfg_raw = self.config.get("ai", {})
             ccfg = ClaudeConfig(
-                model=claude_cfg_raw.get("model", "claude-sonnet-4-20250514"),
-                model_complex=claude_cfg_raw.get("model_complex", "claude-opus-4-6"),
-                model_medium=claude_cfg_raw.get("model_medium", "claude-sonnet-4-20250514"),
-                model_simple=claude_cfg_raw.get("model_simple", "claude-haiku-4-5-20251001"),
+                model=ai_cfg_raw.get("model", "claude-sonnet-4-20250514"),
+                model_complex=ai_cfg_raw.get("model_complex", "claude-opus-4-6"),
+                model_medium=ai_cfg_raw.get("model_medium", "claude-sonnet-4-20250514"),
+                model_simple=ai_cfg_raw.get("model_simple", "claude-haiku-4-5-20251001"),
             )
             self._claude_client = ClaudeClient(ccfg)
 
@@ -225,6 +226,9 @@ class MainWindow(QMainWindow):
             # so the user knows there's no toggle here.
             paper_label = agent_menu.addAction("Paper Mode (locked)")
             paper_label.setEnabled(False)
+            agent_menu.addAction(
+                "Reset Paper Account", self._on_reset_paper_account,
+            )
         else:
             # Live windows have no paper toggle — paper trading is only
             # reachable via a dedicated paper window so the two modes
@@ -1182,6 +1186,39 @@ class MainWindow(QMainWindow):
         )
         self._paper_window.showMaximized()
 
+    @Slot()
+    def _on_reset_paper_account(self) -> None:
+        """Wipe the paper account and restart at the config starting cash.
+
+        Only does anything when the stocks broker is a ``PaperBroker`` —
+        in a live window this is a no-op with a status toast so the
+        menu item is harmless if the user clicks it by mistake.
+        """
+        from PySide6.QtWidgets import QMessageBox
+        reply = QMessageBox.question(
+            self,
+            "Reset Paper Account",
+            "Wipe all paper positions, pending orders, and cash back to "
+            "the config starting cash?\n\nThis cannot be undone.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        ok = False
+        try:
+            ok = bool(self.broker_service.reset_paper())
+        except Exception as e:
+            logging.getLogger(__name__).warning("reset_paper failed: %s", e)
+        if ok:
+            self.statusBar().showMessage(
+                "Paper account reset to starting cash.", 3000,
+            )
+        else:
+            self.statusBar().showMessage(
+                "Reset skipped — not a paper broker.", 3000,
+            )
+
     def _watchlist_config_key(self) -> str:
         """Return the config key for the currently active mode's watchlists."""
         return "watchlists_paper" if self.state.agent_paper_mode else "watchlists"
@@ -1697,11 +1734,11 @@ class MainWindow(QMainWindow):
         return False
 
     def _require_ai(self, action_name: str = "This feature") -> bool:
-        """Return True if Claude CLI is available. Show message if not."""
+        """Return True if the AI engine is available. Show message if not."""
         if self._claude_client and getattr(self._claude_client, "available", False):
             return True
         self.statusBar().showMessage(
-            f"{action_name} requires Claude CLI — install from docs.anthropic.com/en/docs/claude-cli",
+            f"{action_name} requires the blank AI engine — see the setup wizard",
             5000,
         )
         return False

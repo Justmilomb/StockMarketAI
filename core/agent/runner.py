@@ -37,11 +37,19 @@ can retune cadence / caps live without restarting the app.
 """
 from __future__ import annotations
 
+# Must import the subprocess patch before claude_agent_sdk so the SDK
+# binds to the Windows-no-console launchers. Importing this package
+# normally also runs the patch via __init__.py, but the explicit import
+# documents the dependency and survives __init__.py refactors.
+from . import subprocess_patch  # noqa: F401
+
 import asyncio
 import json
 import logging
+import sqlite3
 import time
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -94,6 +102,12 @@ class AgentRunner(QThread):
 
         # Per-iteration counters, reset on each run.
         self._tool_call_count: int = 0
+        self._trade_count: int = 0
+        self._watchlist_add_count: int = 0
+        self._last_action_desc: str = ""
+
+        # Lifetime iteration counter (increments each iteration).
+        self._iter_count: int = 0
 
     # ── public API ───────────────────────────────────────────────────
 
@@ -102,6 +116,23 @@ class AgentRunner(QThread):
         self._stop_requested = True
         self._interrupt_sleep = True
         self.log_line.emit("[runner] stop requested")
+
+    def notify_chat_activity(self) -> None:
+        """Break the sleep early so the next iteration runs ASAP.
+
+        Called by :class:`AgentPool` whenever a new chat worker is
+        spawned. The supervisor sleeps in 250ms ticks polling this
+        flag, so a chat message that mutates state (place_order, add
+        to watchlist, update memory) means the supervisor can re-read
+        the world on its very next wake and react — instead of sitting
+        idle for the full cadence interval.
+
+        Safe to call from any thread: only sets a single bool, no
+        locking needed. Not an error to call when the loop is already
+        in the middle of an iteration — the flag will be picked up the
+        next time the runner enters ``_sleep_with_interrupt``.
+        """
+        self._interrupt_sleep = True
 
     # ── QThread entry point ──────────────────────────────────────────
 
@@ -212,6 +243,10 @@ class AgentRunner(QThread):
             build_mcp_server,
         )
         from core.agent.model_router import supervisor_model
+        from core.agent.paths import (
+            cli_path_for_sdk,
+            prepare_env_for_bundled_engine,
+        )
         from core.agent.prompts import render_system_prompt
 
         config = self._load_config()
@@ -235,6 +270,10 @@ class AgentRunner(QThread):
         )
 
         self._tool_call_count = 0
+        self._trade_count = 0
+        self._watchlist_add_count = 0
+        self._last_action_desc = ""
+        self._iter_count += 1
         prompt_text = self._build_iteration_prompt()
 
         # The supervisor is the autonomous trade decider — always Opus.
@@ -249,6 +288,12 @@ class AgentRunner(QThread):
         )
 
         mcp_server = build_mcp_server()
+        # Bundled engine: on a frozen install the Claude CLI ships
+        # next to blank.exe; we point the SDK straight at it so
+        # system PATH never decides which CLI gets spawned. In dev
+        # both helpers become no-ops and the SDK uses whatever
+        # ``claude`` is on PATH.
+        prepare_env_for_bundled_engine()
         options = ClaudeAgentOptions(
             system_prompt=render_system_prompt(effective_config),
             mcp_servers={SERVER_NAME: mcp_server},
@@ -256,6 +301,7 @@ class AgentRunner(QThread):
             permission_mode="bypassPermissions",
             model=model_id,
             cwd=str(self._config_path.parent),
+            cli_path=cli_path_for_sdk(),
         )
 
         start = time.monotonic()
@@ -275,6 +321,17 @@ class AgentRunner(QThread):
                             self.log_line.emit(f"[claude] {block.text}")
                         elif isinstance(block, ToolUseBlock):
                             self._tool_call_count += 1
+                            tool_name = block.name or ""
+                            # Tool names are namespaced as
+                            # "mcp__<server>__<tool>" by the SDK; match
+                            # on the trailing segment so we count both
+                            # raw and namespaced variants.
+                            short_name = tool_name.rsplit("__", 1)[-1]
+                            if short_name == "place_order":
+                                self._trade_count += 1
+                            elif short_name == "add_to_watchlist":
+                                self._watchlist_add_count += 1
+                            self._last_action_desc = short_name or tool_name
                             self.tool_use.emit({
                                 "name": block.name,
                                 "input": block.input,
@@ -322,6 +379,10 @@ class AgentRunner(QThread):
                 summary = get_agent_context().end_summary or ""
             except Exception:
                 summary = ""
+            self._write_last_iteration_summary(
+                iteration_id=iteration_id,
+                summary=summary,
+            )
             self.iteration_finished.emit(iteration_id, summary)
             self.log_line.emit(
                 f"[runner] iteration {iteration_id} done "
@@ -329,6 +390,46 @@ class AgentRunner(QThread):
                 f"{time.monotonic() - start:.1f}s)",
             )
             clear_agent_context()
+
+    def _write_last_iteration_summary(
+        self,
+        iteration_id: str,
+        summary: str,
+    ) -> None:
+        """Persist a one-line snapshot of the iteration to agent_memory.
+
+        The chat worker reads ``last_iteration_summary`` on every user
+        turn so it can answer "what just happened" without making a
+        round-trip tool call. Best-effort — failure to write must never
+        crash the iteration loop.
+        """
+        try:
+            now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+            last_action = self._last_action_desc or "no tool calls"
+            tail = ""
+            if summary:
+                # Squash newlines so the snapshot stays single-line.
+                tail = " " + " ".join(summary.split())
+                if len(tail) > 240:
+                    tail = tail[:237] + "..."
+            line = (
+                f"iter {self._iter_count} ({iteration_id}) @ {now_iso}: "
+                f"{self._tool_call_count} tools, "
+                f"{self._trade_count} trades, "
+                f"{self._watchlist_add_count} new tickers. "
+                f"last action: {last_action}.{tail}"
+            )
+            with sqlite3.connect(self._db_path) as conn:
+                conn.execute(
+                    "INSERT INTO agent_memory (key, value, updated_at) "
+                    "VALUES (?, ?, datetime('now')) "
+                    "ON CONFLICT(key) DO UPDATE SET "
+                    "value = excluded.value, "
+                    "updated_at = datetime('now')",
+                    ("last_iteration_summary", line),
+                )
+        except Exception:
+            logger.exception("failed to persist last_iteration_summary")
 
     # ── formatting helpers ───────────────────────────────────────────
 

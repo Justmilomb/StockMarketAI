@@ -104,94 +104,54 @@ def _init_db(conn: psycopg2.extensions.connection) -> None:
                 (k, v),
             )
     conn.commit()
-    # seed release history — upserts notes/dates so the website always shows
-    # the full version timeline. is_current=TRUE only on the latest version;
-    # the api/version endpoint serves whichever row has is_current=TRUE.
+    # v1.0.0 is the *first official release* of blank. The pre-v1 alpha
+    # series (0.x through 2.1.x in the old seed list) was internal — it
+    # never shipped, it had no paying users, and its changelog confused
+    # the landing page. The one-time wipe below removes all of that so
+    # the website starts fresh at v1.0.0. The ``config`` marker ensures
+    # the wipe runs exactly once per database; after that, admin-added
+    # releases are preserved across restarts and only the v1.0.0 seed
+    # row is upserted for its notes/date.
     with conn.cursor() as cur:
-        # (version, published_at, is_current, notes)
-        seed_releases = [
+        cur.execute(
+            "SELECT value FROM config WHERE key = 'releases_reset_v1'",
+        )
+        already_reset = cur.fetchone() is not None
+        if not already_reset:
+            cur.execute("DELETE FROM releases")
+            cur.execute(
+                "INSERT INTO config (key, value) VALUES ('releases_reset_v1', 'done') "
+                "ON CONFLICT (key) DO NOTHING",
+            )
+
+        seed_notes = (
+            "- first official release of blank — the previous 2.x line was internal alpha, this is v1\n"
+            "- autonomous trading agent driven by claude: reads news, social buzz, charts, and places orders on its own\n"
+            "- paper mode runs as a £100 gbp sandbox so you can watch the agent trade without risking real money\n"
+            "- live mode trades via trading 212 when you hand it a real api key\n"
+            "- separate paper and live windows — no more accidental mode flips mid-session\n"
+            "- persistent chat agent: ask blank anything and it replies in seconds, not at the end of the next iteration\n"
+            "- background scrapers feed the agent news and sentiment from reddit, stocktwits, bloomberg, marketwatch, and youtube 24/7\n"
+            "- supports every major western exchange: nyse/nasdaq, lse, xetra, euronext, six, nordics, tase\n"
+            "- bundled ai engine — no extra downloads or api keys needed, it just runs after install"
+        )
+        cur.execute(
+            """
+            INSERT INTO releases (version, download_url, sha256, notes, mandatory,
+                                  is_current, published_at)
+            VALUES (%s, %s, '', %s, FALSE, TRUE, %s::date)
+            ON CONFLICT (version) DO UPDATE SET
+                notes        = EXCLUDED.notes,
+                published_at = EXCLUDED.published_at,
+                is_current   = EXCLUDED.is_current
+            """,
             (
                 "1.0.0",
-                "2026-03-15",
-                False,
-                "- first version that ran end-to-end: live price in, ml signal out, paper order placed\n"
-                "- raw terminal output only — no charts, no panels, just text\n"
-                "- claude handled the market commentary; the ml model handled the actual signal\n"
-                "- only worked reliably on large-cap s&p 500 stocks — crashed on most else",
+                "https://github.com/Justmilomb/StockMarketAI/releases/download/v1.0.0/BlankSetup.exe",
+                seed_notes,
+                "2026-04-15",
             ),
-            (
-                "1.0.1",
-                "2026-03-20",
-                False,
-                "- ran the first full autoconfig: claude optimised every parameter across 23 experiments overnight\n"
-                "- had to run it on a 32-core cloud vm — too slow to run locally\n"
-                "- fixed the cpu over-subscription that was making parallel backtests crawl\n"
-                "- expanded the stock universe beyond large caps for the first time",
-            ),
-            (
-                "1.1.0",
-                "2026-03-27",
-                False,
-                "- 1000-analyst ensemble: a thousand ai agents each with a different risk profile vote on every trade\n"
-                "- added crypto and polymarket alongside stocks\n"
-                "- first desktop gui — still very rough but no longer a terminal\n"
-                "- regime detection so the ai knows whether it is in a bull, bear, or sideways market",
-            ),
-            (
-                "1.2.0",
-                "2026-03-30",
-                False,
-                "- packaged as a proper windows installer for the first time\n"
-                "- walk-forward backtesting across multiple time periods now runs in parallel\n"
-                "- polymarket research swarm: agents study prediction markets to find edge\n"
-                "- fixed persistent out-of-memory crashes on multi-fold backtests",
-            ),
-            (
-                "2.0.0",
-                "2026-04-07",
-                False,
-                "- rebranded to blank — full bloomberg-style dark ui rebuilt from scratch\n"
-                "- license server added so distribution can be controlled\n"
-                "- live trading via trading 212 went in alongside paper mode\n"
-                "- news scrapers run in the background and feed the ai sentiment around the clock\n"
-                "- claude now picks between different trading strategies depending on market conditions",
-            ),
-            (
-                "2.0.1",
-                "2026-04-08",
-                False,
-                "- migrated from sqlite to postgresql — fixes the corrupted-database crashes on long sessions\n"
-                "- blank now checks for updates and installs them silently in the background\n"
-                "- maintenance mode lets the team push messages to all running clients without a new release\n"
-                "- chat can now execute trades directly from plain-english commands",
-            ),
-            (
-                "2.1.0",
-                "2026-04-14",
-                True,
-                "- chat replies come back in seconds, not at the end of the next iteration\n"
-                "- ask blank several questions at once — answers come back in parallel\n"
-                "- paper mode is impossible to miss: gold banner, watermark, one-click flip to live\n"
-                "- paper positions and cash save between sessions instead of resetting\n"
-                "- smarter ai picks — fast model for info, careful model for real trade decisions\n"
-                "- new chat command: \"clear my watchlist except what i own\"\n"
-                "- removed the invisible thinking-time cap so the ai can finish its work",
-            ),
-        ]
-        base_url = "https://github.com/Justmilomb/StockMarketAI/releases/download"
-        for version, pub_date, is_current, notes in seed_releases:
-            url = f"{base_url}/v{version}/BlankSetup.exe"
-            cur.execute(
-                """
-                INSERT INTO releases (version, download_url, sha256, notes, mandatory,
-                                      is_current, published_at)
-                VALUES (%s, %s, '', %s, FALSE, %s, %s::date)
-                ON CONFLICT (version) DO UPDATE SET
-                    notes        = EXCLUDED.notes,
-                    published_at = EXCLUDED.published_at
-                """,
-                (version, url, notes, is_current, pub_date),
-            )
+        )
     conn.commit()
 
 
@@ -213,6 +173,19 @@ def db_dependency() -> Generator[psycopg2.extensions.connection, None, None]:
 
 class LicenseValidateRequest(BaseModel):
     key: str
+    machine_id: str = ""
+
+
+class HeartbeatRequest(BaseModel):
+    """Minute-cadence ping from the desktop app.
+
+    The key is optional so a client that hasn't entered a licence yet
+    (wizard is still up) can still poll for maintenance / update
+    signals. All fields are plain strings so they survive JSON round-
+    trip without schema fuss.
+    """
+    license_key: str = ""
+    version: str = ""
     machine_id: str = ""
 
 
@@ -466,7 +439,103 @@ def version_info(
 
     if not row:
         return {
-            "version": "2.1.3",
+            "version": "1.0.0",
+            "download_url": "https://github.com/Justmilomb/StockMarketAI/releases/latest/download/BlankSetup.exe",
+            "sha256": "",
+            "notes": "",
+            "mandatory": False,
+            "published_at": None,
+            **base,
+        }
+
+    return {
+        "version": row["version"],
+        "download_url": row["download_url"],
+        "sha256": row["sha256"] or "",
+        "notes": row["notes"] or "",
+        "mandatory": bool(row["mandatory"]),
+        "published_at": row["published_at"].isoformat() if row["published_at"] else None,
+        **base,
+    }
+
+
+@app.post("/api/heartbeat")
+def heartbeat(
+    body: HeartbeatRequest,
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> dict[str, Any]:
+    """Minute-cadence heartbeat from the desktop app.
+
+    One endpoint, three jobs:
+
+    1. **Update the manifest** — returns the same payload as
+       ``/api/version`` so a newly-published release (or a toggled
+       maintenance mode) reaches the client inside the next 60 s.
+    2. **Record last-seen** — bumps ``licenses.last_active`` for the
+       caller's license so the admin "who's online" column is never
+       more than a minute stale.
+    3. **Machine binding drift detection** — if the caller sends a
+       ``machine_id`` that differs from the stored one, we log it but
+       don't block (helps spotting licence sharing without a
+       false-positive nuke on legit reinstalls).
+
+    Missing/invalid licence keys are tolerated — we still return the
+    manifest so the setup wizard can see maintenance banners before
+    the user has entered a key.
+    """
+    key = (body.license_key or "").strip()
+    machine_id = (body.machine_id or "").strip()
+
+    with conn.cursor() as cur:
+        if key:
+            cur.execute(
+                "UPDATE licenses SET last_active = NOW() WHERE key = %s",
+                (key,),
+            )
+            if machine_id:
+                # Tag the row with the first machine_id we see, and
+                # update it if the client is now phoning in from a new
+                # one. Two machines sharing a key is a moderation
+                # signal, not a kill condition — the admin panel
+                # surfaces licences whose machine_id changed recently.
+                cur.execute(
+                    "UPDATE licenses SET machine_id = %s "
+                    "WHERE key = %s AND (machine_id IS NULL OR machine_id = '' OR machine_id <> %s)",
+                    (machine_id, key, machine_id),
+                )
+
+        # Same query as /api/version — kept inline rather than
+        # extracted so the two endpoints don't diverge silently when
+        # someone adds a new manifest field.
+        cur.execute(
+            """
+            SELECT version, download_url, sha256, notes, mandatory, published_at
+              FROM releases
+             WHERE scheduled_at IS NULL OR scheduled_at <= NOW()
+             ORDER BY COALESCE(scheduled_at, published_at) DESC
+             LIMIT 1
+            """,
+        )
+        row = cur.fetchone()
+
+        cur.execute(
+            "SELECT key, value FROM config WHERE key IN "
+            "('maintenance_mode','maintenance_message','notification_message','notification_at')",
+        )
+        cfg = {r["key"]: r["value"] for r in cur.fetchall()}
+
+    conn.commit()
+
+    base = {
+        "maintenance": cfg.get("maintenance_mode", "false") == "true",
+        "maintenance_message": cfg.get("maintenance_message", ""),
+        "notification_message": cfg.get("notification_message", ""),
+        "notification_at": cfg.get("notification_at", ""),
+    }
+
+    if not row:
+        return {
+            "version": "1.0.0",
             "download_url": "https://github.com/Justmilomb/StockMarketAI/releases/latest/download/BlankSetup.exe",
             "sha256": "",
             "notes": "",

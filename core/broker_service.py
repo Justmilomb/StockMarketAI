@@ -125,6 +125,20 @@ class BrokerService:
     def cancel_order(self, order_id: str) -> bool:
         return self.broker.cancel_order(order_id)
 
+    def reset_paper(self) -> bool:
+        """Reset the paper stocks broker to its config starting cash.
+
+        No-op + ``False`` when the stocks broker is not a
+        ``PaperBroker`` (i.e. live mode). Returns ``True`` on a
+        successful reset so callers can show a status message.
+        """
+        from paper_broker import PaperBroker
+        broker = self.get_broker("stocks")
+        if not isinstance(broker, PaperBroker):
+            return False
+        broker.reset()
+        return True
+
     # ── Account Extended ──────────────────────────────────────────────
 
     def get_account_metadata(self) -> Dict[str, Any]:

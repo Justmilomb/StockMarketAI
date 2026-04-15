@@ -15,8 +15,8 @@ from terminal.state import AppState
 # Minimal valid config — enough to boot the app without crashing.
 # User is prompted to import their real config on first launch.
 # Phase 3: strategy / ensemble / regime / risk / strategy_profiles /
-# claude_personas / consensus / forecasters / pipeline / timeframes sections
-# are gone. The agent is the brain and owns its own risk rules.
+# consensus / forecasters / pipeline / timeframes sections are gone.
+# The agent is the brain and owns its own risk rules.
 DEFAULT_CONFIG: Dict[str, Any] = {
     "watchlists": {"Default": []},
     "watchlists_paper": {"Default": []},
@@ -34,7 +34,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "max_chat_workers": 5,
         "chat_model": "sonnet",
     },
-    "claude": {
+    "ai": {
         "model": "claude-sonnet-4-20250514",
         "model_complex": "claude-opus-4-6",
         "model_medium": "claude-sonnet-4-20250514",
@@ -46,7 +46,11 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     },
     "updates": {
         "auto_check": True,
-        "check_interval_minutes": 30,
+        # 60s heartbeat: one poll per minute delivers update availability,
+        # maintenance mode flips, and last-online tracking in one round
+        # trip. Clamped to 30s floor by UpdateService.start() to stop
+        # a config typo from DoSing the server.
+        "check_interval_seconds": 60,
         "skip_version": "",
         "pending_install": None,
     },
