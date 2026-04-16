@@ -1190,7 +1190,7 @@
                 <div class="cta-lead">launch day</div>
                 <h4>01 july 2026</h4>
                 <p>
-                    join the waitlist and we'll let you know the second it's ready.
+                    join the waitlist and we'll send you monthly updates on how development is going.
                 </p>
                 <form id="waitlist-form" class="waitlist-form" novalidate autocomplete="off">
                     <input type="email" name="email" id="waitlist-email" placeholder="enter your email" required spellcheck="false">
@@ -1314,7 +1314,7 @@
                 }).then(function(resp) {
                     if (resp.ok) {
                         btn.querySelector('span').textContent = 'joined';
-                        setNote("you're on the list — we'll email you when blank is ready", 'ok');
+                        setNote("you're on the list — we'll send you monthly updates on development", 'ok');
                         input.value = '';
                     } else {
                         btn.disabled = false;

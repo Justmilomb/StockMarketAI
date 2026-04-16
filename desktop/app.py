@@ -201,8 +201,6 @@ class MainWindow(QMainWindow):
         menu_bar = self.menuBar()
 
         file_menu = menu_bar.addMenu("&File")
-        file_menu.addAction("Main Menu  (M)", self.action_main_menu)
-        file_menu.addSeparator()
         file_menu.addAction("Quit  (Q)", self.close)
 
         self._view_menu = menu_bar.addMenu("&View")
