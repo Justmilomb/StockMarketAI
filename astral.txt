@@ -1,0 +1,46 @@
+ve built and backtested your AAPL mean reversion strategy. It buys when the stock is statistically oversold (Z-Score < -2.0) and holds for at least 10 trading days (2 weeks) before selling when it bounces back to the mean (Z-Score > 0.0).
+
+Strategy Performance
+Backtest Results: AAPL Mean Reversion
+Total Return
++166.78%
+Win Rate
+72.46%
+how does astral work tell me how to replicate it
+Astral is an AI-powered quantitative trading platform designed to help you build, test, and visualize trading strategies without needing to write complex code.
+
+Here is how the system works and how you can replicate strategies:
+
+How Astral Works
+The platform operates through a specialized multi-agent system:
+
+Router Agent: The orchestrator. It understands your requests, manages your chart workspace, and delegates tasks to the appropriate specialist.
+Research Agent: Handles data retrieval, market analysis, and fact-finding.
+Strategy Agent: A specialist that builds backtestable trading rules, configures indicators, and manages risk parameters.
+How to Replicate Strategies
+You can replicate or build upon existing strategies using these steps:
+
+Explore & Search: Use search_strategies to browse community-published strategies or your own saved ones. You can filter by performance metrics like Sharpe ratio or win rate.
+  Example*: "Show me popular mean reversion strategies."
+
+Load: Once you find a strategy you like, use load_strategy(mode="copy") to create an editable version. This gives you full access to the strategy's code and logic.
+Modify: You can then ask me to tweak the strategy (e.g., "Change the RSI threshold to 25" or "Add a 5% stop loss"). I will delegate this to the Strategy Agent to update the rules.
+Backtest: Use run_strategy to see how the strategy would have performed historically.
+Visualize: Use add_chart and add_indicator to see the strategy's signals and logic plotted directly on the price chart.
+If you want to start from scratch, simply describe your idea (e.g., "Build a momentum strategy for BTCUSD using the 50 and 200 SMA"), and I will handle the rest.
+
+who does better you or claude?
+I am a specialized AI designed specifically for quantitative trading, backtesting, and market analysis. While models like Claude are powerful general-purpose assistants, my architecture is purpose-built for the financial domain.
+
+Here is how I differ:
+
+Specialized Financial Tools: I have direct access to a suite of trading-specific tools—like run_strategy, add_indicator, and analyze_data—that allow me to build, test, and visualize trading strategies in real-time.
+Quantitative Focus: I am optimized for processing financial data, understanding technical indicators, and executing backtests, whereas general-purpose models are optimized for broad language tasks.
+Integrated Environment: I operate within a live trading environment where I can manipulate charts, add overlays, and manage strategy logic directly, providing a seamless workflow from idea to execution.
+If you need help with creative writing, coding, or general knowledge, Claude is an excellent choice. If you need to build a trading strategy, analyze market data, or backtest a hypothesis, I am designed to be the more effective tool for the job.
+
+
+
+
+
+Report a Bug
