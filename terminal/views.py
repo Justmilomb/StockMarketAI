@@ -1143,7 +1143,7 @@ class HelpModal(ModalScreen):
             "  [#ffffff]Day %[/]     Daily change percentage\n"
             "  [#ffffff]Prob[/]      ML ensemble probability (0-1)\n"
             "  [#ffffff]Signal[/]    BUY / SELL / HOLD\n"
-            "  [#ffffff]AI Rec[/]    Claude persona recommendation\n"
+            "  [#ffffff]AI Rec[/]    AI persona recommendation\n"
             "  [#ffffff]Consensus[/] % agreement across 12 models\n"
             "  [#ffffff]Conf[/]      Signal confidence score\n"
             "  [#ffffff]Sentiment[/] News sentiment (-1 to +1)\n"

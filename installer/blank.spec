@@ -2,7 +2,7 @@
 """PyInstaller spec for blank desktop application.
 
 Build:
-    pyinstaller installer/bloomberg.spec --clean
+    pyinstaller installer/blank.spec --clean
 
 Output: dist/blank.exe
 """
@@ -39,7 +39,7 @@ _find_dll('lightgbm', 'lib_lightgbm.dll')
 
 
 a = Analysis(
-    [str(Path(PROJECT_ROOT) / 'desktop' / 'main_bloomberg.py')],
+    [str(Path(PROJECT_ROOT) / 'desktop' / 'main_desktop.py')],
     pathex=[PROJECT_ROOT, str(Path(PROJECT_ROOT) / 'core')],
     binaries=_native_binaries,
     datas=[
@@ -81,8 +81,8 @@ a = Analysis(
         'desktop.panels.update_banner',
         'desktop.dialogs.schedule_update',
         'packaging', 'packaging.version', 'packaging.specifiers',
-        # Claude-native agent runtime (Phase 4+)
-        'claude_agent_sdk',
+        # Agent runtime (Phase 4+)
+        'claude_agent_sdk', 'core.agent._sdk',
         'core.agent', 'core.agent.runner', 'core.agent.mcp_server',
         'core.agent.prompts', 'core.agent.context',
         'core.agent.tools', 'core.agent.tools.broker_tools',
@@ -93,6 +93,12 @@ a = Analysis(
         'core.agent.tools.market_hours_tools',
         'core.agent.tools.backtest_tools',
         'core.agent.tools.flow_tools',
+        # Research swarm (Phase 5+)
+        'core.agent.swarm', 'core.agent.research_worker',
+        'core.agent.research_queue', 'core.agent.research_roles',
+        'core.agent.prompts_research',
+        'core.agent.tools.research_tools', 'core.agent.tools.grok_tools',
+        'playwright', 'playwright.async_api',
         # Scraper daemon (Phase 5)
         'core.scrapers', 'core.scrapers.base', 'core.scrapers.runner',
         'core.scrapers.google_news', 'core.scrapers.yahoo_finance',

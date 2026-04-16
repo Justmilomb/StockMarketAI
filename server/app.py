@@ -152,7 +152,7 @@ def _init_db(conn: psycopg2.extensions.connection) -> None:
             "- live mode trades via trading 212 when you hand it a real api key\n"
             "- separate paper and live windows — no more accidental mode flips mid-session\n"
             "- persistent chat agent: ask blank anything and it replies in seconds, not at the end of the next iteration\n"
-            "- background scrapers feed the agent news and sentiment from reddit, stocktwits, bloomberg, marketwatch, and youtube 24/7\n"
+            "- background scrapers feed the agent news and sentiment from reddit, stocktwits, financial news feeds, marketwatch, and youtube 24/7\n"
             "- supports every major western exchange: nyse/nasdaq, lse, xetra, euronext, six, nordics, tase\n"
             "- bundled ai engine — no extra downloads or api keys needed, it just runs after install"
         )

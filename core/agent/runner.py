@@ -1,7 +1,7 @@
-"""AgentRunner — QThread that drives the Claude agent loop.
+"""AgentRunner — QThread that drives the AI agent loop.
 
-Phase 4 of the Claude-native rebuild. One fresh Claude Code subprocess
-per iteration, streamed through the claude-agent-sdk ``query()`` helper.
+Phase 4 of the agent-native rebuild. One fresh AI subprocess per
+iteration, streamed through the agent SDK ``query()`` helper.
 No tool-call or wall-clock budget is enforced here any more — the
 agent runs each iteration until the model calls ``end_iteration`` (or
 the user hits stop). The earlier caps kept being hit mid-thought and
@@ -37,9 +37,9 @@ can retune cadence / caps live without restarting the app.
 """
 from __future__ import annotations
 
-# Must import the subprocess patch before claude_agent_sdk so the SDK
-# binds to the Windows-no-console launchers. Importing this package
-# normally also runs the patch via __init__.py, but the explicit import
+# Must import the subprocess patch before the agent SDK so it binds to
+# the Windows-no-console launchers. Importing this package normally
+# also runs the patch via __init__.py, but the explicit import
 # documents the dependency and survives __init__.py refactors.
 from . import subprocess_patch  # noqa: F401
 
@@ -64,7 +64,7 @@ DEFAULT_WAKE_PROMPT: str = (
 )
 
 #: Hard floor on cadence — the agent cannot run more than this often,
-#: regardless of config, to protect the Claude subscription quota.
+#: regardless of config, to protect the AI subscription quota.
 CADENCE_FLOOR_SECONDS: int = 30
 
 #: Upper bound on how many journal-tail lines we keep in memory so the
@@ -222,7 +222,7 @@ class AgentRunner(QThread):
         # Lazy-import so that importing this module does not force the
         # SDK + tool bus to resolve at app startup (cheaper boot, and a
         # missing SDK fails the agent loop rather than the whole app).
-        from claude_agent_sdk import (
+        from core.agent._sdk import (
             AssistantMessage,
             ClaudeAgentOptions,
             ResultMessage,
@@ -276,9 +276,9 @@ class AgentRunner(QThread):
         self._iter_count += 1
         prompt_text = self._build_iteration_prompt()
 
-        # The supervisor is the autonomous trade decider — always Opus.
-        # Chat workers get the lighter Sonnet tier for info-retrieval
-        # questions via core.agent.model_router.chat_worker_model.
+        # The supervisor is the autonomous trade decider — always the
+        # heaviest tier. Chat workers get the lighter tier for
+        # info-retrieval questions via model_router.chat_worker_model.
         model_id = supervisor_model(effective_config)
 
         self.iteration_started.emit(iteration_id)
@@ -288,12 +288,21 @@ class AgentRunner(QThread):
         )
 
         mcp_server = build_mcp_server()
-        # Bundled engine: on a frozen install the Claude CLI ships
+        # Bundled engine: on a frozen install the AI engine ships
         # next to blank.exe; we point the SDK straight at it so
-        # system PATH never decides which CLI gets spawned. In dev
-        # both helpers become no-ops and the SDK uses whatever
-        # ``claude`` is on PATH.
+        # system PATH never decides which engine gets spawned. In dev
+        # cli_path_for_sdk resolves the system claude so the SDK
+        # doesn't fall back to a stale bundled copy.
         prepare_env_for_bundled_engine()
+        resolved_cli = cli_path_for_sdk()
+        self.log_line.emit(f"[runner] cli={resolved_cli or '(sdk default)'}")
+
+        stderr_lines: list[str] = []
+
+        def _on_stderr(line: str) -> None:
+            logger.warning("claude stderr: %s", line)
+            stderr_lines.append(line)
+
         options = ClaudeAgentOptions(
             system_prompt=render_system_prompt(effective_config),
             mcp_servers={SERVER_NAME: mcp_server},
@@ -301,7 +310,8 @@ class AgentRunner(QThread):
             permission_mode="bypassPermissions",
             model=model_id,
             cwd=str(self._config_path.parent),
-            cli_path=cli_path_for_sdk(),
+            cli_path=resolved_cli,
+            stderr=_on_stderr,
         )
 
         start = time.monotonic()
@@ -318,7 +328,7 @@ class AgentRunner(QThread):
                     for block in message.content:
                         if isinstance(block, TextBlock):
                             self.text_chunk.emit(block.text)
-                            self.log_line.emit(f"[claude] {block.text}")
+                            self.log_line.emit(f"[ai] {block.text}")
                         elif isinstance(block, ToolUseBlock):
                             self._tool_call_count += 1
                             tool_name = block.name or ""
@@ -371,7 +381,10 @@ class AgentRunner(QThread):
                     pass
         except Exception as e:
             logger.exception("Query stream failed")
-            self.error_occurred.emit(f"query failed: {e}")
+            detail = str(e)
+            if stderr_lines:
+                detail += " | stderr: " + " ".join(stderr_lines[-5:])
+            self.error_occurred.emit(f"query failed: {detail}")
         finally:
             # Pull the summary the agent wrote via end_iteration, if any.
             try:

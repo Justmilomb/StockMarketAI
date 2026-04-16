@@ -1,13 +1,12 @@
 """Flow-control tools — end_iteration.
 
-``end_iteration`` is how Claude cleanly closes a turn. The tool writes a
-summary to agent_journal, flips ``AgentContext.end_requested``, records
+``end_iteration`` is how the agent cleanly closes a turn. The tool writes
+a summary to agent_journal, flips ``AgentContext.end_requested``, records
 the requested delay, and returns — leaving the runner to kill the
-subprocess on the next tool-call pause. The Claude Agent SDK does not
-let a tool hard-stop its own query, so this is a soft signal: after the
-tool returns, Claude is expected to emit one last text message and stop
-calling tools, and the runner enforces the wall-clock + tool-call cap
-regardless.
+subprocess on the next tool-call pause. The SDK does not let a tool
+hard-stop its own query, so this is a soft signal: after the tool
+returns, the agent is expected to emit one last text message and stop
+calling tools.
 """
 from __future__ import annotations
 
@@ -15,7 +14,7 @@ import json
 import sqlite3
 from typing import Any, Dict
 
-from claude_agent_sdk import tool
+from core.agent._sdk import tool
 
 from core.agent.context import get_agent_context
 

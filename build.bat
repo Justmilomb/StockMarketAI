@@ -3,7 +3,7 @@ REM Build blank desktop application
 call .venv\Scripts\activate.bat
 
 echo Building blank.exe...
-pyinstaller installer\bloomberg.spec --clean
+pyinstaller installer\blank.spec --clean
 if not exist dist\blank.exe (
     echo   FAILED — check errors above
     exit /b 1
@@ -22,7 +22,7 @@ if defined BLANK_CERT_PATH (
 REM === Inno Setup installer ===
 if exist "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" (
     echo Building BlankSetup.exe...
-    "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\bloomberg.iss
+    "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\blank.iss
     if defined BLANK_CERT_PATH (
         echo Signing installer...
         signtool sign /f "%BLANK_CERT_PATH%" /p "%BLANK_CERT_PASS%" /tr http://timestamp.digicert.com /td sha256 /fd sha256 dist\BlankSetup.exe

@@ -38,4 +38,4 @@ else:
 from desktop.main import launch
 
 if __name__ == "__main__":
-    launch(mode="bloomberg")
+    launch(mode="desktop")

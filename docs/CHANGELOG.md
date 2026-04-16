@@ -10,14 +10,14 @@ Architectural decisions and significant changes. Newest first.
 - Replaced all Google Gemini API calls with Claude API (`claude_client.py`, `claude_personas.py`, `news_agent.py`)
 - Removed `gemini_client.py` and `gemini_personas.py` (dead files deleted)
 - Removed `MASTER_PROMPT.md` (stale scaffold artefact)
-- All LLM integration now routes through `claude_client.ClaudeClient` using the Anthropic SDK
+- All LLM integration now routes through `ai_client.AIClient` using the Anthropic SDK
 - No Gemini references remain in any active source file
 
 ### PySide6 Desktop App
-- Added `desktop/` package: Bloomberg-dark native GUI using PySide6 (replaces Textual TUI as primary interface)
+- Added `desktop/` package: terminal-dark native GUI using PySide6 (replaces Textual TUI as primary interface)
 - `desktop/main.py` — entry point with `freeze_support()` and PyInstaller `.env` loading
 - `desktop/app.py` — `MainWindow` with 3×4 `QGridLayout`, background timers, keyboard shortcuts
-- `desktop/theme.py` — Bloomberg-dark QSS stylesheet matching Textual CSS palette
+- `desktop/theme.py` — terminal-dark QSS stylesheet matching Textual CSS palette
 - `desktop/workers.py` — `QThread`-based `BackgroundTask` and `RefreshWorker`
 - `desktop/panels/` — 8 panels: watchlist, positions, orders, chat, news, chart, pipeline, settings
 - `desktop/dialogs/` — 8 modals: add ticker, AI recommend, help, history, instruments, pies, search, trade
@@ -61,7 +61,7 @@ Architectural decisions and significant changes. Newest first.
 
 ## Pre-documentation (prior commits)
 
-- Built Bloomberg-style Textual TUI with 3-column grid layout
+- Built terminal-style Textual TUI with 3-column grid layout
 - Added Google Gemini integration for signal generation, news analysis, and chat
 - Implemented weighted ensemble scoring (sklearn 50% + gemini 30% + news 20%)
 - Added Trading 212 live broker via REST API v0

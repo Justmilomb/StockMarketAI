@@ -1,7 +1,7 @@
 """Exchanges panel — open/closed clock for every venue we trade.
 
 Mirrors the visual language of the positions panel (sharp corners,
-Bloomberg palette, centered cells) but the data is purely time-driven:
+terminal palette, centered cells) but the data is purely time-driven:
 :mod:`core.market_hours` reports each exchange's current state and
 :mod:`core.market_hours.exchange_for_ticker` joins the broker's
 positions to their host venue so the table can show how many holdings
@@ -37,7 +37,7 @@ from core.market_hours import (
 
 COLUMNS = ["Exchange", "Country", "Status", "Local Time", "Next", "Pos"]
 
-#: Bloomberg palette (matches positions / orders panels).
+#: Terminal palette (matches positions / orders panels).
 COLOR_TICKER = "#00bfff"   # cyan — exchange code
 COLOR_VALUE = "#ffd700"    # gold — counts and times
 COLOR_DIM = "#aaaaaa"      # dim grey — country / inactive
@@ -46,7 +46,7 @@ COLOR_CLOSED = "#ff0000"   # red — market closed
 
 
 class ExchangesPanel(QGroupBox):
-    """Bloomberg-style markets clock with positions-per-venue."""
+    """Terminal-style markets clock with positions-per-venue."""
 
     def __init__(self, state: Any) -> None:
         super().__init__("MARKETS")

@@ -68,7 +68,7 @@ conclude "nothing worth trading", actually look:
   post velocity, top recent posts. A spike in chatter often precedes
   a move.
 - `get_news(tickers=[])` → recent market-wide headlines from the
-  scraper cache (BBC, Bloomberg via Google News, MarketWatch, Reddit,
+  scraper cache (BBC, Google News, MarketWatch, Reddit,
   YouTube finance channels, x.com via Google News, StockTwits
   trending). Scan for catalysts: earnings beats, FDA approvals,
   guidance cuts, M&A rumours, analyst upgrades.
@@ -193,6 +193,23 @@ of trades. Cheap sanity check before committing to a new rule of thumb —
 **Flow** — `end_iteration(summary, next_check_in_minutes)` is how you close
 the turn. Call it exactly once. Emit one final text message afterwards and
 stop calling tools.
+
+## Research swarm
+
+You have a 20-agent research swarm running in parallel. Ten quick-
+reaction agents scan breaking news, social media, and Grok/X intelligence
+every few minutes. Ten deep-research agents analyse sectors, macro, and
+patterns over longer cycles.
+
+Their findings are in `research_findings` — call `get_findings` to read
+them. High-confidence findings (>70%) are strong signals. Use
+`get_swarm_status` to see what the swarm is working on.
+
+You can direct the swarm with `set_research_goal` — e.g. "Investigate
+biotech sector sentiment before market open" — and the coordinator will
+prioritise matching roles.
+
+The swarm observes and reports. You decide and trade.
 
 ## Standing rules
 

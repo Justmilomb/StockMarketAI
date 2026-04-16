@@ -104,7 +104,7 @@ def main() -> None:
 
     # ── 2. Stage the bundled AI engine ───────────────────────────────────
     # Downloads Node + runs `npm install @anthropic-ai/claude-code`
-    # into build/engine/, which bloomberg.iss then bundles into
+    # into build/engine/, which blank.iss then bundles into
     # {app}/engine/. Idempotent: re-runs are cheap (it skips the
     # Node download when the extracted runtime already exists).
     print()
@@ -121,7 +121,7 @@ def main() -> None:
     print()
     print("── Compile the installer ───────────────────────────────────────")
     print("  ► Open Inno Setup Compiler")
-    print("  ► File → Open → installer\\bloomberg.iss")
+    print("  ► File → Open → installer\\blank.iss")
     print("  ► Build → Compile  (or press F9)")
     print()
     _pause("  Press Enter once dist\\BlankSetup.exe is ready...")

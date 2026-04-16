@@ -1,6 +1,6 @@
 """Runtime context for the agent tool bus.
 
-The @tool decorator from claude-agent-sdk requires module-level async
+The @tool decorator from the agent SDK requires module-level async
 functions whose only parameter is a dict of arguments. Those functions
 still need access to stateful resources — broker, database, config,
 risk manager — so we park them in a context variable that each agent

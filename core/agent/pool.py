@@ -83,6 +83,10 @@ class AgentPool(QObject):
         # agent asks for one, then reused for the rest of the session.
         self._paper_broker: Optional[Any] = None
 
+        # Research swarm coordinator (daemon thread, built lazily).
+        self._swarm: Optional[Any] = None
+        self._watchlist_provider: Any = lambda: []
+
     # ── config helpers ───────────────────────────────────────────────
 
     def _load_config(self) -> Dict[str, Any]:
@@ -325,4 +329,54 @@ class AgentPool(QObject):
     def shutdown(self) -> None:
         """Best-effort clean shutdown of everything in the pool."""
         self.cancel_all_chat_workers()
+        self.stop_swarm()
         self.kill_supervisor()
+
+    # ── swarm lifecycle ─────────────────────────────────────────────
+
+    def start_swarm(self) -> None:
+        """Start the research swarm coordinator if enabled in config."""
+        try:
+            config = self._load_config()
+            swarm_cfg = config.get("swarm", {})
+            if not swarm_cfg.get("enabled", False):
+                logger.info("AgentPool: swarm disabled in config")
+                return
+        except Exception:
+            return
+
+        if self._swarm is not None and self._swarm.is_alive():
+            return
+
+        from core.agent.swarm import SwarmCoordinator
+
+        paper_mode = self._force_paper
+        broker = self.get_broker_for_mode(paper_mode)
+
+        self._swarm = SwarmCoordinator(
+            config_path=self._config_path,
+            broker_service=broker,
+            db_path=self._db_path,
+            paper_mode=paper_mode,
+            watchlist_provider=self._watchlist_provider,
+        )
+        self._swarm.start()
+        logger.info("AgentPool: swarm coordinator started")
+
+    def stop_swarm(self) -> None:
+        """Stop the swarm coordinator."""
+        if self._swarm is not None and self._swarm.is_alive():
+            self._swarm.stop()
+            self._swarm.join(timeout=10)
+            self._swarm = None
+
+    @property
+    def swarm(self) -> Optional[Any]:
+        return self._swarm
+
+    def swarm_running(self) -> bool:
+        return self._swarm is not None and self._swarm.is_alive()
+
+    def set_watchlist_provider(self, provider: Any) -> None:
+        """Set the watchlist provider callable for the swarm."""
+        self._watchlist_provider = provider

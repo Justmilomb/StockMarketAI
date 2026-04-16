@@ -1,6 +1,6 @@
 """Free, rate-limited scrapers for news + social signal.
 
-Phase 5 of the Claude-native rebuild. Every scraper inherits from
+Phase 5 of the agent-native rebuild. Every scraper inherits from
 ``ScraperBase``, returns ``list[ScrapedItem]`` (or an empty list on
 failure), and never raises. The agent tool bus reads cached items from
 ``core.database`` via ``scraper_items``; a background worker refreshes

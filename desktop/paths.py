@@ -11,7 +11,7 @@ under the old per-machine ``{autopf}\\blank`` installer, translates to
 1. Read-only for unprivileged processes (needed an admin UAC elevation
    just to save a watchlist edit), and
 2. Actively wiped by the old ``[UninstallDelete]`` block of
-   ``installer/bloomberg.iss`` — so reinstalling blank destroyed the
+   ``installer/blank.iss`` — so reinstalling blank destroyed the
    user's chat history, agent journal, position notes, backtest runs
    and everything else worth remembering.
 

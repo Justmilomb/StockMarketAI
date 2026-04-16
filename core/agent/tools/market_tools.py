@@ -1,4 +1,4 @@
-"""Market data tools for the Claude agent.
+"""Market data tools for the AI agent.
 
 Routing:
     * held ticker → Trading 212 ``currentPrice`` (live)
@@ -22,7 +22,7 @@ import os
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
-from claude_agent_sdk import tool
+from core.agent._sdk import tool
 
 from core.agent.context import get_agent_context
 

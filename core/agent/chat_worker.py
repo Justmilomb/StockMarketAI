@@ -1,5 +1,5 @@
-"""ChatWorker — a single-turn Claude sub-agent wrapped around a
-persistent ``ClaudeSDKClient`` session.
+"""ChatWorker — a single-turn AI sub-agent wrapped around a
+persistent SDK client session.
 
 Part of the multi-agent pool. The supervisor (``AgentRunner``) keeps
 its long-running loop; every user chat message spawns a ``ChatWorker``
@@ -8,13 +8,13 @@ supervisor's tools, journal, and memory via the same SQLite handles,
 but holds its own ``AgentContext`` bound to its own asyncio task
 (``contextvars.ContextVar`` keeps them from racing).
 
-Uses the SDK's ``ClaudeSDKClient`` streaming mode rather than the
-one-shot ``query()`` helper. Streaming mode is the SDK-recommended
-pattern for chat-style UIs: it gives us a proper conversation session
-(so ``interrupt`` works for cancels, the MCP server stays attached for
-the whole turn, and the SDK tracks context correctly) instead of
-re-spawning a fresh Claude subprocess per call. The client lives for
-one user message and is torn down by ``__aexit__`` when the turn ends.
+Uses the SDK's streaming client mode rather than the one-shot
+``query()`` helper. Streaming mode is the SDK-recommended pattern for
+chat-style UIs: it gives us a proper conversation session (so
+``interrupt`` works for cancels, the MCP server stays attached for the
+whole turn, and the SDK tracks context correctly) instead of
+re-spawning a fresh AI subprocess per call. The client lives for one
+user message and is torn down by ``__aexit__`` when the turn ends.
 
 No tool-call or wall-clock budget is enforced: the worker runs until
 the model decides it's done (``end_iteration`` / natural stop) or the
@@ -30,9 +30,9 @@ can see the paper positions the supervisor created (and vice versa).
 """
 from __future__ import annotations
 
-# Must import the subprocess patch before claude_agent_sdk so the SDK
-# binds to the Windows-no-console launchers. Importing this package
-# normally also runs the patch via __init__.py, but the explicit import
+# Must import the subprocess patch before the agent SDK so it binds to
+# the Windows-no-console launchers. Importing this package normally
+# also runs the patch via __init__.py, but the explicit import
 # documents the dependency and survives __init__.py refactors.
 from . import subprocess_patch  # noqa: F401
 
@@ -51,7 +51,7 @@ logger = logging.getLogger(__name__)
 
 
 class ChatWorker(QThread):
-    """Runs a single chat message through one ``ClaudeSDKClient`` session.
+    """Runs a single chat message through one SDK client session.
 
     One instance per user message. Lives in ``AgentPool._chat_workers``
     for the duration of its ``run()`` then cleans itself up via the
@@ -274,7 +274,7 @@ class ChatWorker(QThread):
         # Lazy-import for the same reason AgentRunner does: keep the SDK
         # out of the boot path so a missing SDK fails the worker, not
         # the whole app.
-        from claude_agent_sdk import (
+        from core.agent._sdk import (
             AssistantMessage,
             ClaudeAgentOptions,
             ClaudeSDKClient,
@@ -326,10 +326,11 @@ class ChatWorker(QThread):
             paper_mode=self._paper_mode,
         )
 
-        # Judgment vs info routing: keyword classifier picks Opus for
-        # trade/decision requests and Sonnet for pure info retrieval.
-        # Defaults fall back to Sonnet — cheap is the safe default for
-        # chat because the supervisor handles autonomous decisions.
+        # Judgment vs info routing: keyword classifier picks the heavy
+        # tier for trade/decision requests and the medium tier for pure
+        # info retrieval. Defaults fall back to medium — cheap is the
+        # safe default for chat because the supervisor handles
+        # autonomous decisions.
         model_id, tier = chat_worker_model(effective_config, self._message)
 
         self.log_line.emit(
@@ -338,10 +339,21 @@ class ChatWorker(QThread):
         )
 
         mcp_server = build_mcp_server()
-        # Bundled engine: prefer our shipped CLI + Node over anything
-        # on system PATH. No-op in dev mode (helpers detect missing
-        # {app}/engine/ and fall through to SDK autodiscovery).
+        # Bundled engine: prefer our shipped engine + Node over anything
+        # on system PATH. In dev mode cli_path_for_sdk resolves the
+        # system claude so the SDK skips its stale bundled copy.
         prepare_env_for_bundled_engine()
+        resolved_cli = cli_path_for_sdk()
+        self.log_line.emit(
+            f"[chat:{self._worker_id}] cli={resolved_cli or '(sdk default)'}",
+        )
+
+        stderr_lines: list[str] = []
+
+        def _on_stderr(line: str) -> None:
+            logger.warning("claude stderr: %s", line)
+            stderr_lines.append(line)
+
         options = ClaudeAgentOptions(
             system_prompt=render_chat_system_prompt(effective_config),
             mcp_servers={SERVER_NAME: mcp_server},
@@ -349,7 +361,8 @@ class ChatWorker(QThread):
             permission_mode="bypassPermissions",
             model=model_id,
             cwd=str(self._config_path.parent),
-            cli_path=cli_path_for_sdk(),
+            cli_path=resolved_cli,
+            stderr=_on_stderr,
         )
 
         start = time.monotonic()
@@ -362,7 +375,7 @@ class ChatWorker(QThread):
         composed_prompt = self._compose_prompt(effective_config)
 
         try:
-            # Streaming-mode session: ClaudeSDKClient owns the Claude
+            # Streaming-mode session: the SDK client owns the AI
             # subprocess + MCP server for the whole turn. We send the
             # composed prompt once and drain receive_response() which
             # terminates on the first ResultMessage (end of turn).
@@ -391,7 +404,7 @@ class ChatWorker(QThread):
                                 final_text_parts.append(block.text)
                                 self.chat_text.emit(self._worker_id, block.text)
                                 self.log_line.emit(
-                                    f"[chat:{self._worker_id}:claude] {block.text}",
+                                    f"[chat:{self._worker_id}:ai] {block.text}",
                                 )
                             elif isinstance(block, ToolUseBlock):
                                 self._tool_call_count += 1
@@ -439,8 +452,11 @@ class ChatWorker(QThread):
                         pass
         except Exception as e:
             logger.exception("Chat query stream failed")
+            detail = str(e)
+            if stderr_lines:
+                detail += " | stderr: " + " ".join(stderr_lines[-5:])
             self.chat_error.emit(
-                self._worker_id, f"chat query failed: {e}",
+                self._worker_id, f"chat query failed: {detail}",
             )
         finally:
             # Prefer the end_iteration summary if the model called it;

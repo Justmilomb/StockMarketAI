@@ -7,8 +7,8 @@ IS the probability).
 
 Three modes (escalating quality):
 1. Heuristic: momentum/volume/time signals (fast, no API calls)
-2. Claude single-call: one batched LLM probability estimation (1 Claude call)
-3. Research Swarm + MiroFish: 4 specialist agents + Monte Carlo sim (4 Claude calls)
+2. AI single-call: one batched LLM probability estimation (1 AI call)
+3. Research Swarm + MiroFish: 4 specialist agents + Monte Carlo sim (4 AI calls)
 """
 from __future__ import annotations
 
@@ -99,21 +99,21 @@ class EdgeDetector:
         self,
         events: List[PolymarketEvent],
         features_list: List[Dict[str, float]],
-        claude_client: object,
+        ai_client: object,
         min_edge_pct: Optional[float] = None,
         on_progress: Optional[callable] = None,
     ) -> List[PolymarketEdge]:
         """Research Swarm + MiroFish Monte Carlo edge detection.
 
-        The highest-quality mode: 4 specialist Claude agents research each
+        The highest-quality mode: 4 specialist AI agents research each
         event, then MiroFish runs a 500-agent Monte Carlo simulation to
-        produce robust probability estimates.  Falls back through Claude
+        produce robust probability estimates.  Falls back through AI
         single-call → heuristic on failure.
 
         Args:
             events: List of market events with current prices.
             features_list: Pre-computed features for each event.
-            claude_client: ClaudeClient instance.
+            ai_client: AIClient instance.
             min_edge_pct: Override minimum edge threshold.
             on_progress: Optional callback(done, total, detail).
         """
@@ -133,14 +133,14 @@ class EdgeDetector:
         binary_events = [e for e, _ in binary_pairs]
         binary_features = [f for _, f in binary_pairs]
 
-        # Phase 1: Research Swarm — 4 specialist Claude calls
+        # Phase 1: Research Swarm — 4 specialist AI calls
         try:
             swarm = ResearchSwarm()
-            briefs = swarm.research(binary_events, claude_client, on_progress)
+            briefs = swarm.research(binary_events, ai_client, on_progress)
         except Exception as e:
-            logger.warning("Research Swarm failed: %s — falling back to single Claude call", e)
-            return self.detect_edges_with_claude(
-                events, features_list, claude_client, min_edge_pct,
+            logger.warning("Research Swarm failed: %s — falling back to single AI call", e)
+            return self.detect_edges_with_ai(
+                events, features_list, ai_client, min_edge_pct,
             )
 
         # Phase 2: MiroFish Monte Carlo
@@ -194,21 +194,21 @@ class EdgeDetector:
         )
         return edges
 
-    def detect_edges_with_claude(
+    def detect_edges_with_ai(
         self,
         events: List[PolymarketEvent],
         features_list: List[Dict[str, float]],
-        claude_client: object,
+        ai_client: object,
         min_edge_pct: Optional[float] = None,
     ) -> List[PolymarketEdge]:
-        """Claude-powered edge detection — asks Claude to estimate true probabilities.
+        """AI-powered edge detection — asks the AI to estimate true probabilities.
 
-        Falls back to heuristic detect_edges() if Claude fails.
+        Falls back to heuristic detect_edges() if the AI fails.
 
         Args:
             events: List of market events with current prices.
             features_list: Pre-computed features for each event.
-            claude_client: ClaudeClient instance for LLM calls.
+            ai_client: AIClient instance for LLM calls.
             min_edge_pct: Override minimum edge threshold (percentage points).
         """
         threshold = (min_edge_pct if min_edge_pct is not None else self._min_edge_pct) / 100.0
@@ -222,18 +222,18 @@ class EdgeDetector:
         if not binary_pairs:
             return []
 
-        # Build batched prompt for Claude
-        claude_probs = self._get_claude_probabilities(binary_pairs, claude_client)
+        # Build batched prompt for the AI
+        ai_probs = self._get_ai_probabilities(binary_pairs, ai_client)
 
-        if not claude_probs:
-            logger.warning("Claude probability estimation failed — falling back to heuristics")
+        if not ai_probs:
+            logger.warning("AI probability estimation failed — falling back to heuristics")
             return self.detect_edges(events, features_list, min_edge_pct)
 
-        # Build edges from Claude's probability estimates
+        # Build edges from AI probability estimates
         edges: List[PolymarketEdge] = []
-        for (event, features), ai_prob in zip(binary_pairs, claude_probs):
+        for (event, features), ai_prob in zip(binary_pairs, ai_probs):
             if ai_prob is None:
-                # Claude didn't return a probability for this event — use heuristic
+                # AI didn't return a probability for this event — use heuristic
                 ai_prob = self._estimate_probability(event, features)
 
             market_prob = event.market_probability
@@ -243,7 +243,7 @@ class EdgeDetector:
                 continue
 
             confidence = self._estimate_confidence(features, edge)
-            # Boost confidence when Claude agrees with heuristic direction
+            # Boost confidence when the AI agrees with heuristic direction
             heuristic_prob = self._estimate_probability(event, features)
             heuristic_edge = heuristic_prob - market_prob
             if (edge > 0 and heuristic_edge > 0) or (edge < 0 and heuristic_edge < 0):
@@ -267,17 +267,17 @@ class EdgeDetector:
 
         edges.sort(key=lambda e: abs(e.edge), reverse=True)
         logger.info(
-            "Claude edge detection: %d edges from %d events (threshold=%.1f%%)",
+            "AI edge detection: %d edges from %d events (threshold=%.1f%%)",
             len(edges), len(binary_pairs), threshold * 100,
         )
         return edges
 
-    def _get_claude_probabilities(
+    def _get_ai_probabilities(
         self,
         binary_pairs: List[tuple],
-        claude_client: object,
+        ai_client: object,
     ) -> List[Optional[float]]:
-        """Ask Claude to estimate true probabilities for a batch of events."""
+        """Ask the AI to estimate true probabilities for a batch of events."""
         lines: List[str] = []
         for i, (event, _features) in enumerate(binary_pairs, 1):
             end_str = event.end_date.strftime("%Y-%m-%d") if event.end_date else "unknown"
@@ -298,18 +298,18 @@ class EdgeDetector:
         )
 
         try:
-            response = claude_client._call(prompt, use_system=False, task_type="medium")
+            response = ai_client._call(prompt, use_system=False, task_type="medium")
             if not response:
                 return []
-            return self._parse_claude_probabilities(response, len(binary_pairs))
+            return self._parse_ai_probabilities(response, len(binary_pairs))
         except Exception as e:
-            logger.warning("Claude probability call failed: %s", e)
+            logger.warning("AI probability call failed: %s", e)
             return []
 
-    def _parse_claude_probabilities(
+    def _parse_ai_probabilities(
         self, response: str, expected_count: int,
     ) -> List[Optional[float]]:
-        """Parse Claude's JSON response into a list of probabilities."""
+        """Parse the AI's JSON response into a list of probabilities."""
         text = response.strip()
         if text.startswith("```json"):
             text = text[7:]
@@ -322,16 +322,16 @@ class EdgeDetector:
         start = text.find("[")
         end = text.rfind("]")
         if start == -1 or end == -1:
-            logger.warning("No JSON array found in Claude response")
+            logger.warning("No JSON array found in AI response")
             return []
 
         try:
             items = json.loads(text[start:end + 1])
         except json.JSONDecodeError as e:
-            logger.warning("Failed to parse Claude probability JSON: %s", e)
+            logger.warning("Failed to parse AI probability JSON: %s", e)
             return []
 
-        # Build id-indexed map for robustness (Claude may reorder)
+        # Build id-indexed map for robustness (AI may reorder)
         prob_map: Dict[int, float] = {}
         for item in items:
             if isinstance(item, dict):

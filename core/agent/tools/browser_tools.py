@@ -1,7 +1,7 @@
 """Research-only browser tool.
 
 ``fetch_page`` lets the agent pull a single URL and receive the cleaned
-article text. It exists so Claude can read things the typed tool bus
+article text. It exists so the agent can read things the typed tool bus
 can't cover — earnings releases, SEC filings, macro posts, the long
 tail of ticker-specific IR pages — without us building a dedicated
 scraper for each.
@@ -41,7 +41,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
-from claude_agent_sdk import tool
+from core.agent._sdk import tool
 
 from core.agent.context import get_agent_context
 
@@ -56,7 +56,7 @@ MAX_FETCHES_PER_ITER: int = 10
 MAX_BODY_BYTES: int = 1_000_000
 
 #: Default character budget for the cleaned text we return to the
-#: agent. Chosen to leave plenty of room in the Claude context window.
+#: agent. Chosen to leave plenty of room in the context window.
 DEFAULT_MAX_CHARS: int = 8000
 
 #: Absolute ceiling on ``max_chars`` — the agent can't ask for more.

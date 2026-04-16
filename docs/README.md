@@ -1,6 +1,6 @@
 # StockMarketAI
 
-AI-driven stock trading terminal combining a 1000-analyst ensemble ML pipeline with Claude LLM analysis. Renders in a Bloomberg-style Textual TUI or a PySide6 desktop app. Supports paper and live trading via Trading 212.
+AI-driven stock trading terminal combining a 1000-analyst ensemble ML pipeline with Claude LLM analysis. Renders in a terminal-style Textual TUI or a PySide6 desktop app. Supports paper and live trading via Trading 212.
 
 > **Warning:** This is for research and experimentation only. Do not trade real money without fully understanding and testing the system.
 
@@ -80,7 +80,7 @@ Market Data (yfinance)
 
 | File | Purpose |
 |------|---------|
-| `ai.py` | TUI terminal — launches the Textual Bloomberg-style interface |
+| `ai.py` | TUI terminal — launches the Textual terminal-style interface |
 | `desktop/main.py` | PySide6 desktop app — GUI with the same pipeline |
 | `backtest.py` | Walk-forward backtesting CLI |
 | `autoconfig/run.py` | Autonomous parameter optimisation (Claude CLI sessions) |
@@ -113,7 +113,7 @@ ANTHROPIC_API_KEY=your_key           # Optional: for Claude API calls
 
 ## TUI Terminal
 
-Bloomberg-dark Textual TUI with a 3×4 grid layout:
+Terminal-dark Textual TUI with a 3x4 grid layout:
 
 - Watchlist panel with per-ticker signal, confidence, and regime
 - Consensus and ensemble metadata columns
@@ -131,7 +131,7 @@ Key bindings: `r` refresh, `t` trade, `a` add ticker, `c` chart, `h` history, `?
 
 ## Desktop App
 
-PySide6 GUI with Bloomberg-dark theme, wrapping the same AI pipeline. Suitable for running as a standalone executable.
+PySide6 GUI with terminal-dark theme, wrapping the same AI pipeline. Suitable for running as a standalone executable.
 
 ### Build executable
 

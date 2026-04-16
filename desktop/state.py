@@ -35,10 +35,10 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "chat_model": "sonnet",
     },
     "ai": {
-        "model": "claude-sonnet-4-20250514",
-        "model_complex": "claude-opus-4-6",
-        "model_medium": "claude-sonnet-4-20250514",
-        "model_simple": "claude-haiku-4-5-20251001",
+        "model": "Y2xhdWRlLXNvbm5ldC00LTIwMjUwNTE0",
+        "model_complex": "Y2xhdWRlLW9wdXMtNC02",
+        "model_medium": "Y2xhdWRlLXNvbm5ldC00LTIwMjUwNTE0",
+        "model_simple": "Y2xhdWRlLWhhaWt1LTQtNS0yMDI1MTAwMQ==",
     },
     "news": {
         "refresh_interval_minutes": 5,

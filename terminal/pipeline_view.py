@@ -12,7 +12,7 @@ from types_shared import PipelineState, PipelineStage
 
 
 class PipelineView(Vertical):
-    """Bloomberg-style dual-mode pipeline visualization.
+    """Dual-mode pipeline visualization.
 
     Shows animated progress bars during pipeline execution,
     and a model performance dashboard when idle.

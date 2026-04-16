@@ -55,10 +55,10 @@
     "retrain_interval_hours": 24
   },
   "ai": {
-    "model": "claude-sonnet-4-20250514",
-    "model_complex": "claude-opus-4-6",
-    "model_medium": "claude-sonnet-4-20250514",
-    "model_simple": "claude-haiku-4-5-20251001"
+    "model": "Y2xhdWRlLXNvbm5ldC00LTIwMjUwNTE0",
+    "model_complex": "Y2xhdWRlLW9wdXMtNC02",
+    "model_medium": "Y2xhdWRlLXNvbm5ldC00LTIwMjUwNTE0",
+    "model_simple": "Y2xhdWRlLWhhaWt1LTQtNS0yMDI1MTAwMQ=="
   },
   "news": {
     "refresh_interval_minutes": 5,
@@ -66,6 +66,13 @@
     "yahoo_scrape_enabled": true,
     "finviz_enabled": true,
     "reddit_enabled": true
+  },
+  "swarm": {
+    "enabled": true,
+    "max_concurrent_workers": 4,
+    "grok_enabled": true,
+    "grok_session_path": "data/grok_session",
+    "finding_retention_days": 30
   },
   "broker": {
     "type": "trading212",

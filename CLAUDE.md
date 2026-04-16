@@ -1,6 +1,6 @@
 # StockMarketAI — AI Agent Entry Point
 
-AI-driven stock trading terminal combining scikit-learn ML predictions with Claude LLM analysis, rendered in a Bloomberg-style Textual TUI. Supports paper and live trading via Trading 212.
+AI-driven stock trading terminal combining scikit-learn ML predictions with Claude LLM analysis, rendered in a terminal-style Textual TUI. Supports paper and live trading via Trading 212.
 
 **Tech stack:** Python 3.12+, scikit-learn, Textual, Claude CLI, yfinance, pandas, numpy, PySide6
 **Platform:** Windows 10
@@ -40,7 +40,7 @@ AI-driven stock trading terminal combining scikit-learn ML predictions with Clau
 ## 4 — Architecture Quick Reference
 
 ```
-backtest.py / desktop/main_bloomberg.py  (entry points)
+backtest.py / desktop/main_desktop.py  (entry points)
   │
   ├─ core/                   (all ML/AI/broker modules — on sys.path)
   │   ├─ AiService           (ML ensemble + statistical + Claude orchestration)
@@ -64,11 +64,11 @@ backtest.py / desktop/main_bloomberg.py  (entry points)
   │
   ├─ backtesting/            (walk-forward validation engine)
   │
-  ├─ desktop/                (PySide6 desktop app — Bloomberg edition)
+  ├─ desktop/                (PySide6 desktop app)
   │   ├─ main.py             (shared bootstrap: license, wizard, launch)
-  │   ├─ main_bloomberg.py   (Bloomberg edition entry point)
-  │   ├─ app.py              (MainWindow — Bloomberg-dark panels)
-  │   ├─ panels/             (Bloomberg UI panels)
+  │   ├─ main_desktop.py     (desktop edition entry point)
+  │   ├─ app.py              (MainWindow — terminal-dark panels)
+  │   ├─ panels/             (terminal UI panels)
   │   └─ dialogs/            (modal dialogs incl. setup wizard, license)
   │
   ├─ terminal/               (Textual TUI — dev-only)
@@ -169,7 +169,7 @@ CONSTRAINTS:
 - **Phase 3.0:** Backtesting engine (walk-forward, parallel folds, Sharpe/Sortino/Calmar) — **done**
 - **Phase 3.1:** Multi-asset expansion (stocks, crypto, polymarket) — **done**
 - **Phase 3.15:** Autoconfig — autonomous parameter optimisation, 23+ experiments — **done**
-- **Phase 3.2:** PySide6 desktop app (Bloomberg-dark GUI, build to exe) — **done**
+- **Phase 3.2:** PySide6 desktop app (terminal-dark GUI, build to exe) — **done**
 - **Phase 3.5:** Commercialisation — license server, setup wizard, admin panel, code signing — **done**
 - **Phase 3.6:** Root reorganisation — core/ package, installer — **done**
 - **Phase 4:** Production hardening, test coverage, monitoring — **in progress**

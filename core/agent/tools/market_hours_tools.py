@@ -1,4 +1,4 @@
-"""Market-hours tools for the Claude agent.
+"""Market-hours tools for the AI agent.
 
 ``get_market_status`` is the single entry point. It asks
 :mod:`core.market_hours` for every registered exchange, joins the
@@ -24,7 +24,7 @@ import json
 import sqlite3
 from typing import Any, Dict, List
 
-from claude_agent_sdk import tool
+from core.agent._sdk import tool
 
 from core.agent.context import get_agent_context
 from core.market_hours import Exchange, all_exchanges, exchange_for_ticker, status

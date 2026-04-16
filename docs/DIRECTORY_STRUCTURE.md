@@ -50,13 +50,13 @@ StockMarketAI/
 │   ├── cpu_config.py              Central CPU core caps
 │   └── types_shared.py            Shared dataclasses
 │
-│  ── Desktop app (PySide6 Bloomberg edition) ────────────────────────────
+│  ── Desktop app (PySide6) ─────────────────────────────────────────────────
 ├── desktop/
 │   ├── main.py                    Shared bootstrap (license, wizard, launch)
-│   ├── main_bloomberg.py          Entry point
+│   ├── main_desktop.py            Entry point
 │   ├── app.py                     Hub: MainWindow
 │   ├── state.py                   DEFAULT_CONFIG + init_state
-│   ├── theme.py                   Bloomberg-dark QSS
+│   ├── theme.py                   Terminal-dark QSS
 │   ├── design.py                  Palette / typography tokens
 │   ├── license.py                 License validation client
 │   ├── updater.py                 Auto-update checker
@@ -121,8 +121,8 @@ StockMarketAI/
 │
 │  ── Build & distribution ──────────────────────────────────────────────
 ├── installer/
-│   ├── bloomberg.spec             PyInstaller spec
-│   └── bloomberg.iss              Inno Setup script
+│   ├── blank.spec                 PyInstaller spec
+│   └── blank.iss                  Inno Setup script
 ├── build.bat                      Builds blank.exe + BlankSetup.exe
 ├── version_info.py                PyInstaller version resource
 │

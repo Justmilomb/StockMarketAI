@@ -1,6 +1,6 @@
 """Agent activity panel — live feed of agent iterations and tool calls.
 
-Phase 4 turns this into a real cockpit for the Claude agent loop. The
+Phase 4 turns this into a real cockpit for the AI agent loop. The
 panel owns the start/stop/kill buttons, the paper-mode indicator, and
 the rolling log of tool calls + reasons that the ``AgentRunner``
 streams back via Qt signals.

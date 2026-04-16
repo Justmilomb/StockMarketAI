@@ -388,7 +388,7 @@ class UpdateService(QObject):
     def _launch_installer(self, path: str) -> None:
         """Spawn the Inno Setup installer detached and quit the app.
 
-        The ``AppMutex`` in ``installer/bloomberg.iss`` is what enables
+        The ``AppMutex`` in ``installer/blank.iss`` is what enables
         the ``/CLOSEAPPLICATIONS`` + ``/RESTARTAPPLICATIONS`` handshake
         — Inno Setup waits briefly for us to exit, then restarts us
         after the bundle swap. We call ``QApplication.quit`` on a short

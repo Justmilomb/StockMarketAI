@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import subprocess
@@ -7,7 +8,7 @@ import sys
 from dataclasses import dataclass
 from typing import Any, Dict, List
 
-# Hide console windows when spawning claude CLI on Windows
+# Hide console windows when spawning AI engine on Windows
 _SUBPROCESS_FLAGS: dict = {}
 if sys.platform == "win32":
     _SUBPROCESS_FLAGS["creationflags"] = subprocess.CREATE_NO_WINDOW
@@ -28,23 +29,36 @@ def _compute_verdict(prob: float, consensus_pct: float) -> str:
     return "NEUTRAL"
 
 
+def _decode_model(val: str) -> str:
+    """Decode a base64-encoded model ID, or pass through if plain."""
+    if not val:
+        return val
+    try:
+        return base64.b64decode(val).decode()
+    except Exception:
+        return val
+
+
 @dataclass
-class ClaudeConfig:
-    model: str = "claude-sonnet-4-20250514"
-    model_complex: str = "claude-opus-4-6"  # Personas, portfolio analysis, optimization
-    model_medium: str = "claude-sonnet-4-20250514"  # Signal generation, recommendations
-    model_simple: str = "claude-haiku-4-5-20251001"  # Memory extraction, data assembly
+class AIConfig:
+    model: str = ""
+    model_complex: str = ""
+    model_medium: str = ""
+    model_simple: str = ""
+
+    def __post_init__(self) -> None:
+        self.model = _decode_model(self.model)
+        self.model_complex = _decode_model(self.model_complex)
+        self.model_medium = _decode_model(self.model_medium)
+        self.model_simple = _decode_model(self.model_simple)
 
 
-class ClaudeClient:
-    """
-    AI client that calls the `claude` CLI as a subprocess.  Uses the caller's
-    existing Claude subscription — no API key required.
-    """
+class AIClient:
+    """AI client that calls the engine CLI as a subprocess."""
 
     SYSTEM_INSTRUCTION = (
-        "You are Claude, an expert AI stock trading assistant from Anthropic, "
-        "integrated into a Bloomberg-style trading terminal. "
+        "You are an expert AI stock trading assistant "
+        "integrated into a professional trading terminal. "
         "You specialize in US equities and have deep knowledge of "
         "technical analysis, fundamental analysis, market sentiment, and macroeconomic trends.\n\n"
         "RULES:\n"
@@ -54,28 +68,35 @@ class ClaudeClient:
         "4. Be concise and actionable - traders need fast, clear information\n"
         "5. Always include confidence levels and risk disclaimers when giving trade advice\n"
         "6. When analyzing, consider: RSI, moving averages, volume, volatility, and sector trends\n"
-        "7. Remember: You are Claude-powered, used via the user's subscription"
+        "7. You are AI-powered, used via the user's subscription"
     )
 
-    def __init__(self, config: ClaudeConfig | None = None) -> None:
+    def __init__(self, config: AIConfig | None = None) -> None:
         if config is None:
-            config = ClaudeConfig()
+            config = AIConfig()
         self.config = config
         self._available = True
 
     @property
     def available(self) -> bool:
-        """Whether the Claude CLI is installed and reachable."""
+        """Whether the AI engine is installed and reachable."""
         return self._available
 
     def _get_model_for_task(self, task_type: str) -> str:
-        """Select the appropriate Claude model based on task complexity."""
+        """Select the appropriate model based on task complexity."""
         if task_type == "complex":
             return self.config.model_complex
         elif task_type == "simple":
             return self.config.model_simple
         else:  # "medium" or default
             return self.config.model_medium
+
+    def _cli_command(self) -> str:
+        """Resolve the AI engine CLI executable."""
+        from core.agent.paths import bundled_engine_cmd, engine_available
+        if engine_available():
+            return str(bundled_engine_cmd())
+        return "claude"  # dev fallback
 
     def _call(
         self,
@@ -84,9 +105,9 @@ class ClaudeClient:
         timeout: int = 120,
         task_type: str = "medium",
     ) -> str:
-        """Call the claude CLI with the given prompt and return the response text.
+        """Call the AI engine CLI and return the response text.
 
-        task_type: 'complex' (opus), 'medium' (sonnet), or 'simple' (haiku)
+        task_type: 'complex', 'medium', or 'simple'
         Falls back to an empty string on any subprocess error.
         """
         if not self._available:
@@ -96,7 +117,7 @@ class ClaudeClient:
 
         try:
             result = subprocess.run(
-                ["claude", "-p", full_prompt, "--model", model, "--output-format", "text"],
+                [self._cli_command(), "-p", full_prompt, "--model", model, "--output-format", "text"],
                 capture_output=True,
                 text=True,
                 timeout=timeout,
@@ -105,7 +126,6 @@ class ClaudeClient:
             )
             output = result.stdout.strip()
 
-            # Detect usage-limit or error responses from the CLI
             _ERROR_MARKERS = [
                 "out of extra usage",
                 "rate limit",
@@ -117,18 +137,18 @@ class ClaudeClient:
             output_lower = output.lower()
             for marker in _ERROR_MARKERS:
                 if marker in output_lower:
-                    logger.warning("Claude CLI usage limit hit: %s", output[:120])
+                    logger.warning("AI engine usage limit hit: %s", output[:120])
                     return ""
 
             return output
         except subprocess.TimeoutExpired:
-            logger.warning("claude CLI timed out after %ds on %s", timeout, model)
+            logger.warning("AI engine timed out after %ds on %s", timeout, model)
             return ""
         except subprocess.CalledProcessError as e:
-            logger.warning("claude CLI process error: %s", e)
+            logger.warning("AI engine process error: %s", e)
             return ""
         except Exception as e:
-            logger.warning("Unexpected error calling claude CLI: %s", e)
+            logger.warning("Unexpected error calling AI engine: %s", e)
             return ""
 
     def _parse_json(self, text: str) -> Dict:
@@ -167,10 +187,10 @@ class ClaudeClient:
         market_summary: str,
         available_profiles: list[str] | None = None,
     ) -> str:
-        """Ask Claude to pick the best strategy profile for current conditions.
+        """Ask the AI to pick the best strategy profile for current conditions.
 
         Returns one of the profile names, or empty string on failure.
-        Falls back to caller's default if Claude is unavailable.
+        Falls back to caller's default if AI is unavailable.
         """
         profiles = available_profiles or list(self._PROFILE_DESCRIPTIONS.keys())
         profile_list = "\n".join(
@@ -191,10 +211,10 @@ class ClaudeClient:
         response = response.strip().lower().replace("'", "").replace('"', '')
 
         if response in profiles:
-            logger.info("Claude selected profile: %s (regime=%s)", response, regime)
+            logger.info("AI selected profile: %s (regime=%s)", response, regime)
             return response
 
-        logger.warning("Claude returned invalid profile '%s', falling back", response)
+        logger.warning("AI returned invalid profile '%s', falling back", response)
         return ""
 
     # ── Signal Generation ──────────────────────────────────────────────
@@ -471,8 +491,8 @@ class ClaudeClient:
 
         # ── Assemble system context ──
         system_context = (
-            "You are Claude, an expert AI trading assistant from Anthropic, "
-            "embedded in a Bloomberg-style stock trading terminal. "
+            "You are an expert AI trading assistant "
+            "embedded in a professional trading terminal. "
             "You have FULL access to ALL real-time trading data below and make informed judgments. "
             "You remember previous conversations within this session and key facts from prior sessions (AI MEMORY).\n\n"
             "DATA YOU HAVE ACCESS TO:\n"
@@ -505,7 +525,7 @@ class ClaudeClient:
             "- Reference the conversation history when the user refers to earlier messages\n"
             "- Use technical analysis terminology. Be concise and professional.\n"
             "- Always include a brief risk disclaimer with trade recommendations\n"
-            "- Emphasize Claude AI reasoning and use all available data to make the best judgment\n\n"
+            "- Use AI reasoning and all available data to make the best judgment\n\n"
             "POSITION ADVICE RULES (when user asks about positions):\n"
             "- Review EACH open position individually — state whether to HOLD, ADD, REDUCE, or CLOSE\n"
             "- Cross-reference each position against its signal probability, consensus %, and news sentiment\n"

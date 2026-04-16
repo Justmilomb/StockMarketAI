@@ -7,7 +7,7 @@ now a typed **tool bus** — a small set of MCP-registered functions Claude
 calls whenever it wants: fetch prices, read news, size positions, place
 orders.
 
-Bloomberg-dark panels, paper-mode by default, live broker support via
+Terminal-dark panels, paper-mode by default, live broker support via
 Trading 212, and a 24/7 scraper daemon pulling from 9 news and social
 sources.
 
@@ -98,7 +98,7 @@ core/
 desktop/
 ├── app.py                  MainWindow, panel wiring, agent lifecycle
 ├── main.py                 shared bootstrap (license, wizard, launch)
-├── main_bloomberg.py       Bloomberg edition entry point
+├── main_desktop.py         desktop edition entry point
 ├── state.py                DEFAULT_CONFIG + init_state
 ├── panels/
 │   ├── agent_log.py        live log + start/stop/kill

@@ -75,8 +75,8 @@ the full history — everything before 2026-04-09 is legacy.
   autoconfig), added `agent-runner.md` and `scrapers.md`, rewrote
   `desktop-app.md`
 - [x] `website/index.html` copy updated to the "autonomous AI trader"
-  story (`claude drives · news & social 24/7 · bloomberg-dark ui`)
-- [x] `installer/bloomberg.spec` hiddenimports cleaned (dropped 16
+  story (`claude drives · news & social 24/7 · terminal-dark ui`)
+- [x] `installer/blank.spec` hiddenimports cleaned (dropped 16
   deleted ML modules, added `core.agent.*`, `core.scrapers.*`,
   `claude_agent_sdk`)
 - [x] `build.bat` produces `dist/blank.exe` successfully (291 MB);
@@ -127,7 +127,7 @@ tests** — 2026-04-14
   market-hours + backtesting; standing rule #9 telling Claude to call
   `get_market_status` early and use it to drive
   `next_check_in_minutes` when the markets are closed.
-- [x] `desktop/panels/exchanges.py` — Bloomberg-style MARKETS panel
+- [x] `desktop/panels/exchanges.py` — terminal-style MARKETS panel
   (QGroupBox + QTableWidget + 30s QTimer) showing 13 venues with
   OPEN/CLOSED/local time/next transition/positions count. Wired
   into `desktop/app.py` MainWindow, included in the stocks dock
@@ -140,7 +140,7 @@ tests** — 2026-04-14
   bucketing, and `end_iteration` mutating runner signals. All 12
   green. Combined with `test_browser_tools.py` the agent test suite
   is 22 tests, ~7 s.
-- [x] `installer/bloomberg.spec` hiddenimports updated for
+- [x] `installer/blank.spec` hiddenimports updated for
   `core.market_hours`, `core.agent.tools.market_hours_tools`,
   `core.agent.tools.backtest_tools`, `desktop.panels.exchanges`.
 

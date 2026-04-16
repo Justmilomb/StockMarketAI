@@ -105,16 +105,16 @@ class TradingTerminalApp(App):  # type: ignore[misc]
         self.broker_service = BrokerService(self.config)
         self.auto_engine = AutoEngine(self.config, self.state, self.ai_service, self.broker_service)
 
-        # Shared Claude client — reused by chat, search, recommend, scan, etc.
-        self._claude_client: Optional[Any] = None
+        # Shared AI client — reused by chat, search, recommend, scan, etc.
+        self._ai_client: Optional[Any] = None
         self.news_agent: Optional[NewsAgent] = None
         try:
-            from ai_client import ClaudeClient, ClaudeConfig
+            from ai_client import AIClient, AIConfig
             ai_cfg_raw = self.config.get("ai", {})
-            ccfg = ClaudeConfig(
-                model=ai_cfg_raw.get("model", "claude-sonnet-4-20250514"),
+            ccfg = AIConfig(
+                model=ai_cfg_raw.get("model", ""),
             )
-            self._claude_client = ClaudeClient(ccfg)
+            self._ai_client = AIClient(ccfg)
 
             # History Manager
             from database import HistoryManager
@@ -126,11 +126,11 @@ class TradingTerminalApp(App):  # type: ignore[misc]
 
             news_interval = self.config.get("news", {}).get("refresh_interval_minutes", 5)
             self.news_agent = NewsAgent(
-                self._claude_client, refresh_interval_minutes=news_interval,
+                self._ai_client, refresh_interval_minutes=news_interval,
                 config=self.config,
             )
         except Exception as e:
-            print(f"[app] Could not init Claude/news: {e}")
+            print(f"[app] Could not init AI/news: {e}")
 
         # View references
         self.settings_view: Optional[SettingsView] = None
@@ -181,7 +181,7 @@ class TradingTerminalApp(App):  # type: ignore[misc]
     def _header_text(self) -> str:
         mode_str = "AUTO" if self.state.mode == "full_auto_limited" else "ADVISOR"
         asset = self.state.active_asset_class.upper()
-        return f"TERMINAL [#{mode_str}] | {asset} | BLOOMBERG AI CORE"
+        return f"TERMINAL [#{mode_str}] | {asset} | AI CORE"
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -375,10 +375,10 @@ class TradingTerminalApp(App):  # type: ignore[misc]
 
     @work(thread=True)
     def _daily_stock_discovery(self) -> None:
-        """Every 2 hours, ask Claude to suggest volatile day-trading candidates.
-        Uses a single Claude call — not per-ticker."""
+        """Every 2 hours, ask the AI to suggest volatile day-trading candidates.
+        Uses a single AI call — not per-ticker."""
         try:
-            if not self._claude_client:
+            if not self._ai_client:
                 return
 
             all_tickers = self._get_active_tickers()
@@ -431,11 +431,11 @@ class TradingTerminalApp(App):  # type: ignore[misc]
                 '{"tickers": [{"symbol": "TICK", "reason": "one sentence why"}]}'
             )
 
-            text = self._claude_client._call(prompt, task_type="medium")
+            text = self._ai_client._call(prompt, task_type="medium")
             if not text:
                 return
 
-            obj = self._claude_client._parse_json(text)
+            obj = self._ai_client._parse_json(text)
             suggestions = obj.get("tickers", [])
             if not suggestions:
                 return
@@ -490,7 +490,7 @@ class TradingTerminalApp(App):  # type: ignore[misc]
             import time as _time
 
             # Decide whether to re-run the full AI pipeline or just refresh
-            # broker data.  The pipeline is expensive (Claude CLI calls),
+            # broker data.  The pipeline is expensive (AI engine calls),
             # so we cache signals for _signal_cache_seconds.
             # Never start a second pipeline while one is already running.
             now = _time.monotonic()
@@ -902,8 +902,8 @@ class TradingTerminalApp(App):  # type: ignore[misc]
     @work(thread=True)
     def _process_chat(self, message: str) -> None:
         try:
-            if not self._claude_client:
-                raise RuntimeError("Claude client not initialised")
+            if not self._ai_client:
+                raise RuntimeError("AI client not initialised")
 
             # Build memory summary from DB
             memory_summary = ""
@@ -923,7 +923,7 @@ class TradingTerminalApp(App):  # type: ignore[misc]
                 ]
             )
 
-            response = self._claude_client.chat_with_context(
+            response = self._ai_client.chat_with_context(
                 user_message=message,
                 positions=self.state.positions,
                 signals=self.state.signals,
@@ -1005,7 +1005,7 @@ class TradingTerminalApp(App):  # type: ignore[misc]
         self._maybe_extract_memories()
 
     def _maybe_extract_memories(self) -> None:
-        """Memory extraction disabled — was spawning Claude CLI subprocesses
+        """Memory extraction disabled — was spawning AI engine subprocesses
         every 5 AI messages, burning credits even when user wasn't chatting.
         Chat history is already persisted in SQLite; that's sufficient."""
         pass
@@ -1200,9 +1200,9 @@ class TradingTerminalApp(App):  # type: ignore[misc]
     @work(thread=True)
     def _do_search(self, query: str, callback) -> None:
         try:
-            if not self._claude_client:
-                raise RuntimeError("Claude client not initialised")
-            results = self._claude_client.search_tickers(query)
+            if not self._ai_client:
+                raise RuntimeError("AI client not initialised")
+            results = self._ai_client.search_tickers(query)
         except Exception as e:
             results = []
             print(f"[search] Error: {e}")
@@ -1229,10 +1229,10 @@ class TradingTerminalApp(App):  # type: ignore[misc]
     @work(thread=True)
     def _do_recommend(self, category: str, callback) -> None:
         try:
-            if not self._claude_client:
-                raise RuntimeError("Claude client not initialised")
+            if not self._ai_client:
+                raise RuntimeError("AI client not initialised")
             current_tickers = self._get_active_tickers()
-            results = self._claude_client.recommend_tickers(current_tickers, category=category, count=5)
+            results = self._ai_client.recommend_tickers(current_tickers, category=category, count=5)
         except Exception as e:
             results = []
             print(f"[recommend] Error: {e}")
@@ -1378,11 +1378,11 @@ class TradingTerminalApp(App):  # type: ignore[misc]
 
             history_text = "\n".join(history_lines) if history_lines else "  No history yet (first run)"
 
-            # 2. Ask Claude for concrete changes
-            if not self._claude_client:
-                self.call_from_thread(self._add_chat_response, "[AI OPTIMIZER] Claude client not available.")
+            # 2. Ask AI for concrete changes
+            if not self._ai_client:
+                self.call_from_thread(self._add_chat_response, "[AI OPTIMIZER] AI client not available.")
                 return
-            client = self._claude_client
+            client = self._ai_client
 
             prompt = (
                 "You are a quant advisor tuning a DAY TRADING algorithm "
@@ -1521,7 +1521,7 @@ class TradingTerminalApp(App):  # type: ignore[misc]
 
     @work(thread=True)
     def action_analyze_history(self) -> None:
-        """Deep dive analysis of historical data using Claude."""
+        """Deep dive analysis of historical data using AI."""
         self.call_from_thread(self._handle_refresh_error, "AI Historian: Retrieving previous terminal states...")
 
         try:
@@ -1542,7 +1542,7 @@ class TradingTerminalApp(App):  # type: ignore[misc]
                 "and give one piece of actionable advice for tomorrow. Be a supportive but objective historian."
             )
 
-            results = self._claude_client._call(prompt, task_type="medium")
+            results = self._ai_client._call(prompt, task_type="medium")
             self.call_from_thread(self._add_chat_response, f"[HISTORICAL ANALYSIS]\n{results}")
         except Exception as e:
             self.call_from_thread(self._handle_refresh_error, f"History Error: {e}")
@@ -1554,11 +1554,11 @@ class TradingTerminalApp(App):  # type: ignore[misc]
         """Periodic market intelligence scan — finds opportunities and alerts.
 
         Runs every 30 minutes. Uses locally-available signal data instead of
-        making additional Claude CLI calls, to avoid burning credits.  Only
-        calls Claude when it has a genuinely notable finding to expand on.
+        making additional AI engine calls, to avoid burning credits.  Only
+        calls the AI when it has a genuinely notable finding to expand on.
         """
         try:
-            # Build scan from cached signal data — NO Claude call needed
+            # Build scan from cached signal data — NO AI call needed
             urgent_lines: list[str] = []
             risk_lines: list[str] = []
 
@@ -1597,10 +1597,10 @@ class TradingTerminalApp(App):  # type: ignore[misc]
     def _hourly_watchlist_review(self) -> None:
         """Periodic watchlist health check — logs stale tickers but does NOT
         auto-remove them.  Watchlist modifications should be user-initiated.
-        No Claude CLI calls — uses cached signal data only."""
+        No AI engine calls — uses cached signal data only."""
         # Intentionally a no-op now.  The user controls their own watchlist
         # via +/- keys and the AI recommend modal.  Autonomous removal was
-        # confusing and wasted Claude credits.
+        # confusing and wasted AI credits.
         pass
 
     # ── Config Helpers ─────────────────────────────────────────────────

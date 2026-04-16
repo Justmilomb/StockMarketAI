@@ -49,7 +49,7 @@ class TickerNews:
 class NewsAgent:
     """
     Background agent that periodically fetches news for ALL watchlisted tickers
-    via RSS feeds and uses Claude to score sentiment.
+    via RSS feeds and uses the AI engine to score sentiment.
 
     Headlines are fetched in parallel (I/O bound), then sentiment analysis
     is batched to reduce API calls.
@@ -66,7 +66,7 @@ class NewsAgent:
         refresh_interval_minutes: int = 5,
         config: Optional[Dict[str, Any]] = None,
     ) -> None:
-        self.ai_client = ai_client  # Duck-typed — works with ClaudeClient
+        self.ai_client = ai_client  # Duck-typed — works with AIClient
         self.refresh_interval = refresh_interval_minutes * 60
         self._news_data: Dict[str, TickerNews] = {}
         self._thread: Optional[threading.Thread] = None
@@ -200,7 +200,7 @@ class NewsAgent:
                 self._news_data[ticker] = TickerNews(
                     ticker=ticker,
                     sentiment=0.0,
-                    summary="AI unavailable — install Claude CLI",
+                    summary="AI unavailable — engine not found",
                     headlines=headlines[:5],
                     last_updated=datetime.utcnow(),
                 )
@@ -232,7 +232,7 @@ class NewsAgent:
         ticker_headlines: Dict[str, List[str]],
         ticker_enrichment: Optional[Dict[str, Dict[str, Any]]] = None,
     ) -> None:
-        """Analyze sentiment for all tickers in a single Claude call."""
+        """Analyze sentiment for all tickers in a single AI call."""
         if self.ai_client is None:
             return
         enrichment = ticker_enrichment or {}
@@ -271,7 +271,7 @@ class NewsAgent:
         try:
             text = self.ai_client._call(prompt, task_type="simple")
             if not text:
-                logger.warning("[news_agent] Claude returned empty for batch sentiment")
+                logger.warning("[news_agent] AI returned empty for batch sentiment")
             else:
                 obj = self.ai_client._parse_json(text)
                 if isinstance(obj, dict):

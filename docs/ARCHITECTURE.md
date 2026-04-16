@@ -11,7 +11,7 @@ news, compute Kelly sizing, place orders, etc.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│ desktop/app.py  (Qt MainWindow, Bloomberg-dark panels)              │
+│ desktop/app.py  (Qt MainWindow, terminal-dark panels)               │
 │                                                                     │
 │   ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐               │
 │   │ Chart    │ │ Positions│ │ News     │ │ Chat     │               │
@@ -134,7 +134,7 @@ desktop/
 ├── app.py                     — MainWindow, panel wiring, agent lifecycle
 ├── state.py                   — DEFAULT_CONFIG + init_state
 ├── main.py                    — shared bootstrap (license, wizard, launch)
-├── main_bloomberg.py          — Bloomberg edition entry point
+├── main_desktop.py            — desktop edition entry point
 ├── panels/
 │   ├── agent_log.py           — live log + start/stop/kill
 │   ├── chart.py

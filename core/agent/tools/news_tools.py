@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 from typing import Any, Dict, List, Optional
 
-from claude_agent_sdk import tool
+from core.agent._sdk import tool
 
 from core.agent.context import get_agent_context
 
@@ -88,8 +88,8 @@ def _live_fallback(
 @tool(
     "get_news",
     "Return recent news headlines from the scraper cache, optionally "
-    "filtered to a list of tickers. Covers Google News, BBC, Bloomberg "
-    "(via Google News), and YouTube finance channels. If the cache is "
+    "filtered to a list of tickers. Covers Google News, BBC, financial "
+    "news feeds, and YouTube finance channels. If the cache is "
     "empty, falls back to a one-shot live fetch.",
     {"tickers": str, "since_minutes": int, "limit": int},
 )

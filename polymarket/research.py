@@ -1,8 +1,8 @@
 """Research agent swarm for Polymarket probability estimation.
 
-Dispatches multiple specialist Claude calls — each covering ALL events
+Dispatches multiple specialist AI calls — each covering ALL events
 in a single batched prompt — to gather diverse evidence and probability
-estimates.  Four specialist agents run sequentially (one Claude call each):
+estimates.  Four specialist agents run sequentially (one AI call each):
 
 1. News & Sentiment Analyst  — recent events, public opinion, media trends
 2. Data Scientist            — base rates, polling, historical precedents
@@ -113,9 +113,9 @@ _RESPONSE_INSTRUCTION = (
 
 
 class ResearchSwarm:
-    """Dispatches specialist Claude agents to research prediction markets.
+    """Dispatches specialist AI agents to research prediction markets.
 
-    Each agent type makes one batched Claude call covering all events.
+    Each agent type makes one batched AI call covering all events.
     Results are returned as ResearchBriefs for downstream aggregation.
     """
 
@@ -130,14 +130,14 @@ class ResearchSwarm:
     def research(
         self,
         events: List[PolymarketEvent],
-        claude_client: object,
+        ai_client: object,
         on_progress: Optional[callable] = None,
     ) -> List[ResearchBrief]:
         """Run all specialist agents and return briefs per event.
 
         Args:
             events: Prediction market events to research.
-            claude_client: ClaudeClient instance for Claude CLI calls.
+            ai_client: AIClient instance for AI calls.
             on_progress: Optional callback(done, total, detail).
 
         Returns:
@@ -162,7 +162,7 @@ class ResearchSwarm:
                 continue
 
             estimates = self._run_agent(
-                agent_type, prompt_prefix, events, claude_client,
+                agent_type, prompt_prefix, events, ai_client,
             )
 
             # Merge estimates into briefs
@@ -187,9 +187,9 @@ class ResearchSwarm:
         agent_type: str,
         prompt_prefix: str,
         events: List[PolymarketEvent],
-        claude_client: object,
+        ai_client: object,
     ) -> List[Optional[AgentEstimate]]:
-        """Run one specialist agent across all events (single Claude call)."""
+        """Run one specialist agent across all events (single AI call)."""
         # Build event list for the prompt
         event_lines: List[str] = []
         for i, event in enumerate(events, 1):
@@ -213,7 +213,7 @@ class ResearchSwarm:
         )
 
         try:
-            response = claude_client._call(
+            response = ai_client._call(
                 prompt, use_system=False, task_type=self._task_type,
             )
             if not response:

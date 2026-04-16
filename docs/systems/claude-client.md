@@ -4,7 +4,7 @@ Wraps the `claude` CLI as a subprocess to provide AI capabilities without requir
 
 ## Purpose
 
-All LLM calls in the pipeline route through `ClaudeClient`. It handles model tier selection, subprocess invocation, JSON extraction from markdown-wrapped responses, and error detection for rate limits or CLI unavailability.
+All LLM calls in the pipeline route through `AIClient`. It handles model tier selection, subprocess invocation, JSON extraction from markdown-wrapped responses, and error detection for rate limits or CLI unavailability.
 
 ## Model Tiers
 
@@ -17,7 +17,7 @@ All LLM calls in the pipeline route through `ClaudeClient`. It handles model tie
 ## Key Methods
 
 ```python
-class ClaudeClient:
+class AIClient:
     def _call(prompt, use_system=True, timeout=120, task_type="medium") -> str
     def _parse_json(text) -> Dict  # Handles markdown code block wrappers
 
@@ -38,7 +38,7 @@ class ClaudeClient:
 
 ## System Instruction
 
-All calls prepend a trading-focused system instruction that establishes Claude as an expert stock trading assistant embedded in a Bloomberg-style terminal.
+All calls prepend a trading-focused system instruction that establishes Claude as an expert stock trading assistant embedded in a terminal-style trading app.
 
 ## Error Handling
 

@@ -43,4 +43,6 @@ chardet>=5.0.0
 # existing subscription — no API key required. All tool calls flow
 # through an in-process MCP server defined in core/agent/mcp_server.py.
 claude-agent-sdk>=0.1.58
+# Playwright — headless Chromium for Grok AI / X browser automation.
+playwright>=1.44
 # alpaca-py removed — using MarketStack REST API via requests

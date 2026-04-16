@@ -1,6 +1,6 @@
 """Main window for the Blank desktop application.
 
-Implements the Bloomberg-style dockable layout, wires up the broker
+Implements the terminal-style dockable layout, wires up the broker
 and chat services, and manages background timers and keyboard
 shortcuts.
 
@@ -54,14 +54,14 @@ from desktop.dialogs.schedule_update import ScheduleUpdateDialog
 from desktop.update_service import UpdateService
 from desktop.workers import BackgroundTask
 
-# Phase 4: Claude agent pool owns the supervisor + chat-worker fleet.
+# Phase 4: agent pool owns the supervisor + chat-worker fleet.
 # AgentRunner itself is still used, but only via AgentPool so paper
 # broker state and the wake cadence are shared across agents.
 from core.agent.pool import AgentPool
 
 
 class MainWindow(QMainWindow):
-    """Bloomberg-style trading terminal window."""
+    """Terminal-style trading terminal window."""
 
     def __init__(
         self,
@@ -113,20 +113,20 @@ class MainWindow(QMainWindow):
         else:
             self.broker_service = BrokerService(self.config)
 
-        self._claude_client: Optional[Any] = None
+        self._ai_client: Optional[Any] = None
         self.news_agent: Optional[NewsAgent] = None
         self.history_manager: Optional[Any] = None
 
         try:
-            from ai_client import ClaudeClient, ClaudeConfig
+            from ai_client import AIClient, AIConfig
             ai_cfg_raw = self.config.get("ai", {})
-            ccfg = ClaudeConfig(
-                model=ai_cfg_raw.get("model", "claude-sonnet-4-20250514"),
-                model_complex=ai_cfg_raw.get("model_complex", "claude-opus-4-6"),
-                model_medium=ai_cfg_raw.get("model_medium", "claude-sonnet-4-20250514"),
-                model_simple=ai_cfg_raw.get("model_simple", "claude-haiku-4-5-20251001"),
+            ccfg = AIConfig(
+                model=ai_cfg_raw.get("model", ""),
+                model_complex=ai_cfg_raw.get("model_complex", ""),
+                model_medium=ai_cfg_raw.get("model_medium", ""),
+                model_simple=ai_cfg_raw.get("model_simple", ""),
             )
-            self._claude_client = ClaudeClient(ccfg)
+            self._ai_client = AIClient(ccfg)
 
             from database import HistoryManager
             from desktop.paths import db_path as _user_db_path
@@ -142,13 +142,13 @@ class MainWindow(QMainWindow):
             news_interval = self.config.get("news", {}).get(
                 "refresh_interval_minutes", 5,
             )
-            news_claude = ClaudeClient(ccfg)
+            news_ai = AIClient(ccfg)
             self.news_agent = NewsAgent(
-                news_claude, refresh_interval_minutes=news_interval,
+                news_ai, refresh_interval_minutes=news_interval,
                 config=self.config,
             )
         except Exception as e:
-            logging.getLogger(__name__).warning("Could not init Claude/news: %s", e)
+            logging.getLogger(__name__).warning("Could not init AI/news: %s", e)
 
         self.state.broker_is_live = self.broker_service.is_live
 
@@ -190,7 +190,7 @@ class MainWindow(QMainWindow):
             self._init_update_service()
 
     def _build_ui(self) -> None:
-        """Create dockable panel layout with Bloomberg-style arrangement."""
+        """Create dockable panel layout with terminal-style arrangement."""
         if self._forced_paper_mode:
             self.setWindowTitle("blank — Paper Trading")
         else:
@@ -288,7 +288,7 @@ class MainWindow(QMainWindow):
         self.exchanges_panel = ExchangesPanel(self.state)
         self.orders_panel = OrdersPanel(self.state)
         self.news_panel = NewsPanel(self.state)
-        ai_ok = self._claude_client is not None and getattr(self._claude_client, "available", False)
+        ai_ok = self._ai_client is not None and getattr(self._ai_client, "available", False)
         self.news_panel.set_ai_available(ai_ok)
 
         from desktop.panels.polymarket_markets import PolymarketPanel
@@ -300,7 +300,7 @@ class MainWindow(QMainWindow):
         self._exchanges_dock = self._make_dock("MARKETS", self.exchanges_panel)
         self._orders_dock = self._make_dock("ORDERS", self.orders_panel)
         self._chat_dock = self._make_dock("CHAT", self.chat_panel)
-        self._news_dock = self._make_dock("NEWS", self.news_panel)
+        self._news_dock = self._make_dock("INFORMATION", self.news_panel)
         self._agent_dock = self._make_dock("AGENT", self.agent_log_panel)
         self._poly_dock = self._make_dock("POLYMARKET", self._poly_panel)
 
@@ -341,7 +341,7 @@ class MainWindow(QMainWindow):
         )
         status.addPermanentWidget(self._status_label, 1)
 
-        ai_ok = self._claude_client is not None and getattr(self._claude_client, "available", False)
+        ai_ok = self._ai_client is not None and getattr(self._ai_client, "available", False)
         self._ai_status = QLabel("AI: OK" if ai_ok else "AI: OFF")
         self._ai_status.setStyleSheet(
             f"color: {'#00ff00' if ai_ok else '#ff0000'}; font-weight: bold; padding: 0 8px;",
@@ -1020,10 +1020,10 @@ class MainWindow(QMainWindow):
         self._apply_dock_layout()
         self._update_header()
 
-        from desktop.theme import BLOOMBERG_DARK_QSS, MODE_OVERLAY_STOCKS, MODE_OVERLAY_POLYMARKET
+        from desktop.theme import DARK_TERMINAL_QSS, MODE_OVERLAY_STOCKS, MODE_OVERLAY_POLYMARKET
         from PySide6.QtWidgets import QApplication
         overlay = MODE_OVERLAY_POLYMARKET if asset_class == "polymarket" else MODE_OVERLAY_STOCKS
-        QApplication.instance().setStyleSheet(BLOOMBERG_DARK_QSS + overlay)
+        QApplication.instance().setStyleSheet(DARK_TERMINAL_QSS + overlay)
 
         if asset_class == "stocks":
             self._populate_placeholder_signals()
@@ -1096,7 +1096,7 @@ class MainWindow(QMainWindow):
     def _handle_chat_message(self, message: str) -> None:
         """Spawn a chat worker for this message.
 
-        Every message goes through the agent pool: a fresh Claude
+        Every message goes through the agent pool: a fresh AI
         sub-agent is spawned in its own QThread, shares the supervisor's
         brain (journal, memory, broker, config), and streams back into
         the chat panel. No queueing, no "routed to the running agent"
@@ -1226,7 +1226,7 @@ class MainWindow(QMainWindow):
     def _start_scraper_runner(self) -> None:
         """Spin up the background scraper thread.
 
-        Needs ``self.history_manager`` to be live — if Claude/DB init
+        Needs ``self.history_manager`` to be live — if AI/DB init
         failed earlier we silently skip so the rest of the app still
         boots. The watchlist provider is a lambda so it reads the
         freshest ticker list on every cycle.
@@ -1296,6 +1296,12 @@ class MainWindow(QMainWindow):
         self.agent_pool.chat_log_line.connect(self._on_agent_log_line)
         self.agent_pool.worker_spawned.connect(self._on_chat_worker_spawned)
         self.agent_pool.worker_finished.connect(self._on_chat_worker_finished)
+
+        # Research swarm — start the 24/7 research coordinator if enabled
+        # in config. Uses the same watchlist provider as the scraper runner
+        # so swarm agents know which tickers to prioritise.
+        self.agent_pool.set_watchlist_provider(self._get_active_tickers)
+        self.agent_pool.start_swarm()
 
     # ── Agent signal slots — run on the GUI thread ───────────────────
 
@@ -1581,7 +1587,7 @@ class MainWindow(QMainWindow):
 
         def do_search(query: str) -> None:
             self._run_background(
-                lambda: self._claude_client.search_tickers(query) if self._claude_client else [],
+                lambda: self._ai_client.search_tickers(query) if self._ai_client else [],
                 lambda results: dlg.populate_results(results) if dlg.isVisible() else None,
             )
 
@@ -1735,7 +1741,7 @@ class MainWindow(QMainWindow):
 
     def _require_ai(self, action_name: str = "This feature") -> bool:
         """Return True if the AI engine is available. Show message if not."""
-        if self._claude_client and getattr(self._claude_client, "available", False):
+        if self._ai_client and getattr(self._ai_client, "available", False):
             return True
         self.statusBar().showMessage(
             f"{action_name} requires the blank AI engine — see the setup wizard",
@@ -1841,7 +1847,7 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
 
-        # Shut the Claude agent pool down cleanly. cancel_all_chat_workers()
+        # Shut the agent pool down cleanly. cancel_all_chat_workers()
         # signals every live chat worker; kill_supervisor() soft-stops then
         # hard-terminates the supervisor if it doesn't exit within 2s.
         if self.agent_pool is not None:

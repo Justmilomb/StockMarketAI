@@ -2,7 +2,7 @@
 
 Every tool module exports a ``*_TOOLS`` list of decorated callables.
 This module flattens those lists into a single in-process MCP server
-that the runner passes to ``ClaudeAgentOptions(mcp_servers=...)``.
+that the runner passes to the agent options ``mcp_servers`` parameter.
 
 Phase 8 tool coverage:
     broker_tools, market_tools, risk_tools, memory_tools,
@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import Any, List
 
-from claude_agent_sdk import create_sdk_mcp_server
+from core.agent._sdk import create_sdk_mcp_server
 
 from core.agent.tools.backtest_tools import BACKTEST_TOOLS
 from core.agent.tools.broker_tools import BROKER_TOOLS
@@ -26,6 +26,8 @@ from core.agent.tools.news_tools import NEWS_TOOLS
 from core.agent.tools.risk_tools import RISK_TOOLS
 from core.agent.tools.social_tools import SOCIAL_TOOLS
 from core.agent.tools.watchlist_tools import WATCHLIST_TOOLS
+from core.agent.tools.research_tools import RESEARCH_TOOLS
+from core.agent.tools.grok_tools import GROK_TOOLS
 
 
 #: Every tool the agent sees this phase.
@@ -40,6 +42,8 @@ ALL_TOOLS: List[Any] = [
     *SOCIAL_TOOLS,
     *BROWSER_TOOLS,
     *BACKTEST_TOOLS,
+    *RESEARCH_TOOLS,
+    *GROK_TOOLS,
     *FLOW_TOOLS,
 ]
 
@@ -58,9 +62,9 @@ def build_mcp_server() -> Any:
 
 
 def allowed_tool_names() -> List[str]:
-    """The ``allowed_tools`` list the runner passes to ClaudeAgentOptions.
+    """The ``allowed_tools`` list the runner passes to agent options.
 
-    claude-agent-sdk expects tool names prefixed as ``mcp__<server>__<tool>``.
+    The agent SDK expects tool names prefixed as ``mcp__<server>__<tool>``.
     Each decorated tool exposes its name under ``.name``.
     """
     names: List[str] = []

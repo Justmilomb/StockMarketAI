@@ -8,7 +8,7 @@ Tables:
   - chat_history: persists chat messages across sessions
   - ai_memory: persistent facts about user preferences and trading behaviour
   - prediction_log: tracks predictions vs actual outcomes for accuracy measurement
-  - agent_memory: key-value store the Claude agent uses as its scratchpad
+  - agent_memory: key-value store the AI agent uses as its scratchpad
   - agent_journal: append-only log of agent iterations, tool calls, and decisions
 """
 import sqlite3
@@ -224,6 +224,58 @@ class HistoryManager:
                 CREATE INDEX IF NOT EXISTS idx_sc_ticker ON scraper_items(ticker);
                 CREATE INDEX IF NOT EXISTS idx_sc_source ON scraper_items(source);
                 CREATE INDEX IF NOT EXISTS idx_sc_kind ON scraper_items(kind);
+
+                -- Research swarm: task queue, structured findings, goals
+                CREATE TABLE IF NOT EXISTS research_tasks (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    role TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    ticker TEXT,
+                    parameters TEXT,
+                    goal_id INTEGER,
+                    priority INTEGER NOT NULL DEFAULT 5,
+                    assigned_worker TEXT,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    started_at TEXT,
+                    completed_at TEXT,
+                    error TEXT
+                );
+                CREATE INDEX IF NOT EXISTS idx_rt_status ON research_tasks(status);
+                CREATE INDEX IF NOT EXISTS idx_rt_role ON research_tasks(role);
+                CREATE INDEX IF NOT EXISTS idx_rt_priority ON research_tasks(priority);
+
+                CREATE TABLE IF NOT EXISTS research_findings (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    task_id INTEGER,
+                    role TEXT NOT NULL,
+                    ticker TEXT,
+                    finding_type TEXT NOT NULL,
+                    headline TEXT NOT NULL,
+                    detail TEXT,
+                    confidence_pct INTEGER NOT NULL DEFAULT 50,
+                    source TEXT,
+                    methodology TEXT,
+                    evidence_json TEXT,
+                    acted_on INTEGER DEFAULT 0,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+                );
+                CREATE INDEX IF NOT EXISTS idx_rf_ticker ON research_findings(ticker);
+                CREATE INDEX IF NOT EXISTS idx_rf_confidence ON research_findings(confidence_pct);
+                CREATE INDEX IF NOT EXISTS idx_rf_created ON research_findings(created_at);
+                CREATE INDEX IF NOT EXISTS idx_rf_type ON research_findings(finding_type);
+
+                CREATE TABLE IF NOT EXISTS research_goals (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    goal TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'active',
+                    priority INTEGER NOT NULL DEFAULT 5,
+                    created_by TEXT,
+                    target_roles TEXT,
+                    deadline_at TEXT,
+                    findings_count INTEGER DEFAULT 0,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    completed_at TEXT
+                );
             """)
 
     # ── Migrations ─────────────────────────────────────────────────────
@@ -729,7 +781,7 @@ class HistoryManager:
         if tickers:
             # Match either items tagged with the ticker or items whose
             # title contains the ticker as a token — so market-wide
-            # feeds (BBC, Bloomberg, YouTube) still surface relevant
+            # feeds (BBC, financial news feeds, YouTube) still surface relevant
             # hits for the agent's watchlist.
             ticker_clauses: List[str] = []
             for t in tickers:
@@ -776,6 +828,253 @@ class HistoryManager:
             )
             after = conn.execute("SELECT COUNT(*) FROM scraper_items").fetchone()[0]
         return before - after
+
+    # ── Research swarm ────────────────────────────────────────────────
+
+    def insert_research_task(
+        self,
+        role: str,
+        priority: int = 5,
+        ticker: Optional[str] = None,
+        parameters: Optional[str] = None,
+        goal_id: Optional[int] = None,
+    ) -> int:
+        """Insert a new research task into the queue and return its id.
+
+        Args:
+            role: The analyst role responsible for this task.
+            priority: Scheduling priority — lower numbers run first.
+            ticker: Optional equity ticker this task relates to.
+            parameters: Optional JSON-encoded task parameters.
+            goal_id: Optional foreign key to a research_goals row.
+
+        Returns:
+            The auto-assigned task id.
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute(
+                "INSERT INTO research_tasks (role, priority, ticker, parameters, goal_id) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (role, priority, ticker, parameters, goal_id),
+            )
+            return cursor.lastrowid or 0
+
+    def claim_research_task(self, worker_id: str) -> Optional[Dict[str, Any]]:
+        """Atomically claim the highest-priority pending task for *worker_id*.
+
+        Uses ``BEGIN IMMEDIATE`` to prevent two workers racing for the same row.
+        Tasks are ordered by priority ASC (lower = higher priority), then
+        created_at ASC so older tasks of equal priority run first.
+
+        Args:
+            worker_id: Unique identifier for the claiming worker process.
+
+        Returns:
+            The claimed task row as a dict, or ``None`` if the queue is empty.
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            conn.row_factory = sqlite3.Row
+            row = conn.execute(
+                "SELECT * FROM research_tasks "
+                "WHERE status = 'pending' "
+                "ORDER BY priority ASC, created_at ASC "
+                "LIMIT 1",
+            ).fetchone()
+            if row is None:
+                return None
+            task_id = row["id"]
+            conn.execute(
+                "UPDATE research_tasks "
+                "SET status = 'running', assigned_worker = ?, started_at = datetime('now') "
+                "WHERE id = ?",
+                (worker_id, task_id),
+            )
+            return dict(row)
+
+    def complete_research_task(
+        self,
+        task_id: int,
+        *,
+        error: Optional[str] = None,
+    ) -> None:
+        """Mark a running task as completed or failed.
+
+        Args:
+            task_id: The id of the task to finalise.
+            error: If provided, the task is marked ``failed`` with this message;
+                otherwise it is marked ``completed``.
+        """
+        status = "failed" if error else "completed"
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                "UPDATE research_tasks "
+                "SET status = ?, completed_at = datetime('now'), error = ? "
+                "WHERE id = ?",
+                (status, error, task_id),
+            )
+
+    def save_research_finding(self, finding: Dict[str, Any]) -> int:
+        """Persist a structured research finding and return its id.
+
+        Args:
+            finding: Dict with keys matching the research_findings columns.
+                Required: ``role``, ``finding_type``, ``headline``.
+                Optional: ``task_id``, ``ticker``, ``detail``,
+                ``confidence_pct``, ``source``, ``methodology``,
+                ``evidence_json``, ``acted_on``.
+
+        Returns:
+            The auto-assigned finding id.
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute(
+                "INSERT INTO research_findings "
+                "(task_id, role, ticker, finding_type, headline, detail, "
+                " confidence_pct, source, methodology, evidence_json, acted_on) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    finding.get("task_id"),
+                    finding["role"],
+                    finding.get("ticker"),
+                    finding["finding_type"],
+                    finding["headline"],
+                    finding.get("detail"),
+                    finding.get("confidence_pct", 50),
+                    finding.get("source"),
+                    finding.get("methodology"),
+                    finding.get("evidence_json"),
+                    finding.get("acted_on", 0),
+                ),
+            )
+            return cursor.lastrowid or 0
+
+    def get_research_findings(
+        self,
+        *,
+        since_minutes: int = 360,
+        min_confidence: int = 0,
+        ticker: Optional[str] = None,
+        finding_type: Optional[str] = None,
+        limit: int = 50,
+    ) -> List[Dict[str, Any]]:
+        """Return recent findings, newest and most confident first.
+
+        Args:
+            since_minutes: Only return findings created within this window.
+            min_confidence: Exclude findings below this confidence threshold.
+            ticker: Optional filter by ticker symbol.
+            finding_type: Optional filter by finding category.
+            limit: Maximum number of rows to return.
+
+        Returns:
+            List of finding dicts ordered by confidence_pct DESC, created_at DESC.
+        """
+        where: List[str] = [
+            "created_at >= datetime('now', ?)",
+            "confidence_pct >= ?",
+        ]
+        params: List[Any] = [f"-{int(since_minutes)} minutes", min_confidence]
+
+        if ticker is not None:
+            where.append("ticker = ?")
+            params.append(ticker)
+
+        if finding_type is not None:
+            where.append("finding_type = ?")
+            params.append(finding_type)
+
+        sql = (
+            "SELECT * FROM research_findings "
+            f"WHERE {' AND '.join(where)} "
+            "ORDER BY confidence_pct DESC, created_at DESC "
+            "LIMIT ?"
+        )
+        params.append(int(limit))
+
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(sql, params).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_research_task_stats(self) -> Dict[str, int]:
+        """Return a count of research tasks grouped by status.
+
+        Returns:
+            Dict mapping status strings to their row counts, e.g.
+            ``{"pending": 3, "running": 1, "completed": 12, "failed": 0}``.
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            rows = conn.execute(
+                "SELECT status, COUNT(*) FROM research_tasks GROUP BY status",
+            ).fetchall()
+        return {row[0]: row[1] for row in rows}
+
+    def purge_old_research_data(self, keep_days: int = 30) -> None:
+        """Delete old findings and terminal tasks beyond the retention window.
+
+        Removes findings older than *keep_days* and completed/failed tasks
+        older than *keep_days*.
+
+        Args:
+            keep_days: Retention window in calendar days.
+        """
+        cutoff = f"-{int(keep_days)} days"
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                "DELETE FROM research_findings WHERE created_at < datetime('now', ?)",
+                (cutoff,),
+            )
+            conn.execute(
+                "DELETE FROM research_tasks "
+                "WHERE status IN ('completed', 'failed') "
+                "AND completed_at < datetime('now', ?)",
+                (cutoff,),
+            )
+
+    def insert_research_goal(
+        self,
+        goal: str,
+        priority: int = 5,
+        created_by: str = "supervisor",
+        target_roles: Optional[str] = None,
+        deadline_at: Optional[str] = None,
+    ) -> int:
+        """Insert a new research goal and return its id.
+
+        Args:
+            goal: Plain-text description of what the swarm should investigate.
+            priority: Scheduling priority for tasks spawned under this goal.
+            created_by: Identifier of the entity that created the goal.
+            target_roles: Optional comma-separated list of roles to assign.
+            deadline_at: Optional ISO-8601 deadline string.
+
+        Returns:
+            The auto-assigned goal id.
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute(
+                "INSERT INTO research_goals "
+                "(goal, priority, created_by, target_roles, deadline_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (goal, priority, created_by, target_roles, deadline_at),
+            )
+            return cursor.lastrowid or 0
+
+    def get_active_research_goals(self) -> List[Dict[str, Any]]:
+        """Return all goals whose status is ``'active'``, ordered by priority.
+
+        Returns:
+            List of goal dicts ordered by priority ASC, created_at ASC.
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                "SELECT * FROM research_goals "
+                "WHERE status = 'active' "
+                "ORDER BY priority ASC, created_at ASC",
+            ).fetchall()
+        return [dict(r) for r in rows]
 
     def close(self) -> None:
         pass  # connections are per-call via context manager

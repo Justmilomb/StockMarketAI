@@ -1,18 +1,18 @@
 # Desktop App
 
-PySide6 Bloomberg-dark desktop GUI. Phase 4+ rewrite — the pipeline
+PySide6 terminal-dark desktop GUI. Phase 4+ rewrite — the pipeline
 refresh chain is gone; panels now update live from `AgentRunner` Qt
 signals as tool calls stream back from the Claude Code subprocess.
 
 ## Entry points
 
 ```
-python desktop/main_bloomberg.py
+python desktop/main_desktop.py
 ```
 
 `desktop/main.py` is the shared bootstrap — handles PyInstaller
 `freeze_support()`, `.env` loading, license check, setup wizard,
-and applies the Bloomberg-dark QSS stylesheet before launching
+and applies the terminal-dark QSS stylesheet before launching
 `MainWindow`.
 
 ## Layout
@@ -41,7 +41,7 @@ class MainWindow(QMainWindow):  # desktop/app.py
     news_agent: NewsAgent         # legacy panel sentiment
     agent_runner: Optional[AgentRunner]   # lazy
     scraper_runner: Optional[ScraperRunner]
-    _claude_client: Optional[ClaudeClient]  # chat / ticker-search helper
+    _ai_client: Optional[AIClient]  # chat / ticker-search helper
 ```
 
 ## Agent lifecycle
@@ -76,7 +76,7 @@ stays free of PySide6 imports. Stopped in `closeEvent` via
 
 ## Theming
 
-Bloomberg-dark QSS from `desktop/theme.py`. Sharp corners, hard
+Terminal-dark QSS from `desktop/theme.py`. Sharp corners, hard
 amber/green accents — no rounded corners, no soft shadows (see
 `feedback_terminal_ui` memory).
 

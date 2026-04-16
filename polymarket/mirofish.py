@@ -1,6 +1,6 @@
 """MiroFish Monte Carlo agent simulation for prediction markets.
 
-Takes research briefs (specialist Claude estimates) and runs a
+Takes research briefs (specialist AI estimates) and runs a
 population of simulated agents with diverse biases to produce
 a robust probability consensus + confidence interval.
 

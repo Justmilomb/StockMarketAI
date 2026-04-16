@@ -100,7 +100,7 @@ def _apply_remote_config(remote_cfg: dict[str, str]) -> None:
         local.setdefault("agent", {})["paper_mode"] = practice
         changed = True
 
-    # auto_trading → agent.enabled (start/stop the Claude agent loop)
+    # auto_trading → agent.enabled (start/stop the AI agent loop)
     if "auto_trading" in remote_cfg:
         local.setdefault("agent", {})["enabled"] = remote_cfg["auto_trading"] == "true"
         changed = True
@@ -132,7 +132,7 @@ def launch(mode: str | None = None) -> None:
     """Launch the Blank desktop app.
 
     Args:
-        mode: 'bloomberg' for Bloomberg edition (shows stocks/polymarket
+        mode: 'desktop' for default desktop edition (shows stocks/polymarket
               selector), None for full mode selector.
     """
     _load_dotenv(Path(os.getcwd()))
@@ -155,12 +155,12 @@ def launch(mode: str | None = None) -> None:
     from PySide6.QtCore import Qt
     from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPixmap
     from PySide6.QtWidgets import QApplication, QSplashScreen
-    from desktop.theme import BLOOMBERG_DARK_QSS
+    from desktop.theme import DARK_TERMINAL_QSS
 
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
 
-    app.setStyleSheet(BLOOMBERG_DARK_QSS)
+    app.setStyleSheet(DARK_TERMINAL_QSS)
 
     # App icon — embedded in the EXE for frozen builds, loaded from file for dev
     if getattr(sys, "frozen", False):
@@ -302,10 +302,10 @@ def launch(mode: str | None = None) -> None:
     # ── Apply mode-specific colour overlay ────────────────────────────
     if selector_result == "polymarket":
         from desktop.theme import MODE_OVERLAY_POLYMARKET
-        app.setStyleSheet(BLOOMBERG_DARK_QSS + MODE_OVERLAY_POLYMARKET)
+        app.setStyleSheet(DARK_TERMINAL_QSS + MODE_OVERLAY_POLYMARKET)
     else:
         from desktop.theme import MODE_OVERLAY_STOCKS
-        app.setStyleSheet(BLOOMBERG_DARK_QSS + MODE_OVERLAY_STOCKS)
+        app.setStyleSheet(DARK_TERMINAL_QSS + MODE_OVERLAY_STOCKS)
 
     splash.show()
     splash.showMessage(

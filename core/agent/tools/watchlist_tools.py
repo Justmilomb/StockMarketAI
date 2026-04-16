@@ -10,7 +10,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any, Dict
 
-from claude_agent_sdk import tool
+from core.agent._sdk import tool
 
 from core.agent.context import get_agent_context
 

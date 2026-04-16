@@ -1,11 +1,11 @@
 ; blank installer — Inno Setup script
-; Build: ISCC.exe installer\bloomberg.iss
-; Requires: dist\blank.exe (from pyinstaller installer\bloomberg.spec --clean)
+; Build: ISCC.exe installer\blank.iss
+; Requires: dist\blank.exe (from pyinstaller installer\blank.spec --clean)
 ;
 ; v2.0.0 changes vs v1:
 ;   * Per-user install under %LOCALAPPDATA%\Programs\blank (no UAC).
 ;   * AppMutex = BlankTradingTerminalMutex_v2 — the exe creates this
-;     mutex in desktop\main_bloomberg.py so the installer can detect a
+;     mutex in desktop\main_desktop.py so the installer can detect a
 ;     running instance and close it gracefully during auto-update.
 ;   * CloseApplications=force + RestartApplications=yes so /VERYSILENT
 ;     upgrades from UpdateService run without user prompts.
@@ -46,12 +46,9 @@ Source: "dist\blank.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "config.json"; DestDir: "{app}"; Flags: ignoreversion onlyifdoesntexist
 Source: ".env.example"; DestDir: "{app}"; Flags: ignoreversion onlyifdoesntexist
 
-; Bundled AI engine: portable Node runtime + pre-installed
-; @anthropic-ai/claude-code CLI. These are staged by
-; scripts/prepare_engine.py before the installer is compiled. The
-; recursive copy lays them down under {app}\engine\... where
-; core\agent\paths.py knows to find them. Missing-file errors here
-; mean the release build skipped the engine prep step.
+; Bundled AI engine: portable runtime + CLI. Staged by
+; scripts/prepare_engine.py before the installer is compiled.
+; Missing-file errors here mean the engine prep step was skipped.
 Source: "build\engine\node\*"; DestDir: "{app}\engine\node"; \
     Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "build\engine\cli\*"; DestDir: "{app}\engine\cli"; \
@@ -67,7 +64,7 @@ Type: files; Name: "{app}\*.pyc"
 [Icons]
 Name: "{group}\blank"; Filename: "{app}\blank.exe"
 Name: "{group}\Uninstall blank"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\blank"; Filename: "{app}\blank.exe"; IconFilename: "{app}\blank.exe"; Tasks: desktopicon
+Name: "{group}\blank"; Filename: "{app}\blank.exe"; IconFilename: "{app}\blank.exe"; Tasks: desktopicon
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"

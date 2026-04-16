@@ -1,4 +1,4 @@
-"""News panel — sentiment summaries and headlines."""
+"""Information panel — news sentiment, headlines, and research findings."""
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -10,7 +10,7 @@ from PySide6.QtWidgets import QGroupBox, QTextEdit, QVBoxLayout
 
 class NewsPanel(QGroupBox):
     def __init__(self, state: Any) -> None:
-        super().__init__("NEWS")
+        super().__init__("INFORMATION")
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 16, 4, 4)
         self._text = QTextEdit()

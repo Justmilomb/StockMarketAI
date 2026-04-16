@@ -1,10 +1,10 @@
-"""Bloomberg terminal dark theme — sharp, dense, monospace.
+"""Dark terminal theme — sharp, dense, monospace.
 
 Pure black backgrounds, bright terminal colours, 0px border-radius,
 Consolas monospace everywhere. Designed for information density.
 """
 
-BLOOMBERG_DARK_QSS = """
+DARK_TERMINAL_QSS = """
 /* ═══════════════════════════════════════════════════════════════════
    Global
    ═══════════════════════════════════════════════════════════════════ */
@@ -439,7 +439,7 @@ VERDICT_COLORS = {
 }
 
 # ── Mode-specific QSS overlays ─────────────────────────────────────────
-# Appended to BLOOMBERG_DARK_QSS when switching asset class
+# Appended to DARK_TERMINAL_QSS when switching asset class
 
 MODE_OVERLAY_STOCKS = """
 QDockWidget::title { border-bottom: 2px solid #ffd700; }

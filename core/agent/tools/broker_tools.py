@@ -1,4 +1,4 @@
-"""Broker tools for the Claude agent.
+"""Broker tools for the AI agent.
 
 Every tool call does its own fresh broker read — no cached state.
 ``place_order`` re-fetches the portfolio before submitting so the
@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 from typing import Any, Dict, List
 
-from claude_agent_sdk import tool
+from core.agent._sdk import tool
 
 from core.agent.context import get_agent_context
 

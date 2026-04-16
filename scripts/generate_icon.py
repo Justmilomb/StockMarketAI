@@ -1,10 +1,10 @@
-"""Generate desktop/assets/icon.ico — Bloomberg-style candlestick trio.
+"""Generate desktop/assets/icon.ico — terminal-style candlestick trio.
 
 Three sharp candlesticks on a black background: a red bearish one,
 an amber bullish one (the app's brand colour — same `#ff8c00` used
 in the header label), and a green bullish one. Instantly recognisable
-as trading, unmistakably Bloomberg terminal aesthetic, zero rounded
-edges, no typographic logo.
+as trading, sharp terminal aesthetic, zero rounded edges, no
+typographic logo.
 
 Uses PySide6 for rendering (already a project dependency). No Pillow needed.
 
@@ -49,7 +49,7 @@ def render_candles(size: int) -> bytes:
     img.fill(BG)
 
     painter = QPainter(img)
-    # Sharp, no anti-alias — pure pixels, Bloomberg terminal style.
+    # Sharp, no anti-alias — pure pixels, terminal style.
     painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
 
     margin_x = max(1, int(round(size * 0.12)))
