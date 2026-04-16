@@ -4,14 +4,18 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import re
 import secrets
 import time
+from collections import deque
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
-from typing import Any, Generator, Optional
+from threading import Lock
+from typing import Any, Deque, Dict, Generator, Optional
 
 import psycopg2
 import psycopg2.extras
+import requests
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
@@ -26,6 +30,17 @@ if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 ADMIN_KEY = os.environ.get("BLANK_ADMIN_KEY", "admin")
 WEBSITE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "website")
+
+# Resend email — used by the public signup flow to email each new user
+# their access key. When RESEND_API_KEY is unset (dev), the signup
+# endpoint still creates the license row but skips the outbound call and
+# logs a warning instead so local testing doesn't need a live key.
+RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
+RESEND_FROM = os.environ.get("RESEND_FROM", "blank <blank@resend.dev>")
+DOWNLOAD_URL = os.environ.get(
+    "BLANK_DOWNLOAD_URL",
+    "https://github.com/Justmilomb/StockMarketAI/releases/latest/download/BlankSetup.exe",
+)
 
 # ── Database ─────────────────────────────────────────────────────────────
 
@@ -97,6 +112,12 @@ def _init_db(conn: psycopg2.extensions.connection) -> None:
             ("maintenance_message", ""),
             ("notification_message", ""),
             ("notification_at", ""),
+            # Landing page mode: "coming_soon" serves the pre-launch
+            # teaser with the countdown timer, "live" serves the normal
+            # landing page with download + update log. Defaults to
+            # coming_soon because v1 ships 2026-07-01 and pre-launch
+            # visitors must not see a broken download link.
+            ("landing_mode", "coming_soon"),
         ]
         for k, v in defaults:
             cur.execute(
@@ -126,7 +147,7 @@ def _init_db(conn: psycopg2.extensions.connection) -> None:
 
         seed_notes = (
             "- first official release of blank — the previous 2.x line was internal alpha, this is v1\n"
-            "- autonomous trading agent driven by claude: reads news, social buzz, charts, and places orders on its own\n"
+            "- autonomous ai trading agent: reads news, social buzz, charts, and places orders on its own\n"
             "- paper mode runs as a £100 gbp sandbox so you can watch the agent trade without risking real money\n"
             "- live mode trades via trading 212 when you hand it a real api key\n"
             "- separate paper and live windows — no more accidental mode flips mid-session\n"
@@ -193,6 +214,17 @@ class LicenseCreateRequest(BaseModel):
     email: str
     name: str = ""
     days: int = 365
+
+
+class SignupRequest(BaseModel):
+    """Public self-serve signup from the live landing page.
+
+    Only an email is collected; we auto-generate the licence key and
+    mail it out via Resend. ``name`` is optional but captured if the
+    form ever grows a second field.
+    """
+    email: str
+    name: str = ""
 
 
 class LicenseUpdateRequest(BaseModel):
@@ -346,14 +378,35 @@ def _render_releases_html(conn: psycopg2.extensions.connection) -> str:
 def landing_page(
     conn: psycopg2.extensions.connection = Depends(db_dependency),
 ) -> HTMLResponse:
-    """Serve the landing page with the update log injected from the DB.
+    """Serve the landing page — either live or coming-soon teaser.
 
-    The template carries a ``<!-- RELEASES -->`` placeholder; everything
-    between ``<!-- RELEASES:START -->`` and ``<!-- RELEASES:END -->`` is
-    replaced with the rendered release list on every request. If the DB
-    read fails for any reason, the template is returned as-is so the
-    landing page never 500s over a changelog.
+    The ``landing_mode`` config key picks which template to render:
+
+    * ``coming_soon`` — pre-launch teaser with the countdown timer and
+      feature preview grid. No download link, no changelog. This is the
+      default until v1 ships on 2026-07-01.
+    * ``live`` — normal landing page with download button and the
+      update log injected between ``<!-- RELEASES:START -->`` and
+      ``<!-- RELEASES:END -->``. If the DB read fails the template is
+      served as-is so the landing page never 500s over a changelog.
+
+    Any unknown value falls back to ``coming_soon`` so a typo in the
+    admin panel fails safe.
     """
+    mode = "coming_soon"
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT value FROM config WHERE key = 'landing_mode'")
+            row = cur.fetchone()
+            if row and row["value"] == "live":
+                mode = "live"
+    except Exception as e:
+        logger.warning("landing_mode read failed, falling back to coming_soon: %s", e)
+
+    if mode == "coming_soon":
+        with open(os.path.join(WEBSITE_DIR, "coming_soon.html"), encoding="utf-8") as f:
+            return HTMLResponse(content=f.read())
+
     with open(os.path.join(WEBSITE_DIR, "index.html"), encoding="utf-8") as f:
         html = f.read()
 
@@ -607,6 +660,190 @@ def validate_license(
         "name": row["name"],
         "expires_at": row["expires_at"].isoformat() if row["expires_at"] else None,
         "config": remote_config,
+    }
+
+
+# ── Public signup (email → access key via Resend) ───────────────────────
+
+# RFC-5322 is ridiculous; this regex covers the 99% case and we let
+# the eventual Resend delivery failure catch anything exotic.
+_EMAIL_RE = re.compile(r"^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$", re.IGNORECASE)
+
+# Per-IP rate limiter: max 3 signups per hour. In-memory because the
+# server runs on a single Render instance and the worst-case reset on
+# cold-start just gives one extra attempt. A deque of recent timestamps
+# per IP is cheap and needs no background sweeper — expired entries are
+# dropped the next time that IP hits the endpoint.
+_SIGNUP_WINDOW_SECONDS = 3600
+_SIGNUP_MAX_PER_WINDOW = 3
+_signup_rate: Dict[str, Deque[float]] = {}
+_signup_rate_lock = Lock()
+
+
+def _is_valid_email(email: str) -> bool:
+    return bool(_EMAIL_RE.match(email or ""))
+
+
+def _signup_rate_ok(ip: str) -> bool:
+    """True if this IP is still under the per-hour signup cap."""
+    now = time.monotonic()
+    cutoff = now - _SIGNUP_WINDOW_SECONDS
+    with _signup_rate_lock:
+        hits = _signup_rate.setdefault(ip, deque())
+        while hits and hits[0] < cutoff:
+            hits.popleft()
+        if len(hits) >= _SIGNUP_MAX_PER_WINDOW:
+            return False
+        hits.append(now)
+        return True
+
+
+def _render_signup_email_html(key: str, expires_iso: str) -> str:
+    """Build the HTML body for the signup email.
+
+    Kept intentionally small and inline-styled so Resend's downstream
+    mail clients don't eat the dark aesthetic — Gmail and Outlook both
+    strip <style> blocks, so the look has to live in ``style`` attrs.
+    """
+    return f"""\
+<!DOCTYPE html>
+<html><body style="margin:0;padding:0;background:#000;font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#fff;">
+  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#000;">
+    <tr><td align="center" style="padding:40px 20px;">
+      <table width="520" cellpadding="0" cellspacing="0" border="0" style="max-width:520px;">
+        <tr><td style="padding:0 0 32px 0;">
+          <h1 style="margin:0;font-size:44px;font-weight:700;letter-spacing:-0.04em;color:#fff;">blank</h1>
+          <p style="margin:6px 0 0 0;font-size:13px;color:rgba(255,255,255,0.5);letter-spacing:0.02em;">autonomous ai trading terminal</p>
+        </td></tr>
+        <tr><td style="padding:24px 20px;border:1px solid rgba(255,255,255,0.12);background:#050505;">
+          <p style="margin:0 0 14px 0;font-family:'JetBrains Mono',ui-monospace,Menlo,monospace;font-size:10px;letter-spacing:0.32em;text-transform:uppercase;color:#00ff87;">access key</p>
+          <p style="margin:0 0 20px 0;font-family:'JetBrains Mono',ui-monospace,Menlo,monospace;font-size:22px;font-weight:500;color:#fff;letter-spacing:0.04em;word-break:break-all;">{key}</p>
+          <p style="margin:0;font-size:13px;line-height:1.65;color:rgba(255,255,255,0.55);">
+            keep this safe — it unlocks the app on first launch.
+            valid until <span style="color:#fff;">{expires_iso}</span>.
+          </p>
+        </td></tr>
+        <tr><td style="padding:28px 0 0 0;" align="center">
+          <a href="{DOWNLOAD_URL}" style="display:inline-block;padding:14px 36px;font-size:13px;font-weight:400;letter-spacing:0.08em;color:#00ff87;text-decoration:none;border:1px solid rgba(0,255,135,0.35);background:#000;">download for windows</a>
+        </td></tr>
+        <tr><td style="padding:28px 0 0 0;">
+          <p style="margin:0 0 10px 0;font-size:13px;line-height:1.65;color:rgba(255,255,255,0.55);"><strong style="color:#fff;font-weight:400;">how to activate</strong></p>
+          <ol style="margin:0 0 0 18px;padding:0;font-size:12px;line-height:1.65;color:rgba(255,255,255,0.5);">
+            <li>run BlankSetup.exe and let it install (no admin rights needed).</li>
+            <li>launch blank from the start menu.</li>
+            <li>paste your access key into the first-run prompt.</li>
+            <li>the setup wizard takes it from there.</li>
+          </ol>
+        </td></tr>
+        <tr><td style="padding:40px 0 0 0;border-top:1px solid rgba(255,255,255,0.08);margin-top:40px;">
+          <p style="margin:24px 0 0 0;font-size:10px;letter-spacing:0.1em;color:rgba(255,255,255,0.25);">certified random &middot; you're receiving this because you requested access to blank.</p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>"""
+
+
+def _send_signup_email(email: str, key: str, expires_iso: str) -> bool:
+    """POST the welcome email to Resend. Returns True on success.
+
+    Non-fatal: a False return is logged but does not abort the signup
+    flow, because the licence row has already been written and the
+    admin can re-send the key manually from the /admin panel. When
+    ``RESEND_API_KEY`` is unset we skip the network call entirely and
+    return False so the dev path is loud but not broken.
+    """
+    if not RESEND_API_KEY:
+        logger.warning("RESEND_API_KEY unset — skipping signup email to %s", email)
+        return False
+
+    payload = {
+        "from": RESEND_FROM,
+        "to": [email],
+        "subject": "your blank access key",
+        "html": _render_signup_email_html(key, expires_iso),
+    }
+    try:
+        r = requests.post(
+            "https://api.resend.com/emails",
+            json=payload,
+            headers={
+                "Authorization": f"Bearer {RESEND_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            timeout=10,
+        )
+    except requests.RequestException as e:
+        logger.error("resend transport error for %s: %s", email, e)
+        return False
+
+    if r.status_code >= 300:
+        logger.error("resend %s for %s: %s", r.status_code, email, r.text[:500])
+        return False
+    return True
+
+
+@app.post("/api/signup")
+def public_signup(
+    body: SignupRequest,
+    request: Request,
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> dict[str, Any]:
+    """Public self-serve signup: email -> access key.
+
+    Creates a 365-day licence row and emails the key via Resend. If the
+    email has already been used we re-send the existing key instead of
+    minting a new one — that way a user who loses the first mail can
+    just re-submit on the landing page and get it back. Throttled per
+    IP at 3 requests/hour to keep the Resend bill sane.
+    """
+    email = (body.email or "").strip().lower()
+    if not _is_valid_email(email):
+        raise HTTPException(status_code=400, detail="please enter a valid email address")
+
+    ip = request.client.host if request.client else "unknown"
+    if not _signup_rate_ok(ip):
+        raise HTTPException(
+            status_code=429,
+            detail="too many signup attempts — try again in an hour",
+        )
+
+    # Look up any existing licence for this email first. Re-sending the
+    # same key is much nicer UX than handing out fresh keys each time
+    # someone re-submits the form.
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT key, expires_at FROM licenses WHERE LOWER(email) = %s "
+            "ORDER BY created_at DESC LIMIT 1",
+            (email,),
+        )
+        existing = cur.fetchone()
+
+    if existing:
+        key = existing["key"]
+        expires = existing["expires_at"]
+    else:
+        key = _generate_license_key()
+        expires = datetime.now(timezone.utc) + timedelta(days=365)
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO licenses (key, email, name, status, expires_at) "
+                "VALUES (%s, %s, %s, 'active', %s)",
+                (key, email, (body.name or "").strip(), expires),
+            )
+        conn.commit()
+
+    expires_iso = expires.strftime("%d %b %Y") if expires else "no expiry"
+    sent = _send_signup_email(email, key, expires_iso)
+
+    return {
+        "status": "ok",
+        "sent": sent,
+        "email": email,
+        # Only echo the key back on the API response when Resend was
+        # skipped (dev mode). Production responses never expose the
+        # key so a shoulder-surfer on the signup page can't farm it.
+        "key": key if not RESEND_API_KEY else None,
     }
 
 

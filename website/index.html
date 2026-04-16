@@ -142,47 +142,106 @@
             line-height: 1.7;
         }
 
-        /* download link */
-        .download-wrap {
+        /* signup form */
+        .signup-wrap {
             opacity: 0;
             animation: fadeUp 1s var(--ease-out) 0.7s forwards;
+            width: 100%;
+            max-width: 26rem;
         }
 
-        .download {
-            position: relative;
-            display: inline-block;
+        .signup-form {
+            display: flex;
+            align-items: stretch;
+            border: 1px solid rgba(0, 255, 135, 0.25);
+            background: #050505;
+            transition: border-color 0.4s var(--ease-out);
+        }
+
+        .signup-form:focus-within {
+            border-color: var(--glow);
+        }
+
+        .signup-form input[type="email"] {
+            flex: 1 1 auto;
+            min-width: 0;
             font-family: 'Outfit', sans-serif;
             font-size: 0.875rem;
+            font-weight: 300;
+            padding: 0.875rem 1rem;
+            background: transparent;
+            border: 0;
+            color: var(--text);
+            outline: none;
+            letter-spacing: 0.01em;
+        }
+
+        .signup-form input[type="email"]::placeholder {
+            color: rgba(255, 255, 255, 0.25);
+        }
+
+        .signup-form button {
+            position: relative;
+            flex: 0 0 auto;
+            font-family: 'Outfit', sans-serif;
+            font-size: 0.75rem;
             font-weight: 400;
-            letter-spacing: 0.08em;
+            letter-spacing: 0.14em;
+            text-transform: uppercase;
             color: var(--glow);
-            text-decoration: none;
-            padding: 0.875rem 2.5rem;
-            border: 1px solid rgba(0, 255, 135, 0.25);
-            border-radius: 2px;
-            transition: all 0.4s var(--ease-out);
+            background: transparent;
+            border: 0;
+            border-left: 1px solid rgba(0, 255, 135, 0.25);
+            padding: 0 1.5rem;
+            cursor: crosshair;
+            transition: all 0.25s var(--ease-out);
             overflow: hidden;
         }
 
-        .download::before {
+        .signup-form button::before {
             content: '';
             position: absolute;
             inset: 0;
             background: var(--glow);
             transform: scaleX(0);
             transform-origin: left;
-            transition: transform 0.4s var(--ease-out);
-            z-index: -1;
+            transition: transform 0.3s var(--ease-out);
+            z-index: 0;
         }
 
-        .download:hover {
-            color: #000000;
-            border-color: var(--glow);
+        .signup-form button span {
+            position: relative;
+            z-index: 1;
         }
 
-        .download:hover::before {
+        .signup-form button:hover {
+            color: #000;
+        }
+
+        .signup-form button:hover::before {
             transform: scaleX(1);
         }
+
+        .signup-form button:disabled {
+            color: rgba(0, 255, 135, 0.35);
+            cursor: default;
+        }
+
+        .signup-form button:disabled::before { transform: scaleX(0); }
+
+        .signup-note {
+            margin-top: 0.75rem;
+            font-size: 0.625rem;
+            font-weight: 300;
+            color: var(--text-dim);
+            letter-spacing: 0.08em;
+            text-align: center;
+            min-height: 1rem;
+            transition: color 0.3s ease;
+        }
+
+        .signup-note.ok { color: var(--glow); }
+        .signup-note.err { color: #ff5a5a; }
 
         @keyframes fadeUp {
             from {
@@ -391,8 +450,12 @@
             <p class="tagline">autonomous ai trading terminal for windows</p>
         </div>
 
-        <div class="download-wrap">
-            <a id="download-btn" href="https://github.com/Justmilomb/StockMarketAI/releases/latest/download/BlankSetup.exe" class="download">download</a>
+        <div class="signup-wrap">
+            <form id="signup-form" class="signup-form" novalidate autocomplete="off">
+                <input type="email" name="email" id="signup-email" placeholder="your email" required spellcheck="false">
+                <button type="submit" id="signup-btn"><span>get access key</span></button>
+            </form>
+            <p class="signup-note" id="signup-note">we'll email you an access key &middot; no spam, just the key</p>
         </div>
 
         <a class="scroll-hint" href="#changelog" aria-label="scroll for update log">
@@ -444,14 +507,56 @@
             requestAnimationFrame(tick);
         })();
 
-        // download tracking — fires POST /api/download then follows the link
-        document.getElementById('download-btn').addEventListener('click', function(e) {
-            var href = this.getAttribute('href');
-            if (href === '#download') return; // no real URL set yet
-            e.preventDefault();
-            fetch(window.location.origin + '/api/download', { method: 'POST' })
-                .finally(function() { window.location.href = href; });
-        });
+        // signup — POST /api/signup, flip the note on response
+        (function wireSignup() {
+            var form = document.getElementById('signup-form');
+            var input = document.getElementById('signup-email');
+            var btn = document.getElementById('signup-btn');
+            var note = document.getElementById('signup-note');
+            if (!form || !input || !btn || !note) return;
+
+            function setNote(msg, kind) {
+                note.textContent = msg;
+                note.classList.remove('ok', 'err');
+                if (kind) note.classList.add(kind);
+            }
+
+            form.addEventListener('submit', function(e) {
+                e.preventDefault();
+                var email = (input.value || '').trim();
+                if (!email || email.indexOf('@') < 0) {
+                    setNote('please enter a valid email', 'err');
+                    input.focus();
+                    return;
+                }
+                btn.disabled = true;
+                btn.querySelector('span').textContent = 'sending…';
+                setNote("checking key…", null);
+
+                fetch(window.location.origin + '/api/signup', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email: email })
+                }).then(function(r) {
+                    return r.json().then(function(j) { return { ok: r.ok, body: j }; });
+                }).then(function(resp) {
+                    if (resp.ok) {
+                        btn.querySelector('span').textContent = 'sent';
+                        setNote('check your inbox — your access key is on the way', 'ok');
+                        input.value = '';
+                    } else {
+                        btn.disabled = false;
+                        btn.querySelector('span').textContent = 'get access key';
+                        var detail = (resp.body && resp.body.detail) || 'something went wrong — try again';
+                        setNote(String(detail), 'err');
+                    }
+                }).catch(function() {
+                    btn.disabled = false;
+                    btn.querySelector('span').textContent = 'get access key';
+                    setNote('network error — try again', 'err');
+                });
+            });
+        })();
 
         // reveal each release card on scroll
         (function revealReleases() {

@@ -1,0 +1,1237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>blank — launching 01.07.2026</title>
+    <meta name="description" content="blank is an autonomous ai trading terminal for windows by certified random. launching july 1 2026.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@200;300;400;700&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+    <style>
+        *, *::before, *::after {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --bg: #000000;
+            --panel: #050505;
+            --panel-border: rgba(255, 255, 255, 0.08);
+            --panel-border-strong: rgba(255, 255, 255, 0.16);
+            --text: #ffffff;
+            --text-mid: rgba(255, 255, 255, 0.5);
+            --text-dim: rgba(255, 255, 255, 0.28);
+            --text-faint: rgba(255, 255, 255, 0.12);
+            --glow: #00ff87;
+            --glow-soft: rgba(0, 255, 135, 0.55);
+            --glow-dim: rgba(0, 255, 135, 0.08);
+            --red: #ff3b3b;
+            --amber: #ffb020;
+            --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+            --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+        }
+
+        html {
+            font-size: 16px;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: 'Outfit', sans-serif;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow-x: hidden;
+            cursor: crosshair;
+        }
+
+        /* animated grain overlay (matches index.html) */
+        body::before {
+            content: '';
+            position: fixed;
+            inset: -50%;
+            z-index: 1000;
+            pointer-events: none;
+            opacity: 0.04;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 512 512' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+            background-repeat: repeat;
+            background-size: 256px 256px;
+            animation: grain 8s steps(10) infinite;
+        }
+
+        @keyframes grain {
+            0%, 100% { transform: translate(0, 0); }
+            10% { transform: translate(-5%, -10%); }
+            20% { transform: translate(-15%, 5%); }
+            30% { transform: translate(7%, -15%); }
+            40% { transform: translate(-5%, 15%); }
+            50% { transform: translate(-15%, 10%); }
+            60% { transform: translate(15%, 0%); }
+            70% { transform: translate(0%, 10%); }
+            80% { transform: translate(3%, -15%); }
+            90% { transform: translate(-10%, 10%); }
+        }
+
+        /* cursor-follow spotlight */
+        .spotlight {
+            position: fixed;
+            inset: 0;
+            z-index: 1;
+            pointer-events: none;
+            background: radial-gradient(
+                600px circle at var(--mx, 50%) var(--my, 50%),
+                rgba(255, 255, 255, 0.03),
+                transparent 70%
+            );
+            transition: opacity 0.4s ease;
+        }
+
+        /* subtle scanline grid background over the hero */
+        .grid {
+            position: fixed;
+            inset: 0;
+            z-index: 0;
+            pointer-events: none;
+            background-image:
+                linear-gradient(rgba(255,255,255,0.015) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255,255,255,0.015) 1px, transparent 1px);
+            background-size: 64px 64px;
+            mask-image: radial-gradient(ellipse at center, rgba(0,0,0,0.9), transparent 75%);
+            -webkit-mask-image: radial-gradient(ellipse at center, rgba(0,0,0,0.9), transparent 75%);
+        }
+
+        /* ── hero ─────────────────────────────────────────────────── */
+        main {
+            position: relative;
+            z-index: 10;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 2rem;
+            text-align: center;
+            gap: 0;
+        }
+
+        /* top status bar — Bloomberg-style header line */
+        .status-bar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 20;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.875rem 1.5rem;
+            font-family: var(--mono);
+            font-size: 0.625rem;
+            letter-spacing: 0.12em;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            border-bottom: 1px solid var(--panel-border);
+            background: rgba(0, 0, 0, 0.65);
+            backdrop-filter: blur(6px);
+            -webkit-backdrop-filter: blur(6px);
+            opacity: 0;
+            animation: fadeUp 0.8s var(--ease-out) 0.1s forwards;
+        }
+
+        .status-bar .left,
+        .status-bar .right {
+            display: flex;
+            gap: 1.5rem;
+            align-items: center;
+        }
+
+        .status-bar .live-dot {
+            display: inline-block;
+            width: 6px;
+            height: 6px;
+            background: var(--glow);
+            box-shadow: 0 0 8px var(--glow-soft);
+            margin-right: 0.5rem;
+            vertical-align: middle;
+            animation: blink 1.8s ease-in-out infinite;
+        }
+
+        @keyframes blink {
+            0%, 55%, 100% { opacity: 1; }
+            60%, 85% { opacity: 0.25; }
+        }
+
+        /* staggered letter reveal — same as live page */
+        .title {
+            font-weight: 700;
+            font-size: clamp(4.5rem, 13vw, 11rem);
+            line-height: 1;
+            letter-spacing: -0.04em;
+            margin-bottom: 1rem;
+            overflow: hidden;
+        }
+
+        .title span {
+            display: inline-block;
+            opacity: 0;
+            transform: translateY(100%);
+            animation: letterIn 0.8s var(--ease-out) forwards;
+        }
+
+        .title span:nth-child(1) { animation-delay: 0.15s; }
+        .title span:nth-child(2) { animation-delay: 0.21s; }
+        .title span:nth-child(3) { animation-delay: 0.27s; }
+        .title span:nth-child(4) { animation-delay: 0.33s; }
+        .title span:nth-child(5) { animation-delay: 0.39s; }
+
+        @keyframes letterIn {
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .tagline {
+            font-size: clamp(0.875rem, 1.5vw, 1.0625rem);
+            font-weight: 300;
+            color: var(--text-mid);
+            letter-spacing: 0.02em;
+            line-height: 1.7;
+            opacity: 0;
+            animation: fadeUp 1s var(--ease-out) 0.55s forwards;
+            margin-bottom: 3.5rem;
+        }
+
+        @keyframes fadeUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+
+        /* ── countdown timer ──────────────────────────────────────── */
+        .countdown-wrap {
+            opacity: 0;
+            animation: fadeUp 1s var(--ease-out) 0.75s forwards;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 1.25rem;
+        }
+
+        .countdown-label {
+            font-family: var(--mono);
+            font-size: 0.625rem;
+            font-weight: 400;
+            letter-spacing: 0.32em;
+            color: var(--glow);
+            text-transform: uppercase;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .countdown-label::before,
+        .countdown-label::after {
+            content: '';
+            display: inline-block;
+            width: 2rem;
+            height: 1px;
+            background: var(--glow-soft);
+        }
+
+        .countdown {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 1rem;
+        }
+
+        .unit {
+            position: relative;
+            min-width: 5.5rem;
+            padding: 1.25rem 1rem 0.875rem;
+            border: 1px solid var(--panel-border-strong);
+            background:
+                linear-gradient(180deg, rgba(0, 255, 135, 0.03), transparent 60%),
+                var(--panel);
+            text-align: center;
+            overflow: hidden;
+        }
+
+        .unit::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, var(--glow-soft), transparent);
+            opacity: 0.6;
+        }
+
+        .unit .num {
+            display: block;
+            font-family: var(--mono);
+            font-size: clamp(2rem, 5vw, 3rem);
+            font-weight: 500;
+            line-height: 1;
+            color: var(--text);
+            letter-spacing: -0.02em;
+            font-variant-numeric: tabular-nums;
+            text-shadow: 0 0 24px rgba(0, 255, 135, 0.12);
+        }
+
+        .unit .lab {
+            display: block;
+            margin-top: 0.625rem;
+            font-family: var(--mono);
+            font-size: 0.5625rem;
+            font-weight: 400;
+            letter-spacing: 0.2em;
+            color: var(--text-dim);
+            text-transform: uppercase;
+        }
+
+        /* flip nudge when a digit changes */
+        .unit.tick .num {
+            animation: tick 0.4s var(--ease-out);
+        }
+
+        @keyframes tick {
+            0%   { transform: translateY(0);      opacity: 1; }
+            45%  { transform: translateY(-0.35em); opacity: 0.15; }
+            55%  { transform: translateY(0.35em);  opacity: 0.15; }
+            100% { transform: translateY(0);       opacity: 1; }
+        }
+
+        .launch-date {
+            font-family: var(--mono);
+            font-size: 0.625rem;
+            font-weight: 300;
+            letter-spacing: 0.2em;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            margin-top: 0.25rem;
+        }
+
+        /* scroll hint at the bottom of the hero */
+        .scroll-hint {
+            position: absolute;
+            bottom: 2.25rem;
+            left: 0;
+            right: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.75rem;
+            font-size: 0.625rem;
+            font-weight: 300;
+            color: var(--text-dim);
+            letter-spacing: 0.2em;
+            text-decoration: none;
+            text-transform: uppercase;
+            opacity: 0;
+            animation: fadeUp 1s var(--ease-out) 1.2s forwards;
+            transition: color 0.4s var(--ease-out);
+        }
+
+        .scroll-hint:hover { color: var(--glow); }
+
+        .scroll-hint .arrow {
+            display: block;
+            width: 1px;
+            height: 1.75rem;
+            background: currentColor;
+            transform-origin: top;
+            animation: scrollPulse 2.2s var(--ease-out) infinite;
+        }
+
+        @keyframes scrollPulse {
+            0%, 100% { transform: scaleY(0.3); opacity: 0.25; }
+            50%      { transform: scaleY(1);   opacity: 1; }
+        }
+
+        /* ── feature preview ──────────────────────────────────────── */
+        .preview {
+            position: relative;
+            z-index: 10;
+            width: 100%;
+            padding: 7rem 1.5rem 4rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .preview-inner {
+            width: 100%;
+            max-width: 72rem;
+        }
+
+        .section-label {
+            font-family: var(--mono);
+            font-size: 0.625rem;
+            font-weight: 400;
+            letter-spacing: 0.32em;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            text-align: center;
+            margin-bottom: 1rem;
+        }
+
+        .section-title {
+            font-size: clamp(1.5rem, 3.5vw, 2.5rem);
+            font-weight: 300;
+            letter-spacing: -0.02em;
+            text-align: center;
+            margin-bottom: 0.75rem;
+            color: var(--text);
+        }
+
+        .section-sub {
+            font-size: clamp(0.8125rem, 1.3vw, 0.9375rem);
+            font-weight: 300;
+            color: var(--text-mid);
+            line-height: 1.7;
+            text-align: center;
+            max-width: 36rem;
+            margin: 0 auto 4rem;
+        }
+
+        .panels {
+            display: grid;
+            grid-template-columns: repeat(12, 1fr);
+            gap: 1rem;
+        }
+
+        /* base panel */
+        .panel {
+            position: relative;
+            border: 1px solid var(--panel-border);
+            background: var(--panel);
+            padding: 1.25rem 1.375rem 1.5rem;
+            opacity: 0;
+            transform: translateY(16px);
+            transition:
+                opacity 0.9s var(--ease-out),
+                transform 0.9s var(--ease-out),
+                border-color 0.4s var(--ease-out);
+            overflow: hidden;
+        }
+
+        .panel.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .panel:hover {
+            border-color: var(--panel-border-strong);
+        }
+
+        .panel::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.16), transparent);
+        }
+
+        .panel .head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-family: var(--mono);
+            font-size: 0.5625rem;
+            letter-spacing: 0.2em;
+            text-transform: uppercase;
+            color: var(--text-dim);
+            padding-bottom: 0.75rem;
+            margin-bottom: 1rem;
+            border-bottom: 1px solid var(--panel-border);
+        }
+
+        .panel .head .id {
+            color: var(--text-dim);
+        }
+
+        .panel .head .state {
+            color: var(--glow);
+            display: flex;
+            align-items: center;
+            gap: 0.375rem;
+        }
+
+        .panel .head .state.amber { color: var(--amber); }
+        .panel .head .state.red   { color: var(--red); }
+
+        .panel .head .state::before {
+            content: '';
+            display: inline-block;
+            width: 5px;
+            height: 5px;
+            background: currentColor;
+            box-shadow: 0 0 6px currentColor;
+        }
+
+        .panel h3 {
+            font-size: 1.0625rem;
+            font-weight: 400;
+            letter-spacing: -0.01em;
+            color: var(--text);
+            margin-bottom: 0.375rem;
+        }
+
+        .panel p {
+            font-size: 0.8125rem;
+            font-weight: 300;
+            color: var(--text-mid);
+            line-height: 1.65;
+            margin-bottom: 1rem;
+        }
+
+        /* column spans */
+        .col-4 { grid-column: span 4; }
+        .col-6 { grid-column: span 6; }
+        .col-8 { grid-column: span 8; }
+        .col-12 { grid-column: span 12; }
+
+        /* ── panel mock bodies ───────────────────────────────────── */
+
+        /* mock: agent reasoning stream */
+        .mock-stream {
+            font-family: var(--mono);
+            font-size: 0.6875rem;
+            line-height: 1.7;
+            color: var(--text-mid);
+            padding: 0.875rem 1rem;
+            border: 1px solid var(--panel-border);
+            background: #020202;
+            min-height: 9.5rem;
+        }
+
+        .mock-stream .row {
+            display: flex;
+            gap: 0.625rem;
+        }
+
+        .mock-stream .ts    { color: var(--text-faint); flex-shrink: 0; }
+        .mock-stream .tag   { color: var(--glow); }
+        .mock-stream .tag.w { color: var(--amber); }
+        .mock-stream .tag.e { color: var(--red); }
+        .mock-stream .msg   { color: var(--text-mid); }
+
+        .mock-stream .cursor {
+            display: inline-block;
+            width: 0.5em;
+            height: 1em;
+            background: var(--glow);
+            vertical-align: -2px;
+            animation: caret 1s steps(1) infinite;
+            margin-left: 2px;
+        }
+
+        @keyframes caret {
+            0%, 50% { opacity: 1; }
+            51%, 100% { opacity: 0; }
+        }
+
+        /* mock: paper P&L tile with sparkline */
+        .mock-pnl {
+            display: flex;
+            align-items: flex-end;
+            justify-content: space-between;
+            gap: 1rem;
+            padding-top: 0.25rem;
+        }
+
+        .mock-pnl .big {
+            font-family: var(--mono);
+            font-size: 2rem;
+            font-weight: 500;
+            color: var(--glow);
+            line-height: 1;
+            letter-spacing: -0.02em;
+            text-shadow: 0 0 24px rgba(0, 255, 135, 0.16);
+            font-variant-numeric: tabular-nums;
+        }
+
+        .mock-pnl .meta {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 0.25rem;
+            font-family: var(--mono);
+            font-size: 0.625rem;
+            color: var(--text-dim);
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+
+        .mock-pnl .delta {
+            color: var(--glow);
+            font-size: 0.6875rem;
+        }
+
+        .mock-spark {
+            margin-top: 1rem;
+            width: 100%;
+            height: 3.5rem;
+        }
+
+        .mock-spark path.line {
+            fill: none;
+            stroke: var(--glow);
+            stroke-width: 1.25;
+            opacity: 0.9;
+        }
+
+        .mock-spark path.area {
+            fill: url(#spark-grad);
+            opacity: 0.7;
+        }
+
+        /* mock: ticker watchlist */
+        .mock-watch {
+            font-family: var(--mono);
+            font-size: 0.75rem;
+        }
+
+        .mock-watch .row {
+            display: grid;
+            grid-template-columns: 1fr auto auto;
+            gap: 0.5rem;
+            padding: 0.5rem 0;
+            border-bottom: 1px dashed var(--panel-border);
+            align-items: center;
+        }
+
+        .mock-watch .row:last-child { border-bottom: none; }
+
+        .mock-watch .sym {
+            font-weight: 500;
+            color: var(--text);
+            letter-spacing: 0.04em;
+        }
+
+        .mock-watch .px {
+            color: var(--text-mid);
+            font-variant-numeric: tabular-nums;
+        }
+
+        .mock-watch .pct {
+            min-width: 3.75rem;
+            text-align: right;
+            font-size: 0.6875rem;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .mock-watch .up   { color: var(--glow); }
+        .mock-watch .down { color: var(--red); }
+
+        /* mock: chat dialog */
+        .mock-chat {
+            font-family: 'Outfit', sans-serif;
+            font-size: 0.8125rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+
+        .mock-chat .bubble {
+            padding: 0.625rem 0.875rem;
+            border: 1px solid var(--panel-border);
+            background: #020202;
+            max-width: 92%;
+            line-height: 1.55;
+            color: var(--text-mid);
+        }
+
+        .mock-chat .bubble.me {
+            align-self: flex-end;
+            border-color: rgba(0, 255, 135, 0.2);
+            color: var(--text);
+        }
+
+        .mock-chat .bubble.ai {
+            align-self: flex-start;
+            color: var(--text-mid);
+        }
+
+        .mock-chat .bubble .who {
+            display: block;
+            font-family: var(--mono);
+            font-size: 0.5625rem;
+            letter-spacing: 0.18em;
+            text-transform: uppercase;
+            color: var(--text-dim);
+            margin-bottom: 0.375rem;
+        }
+
+        .mock-chat .bubble.me .who { color: var(--glow); }
+
+        /* mock: news feed */
+        .mock-news {
+            font-size: 0.75rem;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .mock-news .item {
+            display: grid;
+            grid-template-columns: auto 1fr auto;
+            gap: 0.625rem;
+            padding: 0.625rem 0;
+            border-bottom: 1px solid var(--panel-border);
+            align-items: center;
+        }
+
+        .mock-news .item:last-child { border-bottom: none; }
+
+        .mock-news .src {
+            font-family: var(--mono);
+            font-size: 0.5625rem;
+            letter-spacing: 0.14em;
+            text-transform: uppercase;
+            color: var(--text-dim);
+            padding: 0.125rem 0.375rem;
+            border: 1px solid var(--panel-border);
+        }
+
+        .mock-news .hl {
+            color: var(--text-mid);
+            font-weight: 300;
+            line-height: 1.45;
+        }
+
+        .mock-news .sent {
+            font-family: var(--mono);
+            font-size: 0.625rem;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+        }
+
+        .mock-news .sent.pos { color: var(--glow); }
+        .mock-news .sent.neg { color: var(--red); }
+        .mock-news .sent.neu { color: var(--text-dim); }
+
+        /* mock: exchange globe (ASCII style list) */
+        .mock-exchanges {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 0.375rem 1rem;
+            font-family: var(--mono);
+            font-size: 0.6875rem;
+            color: var(--text-mid);
+        }
+
+        .mock-exchanges span {
+            display: flex;
+            justify-content: space-between;
+            padding: 0.3125rem 0;
+            border-bottom: 1px dashed var(--panel-border);
+            letter-spacing: 0.06em;
+        }
+
+        .mock-exchanges .dot {
+            width: 4px;
+            height: 4px;
+            background: var(--glow);
+            box-shadow: 0 0 5px var(--glow-soft);
+            align-self: center;
+        }
+
+        /* mock: bundled engine checklist */
+        .mock-bundle {
+            font-family: var(--mono);
+            font-size: 0.6875rem;
+            color: var(--text-mid);
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .mock-bundle .line {
+            display: flex;
+            align-items: center;
+            gap: 0.625rem;
+            letter-spacing: 0.04em;
+        }
+
+        .mock-bundle .ok {
+            color: var(--glow);
+            font-weight: 500;
+        }
+
+        /* ── CTA card ─────────────────────────────────────────────── */
+        .cta {
+            margin-top: 5rem;
+            padding: 2.25rem 1.75rem;
+            border: 1px solid var(--panel-border-strong);
+            background:
+                linear-gradient(180deg, rgba(0, 255, 135, 0.03), transparent 50%),
+                var(--panel);
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .cta::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background:
+                repeating-linear-gradient(
+                    90deg,
+                    transparent 0,
+                    transparent 78px,
+                    rgba(255, 255, 255, 0.015) 78px,
+                    rgba(255, 255, 255, 0.015) 79px
+                );
+            pointer-events: none;
+        }
+
+        .cta-lead {
+            font-family: var(--mono);
+            font-size: 0.625rem;
+            font-weight: 400;
+            letter-spacing: 0.32em;
+            color: var(--glow);
+            text-transform: uppercase;
+            margin-bottom: 0.75rem;
+        }
+
+        .cta h4 {
+            font-size: clamp(1.25rem, 2.6vw, 1.875rem);
+            font-weight: 300;
+            letter-spacing: -0.01em;
+            color: var(--text);
+            margin-bottom: 0.5rem;
+        }
+
+        .cta p {
+            font-size: 0.875rem;
+            font-weight: 300;
+            color: var(--text-mid);
+            line-height: 1.7;
+            max-width: 32rem;
+            margin: 0 auto;
+        }
+
+        /* ── footer ────────────────────────────────────────────── */
+        footer {
+            position: relative;
+            z-index: 10;
+            padding: 2.5rem 2rem;
+            text-align: center;
+            opacity: 0;
+            animation: fadeUp 1s var(--ease-out) 1.4s forwards;
+        }
+
+        .credit {
+            font-size: 0.6875rem;
+            font-weight: 300;
+            color: var(--text-dim);
+            letter-spacing: 0.08em;
+        }
+
+        .footer-links {
+            margin-top: 0.75rem;
+            font-size: 0.6875rem;
+            letter-spacing: 0.08em;
+        }
+
+        .footer-links a {
+            color: var(--text-dim);
+            text-decoration: none;
+            margin: 0 0.5rem;
+            transition: color 0.2s ease;
+        }
+
+        .footer-links a:hover { color: var(--glow); }
+
+        /* ── responsive ────────────────────────────────────────── */
+        @media (max-width: 920px) {
+            .panels { grid-template-columns: repeat(6, 1fr); }
+            .col-4 { grid-column: span 6; }
+            .col-6 { grid-column: span 6; }
+            .col-8 { grid-column: span 6; }
+        }
+
+        @media (max-width: 600px) {
+            .status-bar { font-size: 0.5625rem; padding: 0.625rem 0.875rem; }
+            .status-bar .left, .status-bar .right { gap: 0.875rem; }
+            .status-bar .hide-mobile { display: none; }
+            .countdown { gap: 0.5rem; }
+            .unit { min-width: 0; padding: 0.875rem 0.5rem 0.625rem; }
+            .unit .num { font-size: 1.75rem; }
+            .unit .lab { font-size: 0.5rem; letter-spacing: 0.15em; }
+            .panels { grid-template-columns: 1fr; }
+            .col-4, .col-6, .col-8 { grid-column: span 1; }
+            .preview { padding-top: 5rem; }
+            .cta { margin-top: 3rem; padding: 1.75rem 1.25rem; }
+        }
+
+        @media (max-width: 400px) {
+            .countdown-label::before, .countdown-label::after { width: 1rem; }
+        }
+
+        /* reduced motion */
+        @media (prefers-reduced-motion: reduce) {
+            body::before { animation: none; }
+            .title span, .tagline, .countdown-wrap, .status-bar, .scroll-hint, footer {
+                opacity: 1; transform: none; animation: none;
+            }
+            .scroll-hint .arrow { animation: none; }
+            .panel { opacity: 1; transform: none; transition: none; }
+            .unit.tick .num { animation: none; }
+            .mock-stream .cursor { animation: none; }
+            .status-bar .live-dot { animation: none; }
+        }
+    </style>
+</head>
+<body>
+    <div class="spotlight" aria-hidden="true"></div>
+    <div class="grid" aria-hidden="true"></div>
+
+    <div class="status-bar" role="presentation">
+        <div class="left">
+            <span><span class="live-dot"></span>system armed</span>
+            <span class="hide-mobile">build v1.0.0</span>
+        </div>
+        <div class="right">
+            <span class="hide-mobile">status: pre-launch</span>
+            <span>01.07.2026</span>
+        </div>
+    </div>
+
+    <main>
+        <h1 class="title"><span>b</span><span>l</span><span>a</span><span>n</span><span>k</span></h1>
+        <p class="tagline">autonomous ai trading terminal for windows</p>
+
+        <div class="countdown-wrap">
+            <div class="countdown-label">public launch in</div>
+            <div class="countdown" id="countdown" aria-live="polite">
+                <div class="unit"><span class="num" data-unit="d">--</span><span class="lab">days</span></div>
+                <div class="unit"><span class="num" data-unit="h">--</span><span class="lab">hours</span></div>
+                <div class="unit"><span class="num" data-unit="m">--</span><span class="lab">minutes</span></div>
+                <div class="unit"><span class="num" data-unit="s">--</span><span class="lab">seconds</span></div>
+            </div>
+            <div class="launch-date">01 july 2026 &middot; 09:00 utc</div>
+        </div>
+
+        <a class="scroll-hint" href="#preview" aria-label="scroll for feature preview">
+            <span>preview</span>
+            <span class="arrow" aria-hidden="true"></span>
+        </a>
+    </main>
+
+    <section id="preview" class="preview">
+        <div class="preview-inner">
+            <div class="section-label">inside the terminal</div>
+            <h2 class="section-title">a quant desk that runs itself</h2>
+            <p class="section-sub">
+                an ai analyst, a paper sandbox, a live broker and a newsroom &mdash; in one bloomberg-style window.
+                nothing to configure. no api keys to juggle. just launch.
+            </p>
+
+            <div class="panels">
+                <!-- autonomous agent stream -->
+                <div class="panel col-8">
+                    <div class="head">
+                        <span class="id">AGT &middot; supervisor</span>
+                        <span class="state">armed</span>
+                    </div>
+                    <h3>autonomous trading agent</h3>
+                    <p>
+                        the agent reads the tape, the news, the order book and your portfolio every 90 seconds.
+                        it proposes, sizes and executes trades inside your risk envelope &mdash; you just watch.
+                    </p>
+                    <div class="mock-stream" aria-hidden="true">
+                        <div class="row"><span class="ts">09:41:02</span><span class="tag">IDEA</span><span class="msg">NVDA breakout — momentum &gt; 2&sigma;</span></div>
+                        <div class="row"><span class="ts">09:41:03</span><span class="tag">PLAN</span><span class="msg">size 4.8% notional, stop -1.2%</span></div>
+                        <div class="row"><span class="ts">09:41:04</span><span class="tag w">RISK</span><span class="msg">drawdown budget: 61% of daily</span></div>
+                        <div class="row"><span class="ts">09:41:06</span><span class="tag">EXEC</span><span class="msg">buy 18 @ 864.20 — filled</span></div>
+                        <div class="row"><span class="ts">09:41:09</span><span class="tag">LOG </span><span class="msg">reasoning committed to journal</span></div>
+                        <div class="row"><span class="ts">09:41:11</span><span class="tag">WAIT</span><span class="msg">next cycle in 79s<span class="cursor"></span></span></div>
+                    </div>
+                </div>
+
+                <!-- paper p&l -->
+                <div class="panel col-4">
+                    <div class="head">
+                        <span class="id">PNL &middot; paper</span>
+                        <span class="state">live</span>
+                    </div>
+                    <h3>paper mode sandbox</h3>
+                    <p>
+                        a £100 gbp dojo to watch the agent trade without risking real money.
+                        full fills, fx, and journalling — just no broker leg.
+                    </p>
+                    <div class="mock-pnl">
+                        <span class="big">£142.08</span>
+                        <div class="meta">
+                            <span class="delta">+42.08%</span>
+                            <span>14 d</span>
+                        </div>
+                    </div>
+                    <svg class="mock-spark" viewBox="0 0 240 56" preserveAspectRatio="none" aria-hidden="true">
+                        <defs>
+                            <linearGradient id="spark-grad" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="0%" stop-color="#00ff87" stop-opacity="0.35"/>
+                                <stop offset="100%" stop-color="#00ff87" stop-opacity="0"/>
+                            </linearGradient>
+                        </defs>
+                        <path class="area" d="M0,42 L12,40 L24,43 L36,36 L48,38 L60,32 L72,35 L84,28 L96,30 L108,22 L120,26 L132,18 L144,21 L156,14 L168,17 L180,9 L192,12 L204,6 L216,9 L228,4 L240,6 L240,56 L0,56 Z"/>
+                        <path class="line" d="M0,42 L12,40 L24,43 L36,36 L48,38 L60,32 L72,35 L84,28 L96,30 L108,22 L120,26 L132,18 L144,21 L156,14 L168,17 L180,9 L192,12 L204,6 L216,9 L228,4 L240,6"/>
+                    </svg>
+                </div>
+
+                <!-- watchlist -->
+                <div class="panel col-4">
+                    <div class="head">
+                        <span class="id">WL &middot; default</span>
+                        <span class="state">streaming</span>
+                    </div>
+                    <h3>global watchlists</h3>
+                    <p>
+                        separate watchlists per asset class and mode. the agent respects every single one of them.
+                    </p>
+                    <div class="mock-watch">
+                        <div class="row"><span class="sym">NVDA</span><span class="px">864.20</span><span class="pct up">+2.14%</span></div>
+                        <div class="row"><span class="sym">AAPL</span><span class="px">228.71</span><span class="pct up">+0.62%</span></div>
+                        <div class="row"><span class="sym">MSFT</span><span class="px">434.92</span><span class="pct up">+1.05%</span></div>
+                        <div class="row"><span class="sym">META</span><span class="px">612.44</span><span class="pct down">-0.38%</span></div>
+                        <div class="row"><span class="sym">TSLA</span><span class="px">256.01</span><span class="pct down">-1.21%</span></div>
+                        <div class="row"><span class="sym">AMZN</span><span class="px">221.15</span><span class="pct up">+0.47%</span></div>
+                    </div>
+                </div>
+
+                <!-- persistent chat -->
+                <div class="panel col-8">
+                    <div class="head">
+                        <span class="id">CHAT &middot; assistant</span>
+                        <span class="state">idle</span>
+                    </div>
+                    <h3>persistent chat agent</h3>
+                    <p>
+                        ask blank anything — &ldquo;why did you sell nvda?&rdquo;, &ldquo;size up my tsla thesis&rdquo;, &ldquo;show me the fed minutes&rdquo; —
+                        the reply lands in seconds, not at the end of the next cycle.
+                    </p>
+                    <div class="mock-chat">
+                        <div class="bubble me">
+                            <span class="who">you</span>
+                            why are we still long nvda after that cpi print?
+                        </div>
+                        <div class="bubble ai">
+                            <span class="who">blank</span>
+                            the print was hot on headline but core services cooled 20bp m/m — my trimmed model puts fed odds unchanged. nvda's beta to rates is ~0.4 here and momentum&nbsp;+ hyperscaler capex thesis is intact. holding the 18sh with stop at 853.
+                        </div>
+                    </div>
+                </div>
+
+                <!-- news & sentiment -->
+                <div class="panel col-8">
+                    <div class="head">
+                        <span class="id">NEWS &middot; scraper</span>
+                        <span class="state">streaming</span>
+                    </div>
+                    <h3>live news &amp; sentiment</h3>
+                    <p>
+                        reddit, stocktwits, bloomberg, marketwatch and youtube — batched through the ai pipeline every few minutes,
+                        tagged per ticker and fed to the agent.
+                    </p>
+                    <div class="mock-news">
+                        <div class="item">
+                            <span class="src">Bloomberg</span>
+                            <span class="hl">nvidia hyperscaler capex guide raised 14% &mdash; deutsche bank</span>
+                            <span class="sent pos">+0.82</span>
+                        </div>
+                        <div class="item">
+                            <span class="src">Reddit</span>
+                            <span class="hl">wsb chatter on tsla robotaxi pilot ticks up heading into q2</span>
+                            <span class="sent pos">+0.41</span>
+                        </div>
+                        <div class="item">
+                            <span class="src">MarketW</span>
+                            <span class="hl">aapl supply chain notes flag softer india handset pull-through</span>
+                            <span class="sent neg">-0.23</span>
+                        </div>
+                        <div class="item">
+                            <span class="src">StockTw</span>
+                            <span class="hl">meta rumor mill: new ray-ban sku dated for june keynote</span>
+                            <span class="sent neu">+0.05</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- exchanges -->
+                <div class="panel col-4">
+                    <div class="head">
+                        <span class="id">VENUE &middot; routing</span>
+                        <span class="state">online</span>
+                    </div>
+                    <h3>every western exchange</h3>
+                    <p>
+                        the agent trades where your tickers actually live — in their native currency, with fx handled under the hood.
+                    </p>
+                    <div class="mock-exchanges">
+                        <span>NYSE<span class="dot"></span></span>
+                        <span>NASDAQ<span class="dot"></span></span>
+                        <span>LSE<span class="dot"></span></span>
+                        <span>XETRA<span class="dot"></span></span>
+                        <span>EURONEXT<span class="dot"></span></span>
+                        <span>SIX<span class="dot"></span></span>
+                        <span>OMX<span class="dot"></span></span>
+                        <span>OSLO<span class="dot"></span></span>
+                        <span>TASE<span class="dot"></span></span>
+                    </div>
+                </div>
+
+                <!-- live broker -->
+                <div class="panel col-4">
+                    <div class="head">
+                        <span class="id">BRK &middot; trading 212</span>
+                        <span class="state amber">arming</span>
+                    </div>
+                    <h3>live broker handoff</h3>
+                    <p>
+                        paper mode is for learning. when you're ready, drop in a trading&nbsp;212 api key and the same agent goes live &mdash; same risk rules, real fills.
+                    </p>
+                    <div class="mock-watch">
+                        <div class="row"><span class="sym">equity</span><span class="px">&pound;2,418.70</span><span class="pct up">+1.8%</span></div>
+                        <div class="row"><span class="sym">free</span><span class="px">&pound;1,201.05</span><span class="pct" style="color:var(--text-dim)">&nbsp;</span></div>
+                        <div class="row"><span class="sym">exposure</span><span class="px">50.4%</span><span class="pct" style="color:var(--text-dim)">&nbsp;</span></div>
+                        <div class="row"><span class="sym">pnl d</span><span class="px">&pound;+42.90</span><span class="pct up">+1.81%</span></div>
+                    </div>
+                </div>
+
+                <!-- bundled engine -->
+                <div class="panel col-4">
+                    <div class="head">
+                        <span class="id">BOOT &middot; first run</span>
+                        <span class="state">ready</span>
+                    </div>
+                    <h3>zero-setup install</h3>
+                    <p>
+                        the full ai engine ships inside the installer. download, click, trade &mdash; no api keys, no cli, no pip.
+                    </p>
+                    <div class="mock-bundle">
+                        <div class="line"><span class="ok">[ok]</span> runtime bundled</div>
+                        <div class="line"><span class="ok">[ok]</span> ai engine bundled</div>
+                        <div class="line"><span class="ok">[ok]</span> license heartbeat 60s</div>
+                        <div class="line"><span class="ok">[ok]</span> auto-updates armed</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="cta">
+                <div class="cta-lead">release window</div>
+                <h4>01 july 2026</h4>
+                <p>
+                    blank v1.0.0 goes public on launch day. no pre-orders, no waitlist &mdash; the installer simply goes live on this page.
+                    check back on launch day.
+                </p>
+            </div>
+        </div>
+    </section>
+
+    <footer>
+        <p class="credit">certified random</p>
+        <p class="footer-links">
+            <a href="/privacy">privacy</a>
+        </p>
+    </footer>
+
+    <script>
+        // cursor-follow spotlight
+        const spot = document.querySelector('.spotlight');
+        let mx = 0.5, my = 0.5, cx = 0.5, cy = 0.5;
+
+        document.addEventListener('mousemove', (e) => {
+            mx = e.clientX / window.innerWidth;
+            my = e.clientY / window.innerHeight;
+        });
+
+        (function tick() {
+            cx += (mx - cx) * 0.08;
+            cy += (my - cy) * 0.08;
+            spot.style.setProperty('--mx', (cx * 100) + '%');
+            spot.style.setProperty('--my', (cy * 100) + '%');
+            requestAnimationFrame(tick);
+        })();
+
+        // countdown — 01 july 2026, 09:00 utc
+        // numeric month index is 6 for july (0-indexed). utc so the
+        // ticker matches what the status bar promises regardless of
+        // the visitor's local clock.
+        const LAUNCH = Date.UTC(2026, 6, 1, 9, 0, 0);
+        const cd = {
+            d: document.querySelector('[data-unit="d"]'),
+            h: document.querySelector('[data-unit="h"]'),
+            m: document.querySelector('[data-unit="m"]'),
+            s: document.querySelector('[data-unit="s"]')
+        };
+
+        function pad(n, w) {
+            n = String(Math.max(0, n | 0));
+            while (n.length < w) n = '0' + n;
+            return n;
+        }
+
+        function render(distance) {
+            const d = Math.floor(distance / 86400000);
+            const h = Math.floor((distance % 86400000) / 3600000);
+            const m = Math.floor((distance % 3600000) / 60000);
+            const s = Math.floor((distance % 60000) / 1000);
+            set(cd.d, pad(d, 3));
+            set(cd.h, pad(h, 2));
+            set(cd.m, pad(m, 2));
+            set(cd.s, pad(s, 2));
+        }
+
+        function set(el, txt) {
+            if (el.textContent === txt) return;
+            el.textContent = txt;
+            const unit = el.closest('.unit');
+            if (!unit) return;
+            unit.classList.remove('tick');
+            // force reflow so the animation restarts every second
+            void unit.offsetWidth;
+            unit.classList.add('tick');
+        }
+
+        function step() {
+            const now = Date.now();
+            const dist = LAUNCH - now;
+            if (dist <= 0) {
+                render(0);
+                return;
+            }
+            render(dist);
+        }
+
+        step();
+        setInterval(step, 1000);
+
+        // reveal panels on scroll
+        (function revealPanels() {
+            const panels = document.querySelectorAll('.panel');
+            if (!('IntersectionObserver' in window)) {
+                panels.forEach(p => p.classList.add('visible'));
+                return;
+            }
+            const io = new IntersectionObserver(function (entries) {
+                entries.forEach(function (entry) {
+                    if (entry.isIntersecting) {
+                        entry.target.classList.add('visible');
+                        io.unobserve(entry.target);
+                    }
+                });
+            }, { threshold: 0.12 });
+            panels.forEach(p => io.observe(p));
+        })();
+    </script>
+</body>
+</html>

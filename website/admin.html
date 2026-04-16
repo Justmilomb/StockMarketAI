@@ -942,20 +942,45 @@
             const config = await api('/api/admin/config');
             const grid = document.getElementById('config-grid');
 
-            const isOn = config['maintenance_mode'] === 'true';
-            const toggle = el('div', { class: 'toggle' + (isOn ? ' on' : '') });
-            toggle.addEventListener('click', async function() {
-                const on = toggle.classList.contains('on');
-                toggle.classList.toggle('on');
+            // maintenance mode — red toggle because flipping it hides
+            // the whole app behind a banner for every live client.
+            const isMaintOn = config['maintenance_mode'] === 'true';
+            const maintToggle = el('div', { class: 'toggle' + (isMaintOn ? ' on' : '') });
+            maintToggle.addEventListener('click', async function() {
+                const on = maintToggle.classList.contains('on');
+                maintToggle.classList.toggle('on');
                 await api('/api/admin/config', {
                     method: 'PUT',
                     body: JSON.stringify({ key: 'maintenance_mode', value: on ? 'false' : 'true' }),
                 });
             });
 
+            // landing mode — "on" means live landing (download +
+            // changelog), "off" means coming-soon teaser with the
+            // countdown timer. Defaults to coming_soon until v1 ships.
+            const isLive = config['landing_mode'] === 'live';
+            const landingToggle = el('div', { class: 'toggle' + (isLive ? ' on' : '') });
+            const landingLabel = el('span', {
+                class: 'config-key',
+                text: 'landing mode — ' + (isLive ? 'live' : 'coming soon'),
+            });
+            landingToggle.addEventListener('click', async function() {
+                const wasLive = landingToggle.classList.contains('on');
+                const nextValue = wasLive ? 'coming_soon' : 'live';
+                landingToggle.classList.toggle('on');
+                landingLabel.textContent = 'landing mode — ' + (wasLive ? 'coming soon' : 'live');
+                await api('/api/admin/config', {
+                    method: 'PUT',
+                    body: JSON.stringify({ key: 'landing_mode', value: nextValue }),
+                });
+            });
+
             grid.replaceChildren(
+                el('div', { class: 'config-item' }, [
+                    landingLabel, landingToggle,
+                ]),
                 el('div', { class: 'config-item config-danger' }, [
-                    el('span', { class: 'config-key', text: 'maintenance mode' }), toggle,
+                    el('span', { class: 'config-key', text: 'maintenance mode' }), maintToggle,
                 ]),
             );
 

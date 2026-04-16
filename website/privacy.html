@@ -189,9 +189,10 @@
                 keys, or personal files in these reports.
             </li>
             <li>
-                <strong>update checks</strong> — the app polls our version
-                endpoint every ~30 minutes. these requests are anonymous
-                (no licence key, no personal identifier).
+                <strong>heartbeat pings</strong> — the app sends a minute-cadence
+                ping so the update log, maintenance flag, and last-seen
+                timestamp can refresh inside ~60 seconds. these pings include
+                the licence key and the installed version; nothing else.
             </li>
         </ul>
 
@@ -218,10 +219,12 @@
         </p>
         <ul>
             <li>
-                <strong>anthropic (claude api)</strong> — for the ai analyst
-                and agent features. requests go straight from your machine
-                to anthropic under your own api key or subscription.
-                see <a href="https://www.anthropic.com/privacy" target="_blank" rel="noopener">anthropic's privacy policy</a>.
+                <strong>ai inference provider</strong> — the bundled ai
+                engine sends your queries for the analyst and agent
+                features directly from your own machine to the upstream
+                model provider. we do not proxy, log, or store any of
+                this traffic. the provider's own privacy terms apply to
+                those requests.
             </li>
             <li>
                 <strong>trading 212</strong> — only if you configure live
