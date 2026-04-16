@@ -47,6 +47,7 @@ import asyncio
 import json
 import logging
 import sqlite3
+import tempfile
 import time
 import uuid
 from datetime import datetime, timezone
@@ -303,8 +304,28 @@ class AgentRunner(QThread):
             logger.warning("claude stderr: %s", line)
             stderr_lines.append(line)
 
+        # Write the system prompt to a temp file so the CLI arg stays
+        # short — Windows caps the command line at ~32k chars, and the
+        # full prompt + MCP config + allowed-tools list easily exceeds
+        # that when passed inline via --system-prompt.
+        prompt_file = tempfile.NamedTemporaryFile(
+            mode="w", suffix=".txt", prefix="blank_prompt_",
+            delete=False, encoding="utf-8",
+        )
+        try:
+            prompt_file.write(render_system_prompt(effective_config))
+            prompt_file.close()
+            system_prompt_ref: Dict[str, str] = {
+                "type": "file",
+                "path": prompt_file.name,
+            }
+        except Exception:
+            prompt_file.close()
+            os.unlink(prompt_file.name)
+            raise
+
         options = ClaudeAgentOptions(
-            system_prompt=render_system_prompt(effective_config),
+            system_prompt=system_prompt_ref,  # type: ignore[arg-type]
             mcp_servers={SERVER_NAME: mcp_server},
             allowed_tools=allowed_tool_names(),
             permission_mode="bypassPermissions",
@@ -403,6 +424,10 @@ class AgentRunner(QThread):
                 f"{time.monotonic() - start:.1f}s)",
             )
             clear_agent_context()
+            try:
+                os.unlink(prompt_file.name)
+            except Exception:
+                pass
 
     def _write_last_iteration_summary(
         self,

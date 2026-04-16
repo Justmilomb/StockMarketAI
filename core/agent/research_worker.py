@@ -14,6 +14,8 @@ from . import subprocess_patch  # noqa: F401
 import asyncio
 import json
 import logging
+import os
+import tempfile
 import time
 import uuid
 from pathlib import Path
@@ -163,7 +165,7 @@ class ResearchWorker(QThread):
         mcp_server = build_mcp_server()
         prepare_env_for_bundled_engine()
 
-        system_prompt = render_research_prompt(
+        system_prompt_text = render_research_prompt(
             effective_config,
             self._role,
             watchlist=self._watchlist,
@@ -199,8 +201,26 @@ class ResearchWorker(QThread):
 
         wake_prompt = " ".join(wake_prompt_parts)
 
+        # Write the system prompt to a temp file — Windows caps CLI args
+        # at ~32k chars.
+        prompt_file = tempfile.NamedTemporaryFile(
+            mode="w", suffix=".txt", prefix="blank_research_prompt_",
+            delete=False, encoding="utf-8",
+        )
+        try:
+            prompt_file.write(system_prompt_text)
+            prompt_file.close()
+            system_prompt_ref: Dict[str, str] = {
+                "type": "file",
+                "path": prompt_file.name,
+            }
+        except Exception:
+            prompt_file.close()
+            os.unlink(prompt_file.name)
+            raise
+
         options = ClaudeAgentOptions(
-            system_prompt=system_prompt,
+            system_prompt=system_prompt_ref,  # type: ignore[arg-type]
             mcp_servers={SERVER_NAME: mcp_server},
             allowed_tools=allowed_tool_names(),
             permission_mode="bypassPermissions",
@@ -292,6 +312,10 @@ class ResearchWorker(QThread):
             self.worker_error.emit(self._worker_id, str(e))
         finally:
             clear_agent_context()
+            try:
+                os.unlink(prompt_file.name)
+            except Exception:
+                pass
 
 
 # ── module-level helpers ─────────────────────────────────────────────────────

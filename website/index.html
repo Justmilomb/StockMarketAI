@@ -7,7 +7,7 @@
     <meta name="description" content="blank is an autonomous ai trading terminal for windows by certified random.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@200;300;400;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@200;300;400;700&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
     <style>
         *, *::before, *::after {
             margin: 0;
@@ -17,12 +17,17 @@
 
         :root {
             --bg: #000000;
+            --panel: #050505;
+            --panel-border: rgba(255, 255, 255, 0.08);
+            --panel-border-strong: rgba(255, 255, 255, 0.16);
             --text: #ffffff;
             --text-mid: rgba(255, 255, 255, 0.5);
             --text-dim: rgba(255, 255, 255, 0.2);
             --glow: #00ff87;
+            --glow-soft: rgba(0, 255, 135, 0.55);
             --glow-dim: rgba(0, 255, 135, 0.06);
             --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+            --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
         }
 
         html {
@@ -67,6 +72,20 @@
             70% { transform: translate(0%, 10%); }
             80% { transform: translate(3%, -15%); }
             90% { transform: translate(-10%, 10%); }
+        }
+
+        /* scanline grid background */
+        .grid {
+            position: fixed;
+            inset: 0;
+            z-index: 0;
+            pointer-events: none;
+            background-image:
+                linear-gradient(rgba(255,255,255,0.015) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255,255,255,0.015) 1px, transparent 1px);
+            background-size: 64px 64px;
+            mask-image: radial-gradient(ellipse at center, rgba(0,0,0,0.9), transparent 75%);
+            -webkit-mask-image: radial-gradient(ellipse at center, rgba(0,0,0,0.9), transparent 75%);
         }
 
         /* cursor-follow spotlight */
@@ -242,6 +261,27 @@
 
         .signup-note.ok { color: var(--glow); }
         .signup-note.err { color: #ff5a5a; }
+
+        .download-btn {
+            display: inline-block;
+            margin-top: 1.25rem;
+            font-family: var(--mono);
+            font-size: 0.75rem;
+            font-weight: 500;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            color: #000;
+            background: var(--glow);
+            border: none;
+            padding: 0.875rem 2.5rem;
+            cursor: pointer;
+            text-decoration: none;
+            transition: opacity 0.2s ease;
+            opacity: 0;
+            animation: fadeUp 0.6s var(--ease-out) forwards;
+        }
+
+        .download-btn:hover { opacity: 0.85; }
 
         @keyframes fadeUp {
             from {
@@ -430,7 +470,8 @@
         @media (prefers-reduced-motion: reduce) {
             body::before { animation: none; }
             .title span { opacity: 1; transform: none; animation: none; }
-            .desc, .download-wrap, .scroll-hint, footer { opacity: 1; animation: none; }
+            .desc, .signup-wrap, .scroll-hint, footer { opacity: 1; animation: none; }
+            .download-btn { opacity: 1; animation: none; }
             .scroll-hint .arrow { animation: none; }
             .release { opacity: 1; transform: none; transition: none; }
         }
@@ -442,6 +483,7 @@
 </head>
 <body>
     <div class="spotlight" aria-hidden="true"></div>
+    <div class="grid" aria-hidden="true"></div>
 
     <main>
         <h1 class="title"><span>b</span><span>l</span><span>a</span><span>n</span><span>k</span></h1>
@@ -452,10 +494,10 @@
 
         <div class="signup-wrap">
             <form id="signup-form" class="signup-form" novalidate autocomplete="off">
-                <input type="email" name="email" id="signup-email" placeholder="your email" required spellcheck="false">
+                <input type="email" name="email" id="signup-email" placeholder="enter your email and you'll get an access key" required spellcheck="false">
                 <button type="submit" id="signup-btn"><span>get access key</span></button>
             </form>
-            <p class="signup-note" id="signup-note">we'll email you an access key &middot; no spam, just the key</p>
+            <p class="signup-note" id="signup-note"></p>
         </div>
 
         <a class="scroll-hint" href="#changelog" aria-label="scroll for update log">
@@ -544,6 +586,16 @@
                         btn.querySelector('span').textContent = 'sent';
                         setNote('check your inbox — your access key is on the way', 'ok');
                         input.value = '';
+                        // show download button
+                        var wrap = document.querySelector('.signup-wrap');
+                        if (wrap && !document.getElementById('download-btn')) {
+                            var dl = document.createElement('a');
+                            dl.id = 'download-btn';
+                            dl.className = 'download-btn';
+                            dl.textContent = 'download';
+                            dl.href = '/api/download';
+                            wrap.appendChild(dl);
+                        }
                     } else {
                         btn.disabled = false;
                         btn.querySelector('span').textContent = 'get access key';

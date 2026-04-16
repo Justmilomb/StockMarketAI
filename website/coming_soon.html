@@ -819,6 +819,66 @@
             margin: 0 auto;
         }
 
+        .waitlist-form {
+            display: flex;
+            gap: 0;
+            margin-top: 1.5rem;
+            max-width: 28rem;
+            margin-left: auto;
+            margin-right: auto;
+            border: 1px solid var(--panel-border-strong);
+            transition: border-color 0.3s ease;
+        }
+
+        .waitlist-form:focus-within {
+            border-color: var(--glow);
+        }
+
+        .waitlist-form input[type="email"] {
+            flex: 1;
+            background: transparent;
+            border: none;
+            outline: none;
+            color: var(--text);
+            font-family: var(--mono);
+            font-size: 0.75rem;
+            letter-spacing: 0.04em;
+            padding: 0.875rem 1rem;
+        }
+
+        .waitlist-form input[type="email"]::placeholder {
+            color: var(--text-dim);
+        }
+
+        .waitlist-form button {
+            background: var(--glow);
+            color: #000;
+            border: none;
+            font-family: var(--mono);
+            font-size: 0.6875rem;
+            font-weight: 500;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            padding: 0.875rem 1.5rem;
+            cursor: pointer;
+            transition: opacity 0.2s ease;
+            white-space: nowrap;
+        }
+
+        .waitlist-form button:hover { opacity: 0.85; }
+        .waitlist-form button:disabled { opacity: 0.4; cursor: default; }
+
+        .waitlist-note {
+            font-family: var(--mono);
+            font-size: 0.6875rem;
+            letter-spacing: 0.04em;
+            margin-top: 0.75rem;
+            min-height: 1.2em;
+        }
+
+        .waitlist-note.ok { color: var(--glow); }
+        .waitlist-note.err { color: #ff5a5a; }
+
         /* ── footer ────────────────────────────────────────────── */
         footer {
             position: relative;
@@ -1130,9 +1190,13 @@
                 <div class="cta-lead">launch day</div>
                 <h4>01 july 2026</h4>
                 <p>
-                    on launch day, the download link goes live right here on this page.
-                    no sign-ups, no waiting list. just come back and grab it.
+                    join the waitlist and we'll let you know the second it's ready.
                 </p>
+                <form id="waitlist-form" class="waitlist-form" novalidate autocomplete="off">
+                    <input type="email" name="email" id="waitlist-email" placeholder="enter your email" required spellcheck="false">
+                    <button type="submit" id="waitlist-btn"><span>join waitlist</span></button>
+                </form>
+                <p class="waitlist-note" id="waitlist-note"></p>
             </div>
         </div>
     </section>
@@ -1214,6 +1278,57 @@
 
         step();
         setInterval(step, 1000);
+
+        // waitlist form — POST /api/signup
+        (function wireWaitlist() {
+            var form = document.getElementById('waitlist-form');
+            var input = document.getElementById('waitlist-email');
+            var btn = document.getElementById('waitlist-btn');
+            var note = document.getElementById('waitlist-note');
+            if (!form || !input || !btn || !note) return;
+
+            function setNote(msg, kind) {
+                note.textContent = msg;
+                note.classList.remove('ok', 'err');
+                if (kind) note.classList.add(kind);
+            }
+
+            form.addEventListener('submit', function(e) {
+                e.preventDefault();
+                var email = (input.value || '').trim();
+                if (!email || email.indexOf('@') < 0) {
+                    setNote('please enter a valid email', 'err');
+                    input.focus();
+                    return;
+                }
+                btn.disabled = true;
+                btn.querySelector('span').textContent = 'sending...';
+                setNote('', null);
+
+                fetch(window.location.origin + '/api/signup', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email: email })
+                }).then(function(r) {
+                    return r.json().then(function(j) { return { ok: r.ok, body: j }; });
+                }).then(function(resp) {
+                    if (resp.ok) {
+                        btn.querySelector('span').textContent = 'joined';
+                        setNote("you're on the list — we'll email you when blank is ready", 'ok');
+                        input.value = '';
+                    } else {
+                        btn.disabled = false;
+                        btn.querySelector('span').textContent = 'join waitlist';
+                        var detail = (resp.body && resp.body.detail) || 'something went wrong — try again';
+                        setNote(String(detail), 'err');
+                    }
+                }).catch(function() {
+                    btn.disabled = false;
+                    btn.querySelector('span').textContent = 'join waitlist';
+                    setNote('network error — try again', 'err');
+                });
+            });
+        })();
 
         // reveal panels on scroll
         (function revealPanels() {

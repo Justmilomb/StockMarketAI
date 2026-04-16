@@ -48,13 +48,6 @@
     "currency": "GBP"
   },
   "ai": {
-    "sklearn_weight": 0.5,
-    "ai_weight": 0.3,
-    "news_weight": 0.2,
-    "retrain_on_start": true,
-    "retrain_interval_hours": 24
-  },
-  "ai": {
     "model": "Y2xhdWRlLXNvbm5ldC00LTIwMjUwNTE0",
     "model_complex": "Y2xhdWRlLW9wdXMtNC02",
     "model_medium": "Y2xhdWRlLXNvbm5ldC00LTIwMjUwNTE0",
@@ -272,8 +265,7 @@
   },
   "active_asset_class": "stocks",
   "enabled_asset_classes": [
-    "stocks",
-    "polymarket"
+    "stocks"
   ],
   "crypto": {
     "enabled": false,

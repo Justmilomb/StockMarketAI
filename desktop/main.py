@@ -287,25 +287,10 @@ def launch(mode: str | None = None) -> None:
     splash.show()
     app.processEvents()
 
-    # ── Asset selector (stocks / polymarket) ────────────────────────────
-    from desktop.dialogs.mode_selector import ModeSelector
     from desktop.app import MainWindow
+    from desktop.theme import MODE_OVERLAY_STOCKS
 
-    splash.close()
-    app.processEvents()
-
-    selector = ModeSelector()
-    selector_result = selector.run()
-    if selector_result is None:
-        sys.exit(0)
-
-    # ── Apply mode-specific colour overlay ────────────────────────────
-    if selector_result == "polymarket":
-        from desktop.theme import MODE_OVERLAY_POLYMARKET
-        app.setStyleSheet(DARK_TERMINAL_QSS + MODE_OVERLAY_POLYMARKET)
-    else:
-        from desktop.theme import MODE_OVERLAY_STOCKS
-        app.setStyleSheet(DARK_TERMINAL_QSS + MODE_OVERLAY_STOCKS)
+    app.setStyleSheet(DARK_TERMINAL_QSS + MODE_OVERLAY_STOCKS)
 
     splash.show()
     splash.showMessage(
@@ -313,7 +298,7 @@ def launch(mode: str | None = None) -> None:
     )
     app.processEvents()
 
-    window = MainWindow(config_path=CONFIG_PATH, initial_asset=selector_result)
+    window = MainWindow(config_path=CONFIG_PATH)
     window.showMaximized()
     splash.finish(window)
     sys.exit(app.exec())

@@ -291,9 +291,6 @@ class MainWindow(QMainWindow):
         ai_ok = self._ai_client is not None and getattr(self._ai_client, "available", False)
         self.news_panel.set_ai_available(ai_ok)
 
-        from desktop.panels.polymarket_markets import PolymarketPanel
-        self._poly_panel = PolymarketPanel(self.state)
-
         self._watchlist_dock = self._make_dock("WATCHLIST", self.watchlist_panel)
         self._settings_dock = self._make_dock("SETTINGS", self.settings_panel)
         self._positions_dock = self._make_dock("POSITIONS", self.positions_panel)
@@ -302,10 +299,8 @@ class MainWindow(QMainWindow):
         self._chat_dock = self._make_dock("CHAT", self.chat_panel)
         self._news_dock = self._make_dock("INFORMATION", self.news_panel)
         self._agent_dock = self._make_dock("AGENT", self.agent_log_panel)
-        self._poly_dock = self._make_dock("POLYMARKET", self._poly_panel)
 
         self.addDockWidget(Qt.TopDockWidgetArea, self._watchlist_dock)
-        self.addDockWidget(Qt.TopDockWidgetArea, self._poly_dock)
         self.addDockWidget(Qt.LeftDockWidgetArea, self._settings_dock)
         self.addDockWidget(Qt.LeftDockWidgetArea, self._positions_dock)
         self.addDockWidget(Qt.LeftDockWidgetArea, self._exchanges_dock)
@@ -322,22 +317,17 @@ class MainWindow(QMainWindow):
 
         self._apply_dock_layout()
 
-        self._all_docks = {
-            "stocks": [
-                self._watchlist_dock, self._positions_dock,
-                self._exchanges_dock, self._orders_dock, self._news_dock,
-            ],
-            "polymarket": [self._poly_dock],
-            "shared": [
-                self._settings_dock, self._chat_dock, self._agent_dock,
-            ],
-        }
+        self._all_docks = [
+            self._watchlist_dock, self._positions_dock,
+            self._exchanges_dock, self._orders_dock, self._news_dock,
+            self._settings_dock, self._chat_dock, self._agent_dock,
+        ]
         self._rebuild_view_menu()
 
         status = QStatusBar()
         self.setStatusBar(status)
         self._status_label = QLabel(
-            "  ? Help | B About | R Refresh | M Menu | A Mode | C Chat | G Chart | Q Quit",
+            "  ? Help | B About | R Refresh | A Mode | C Chat | G Chart | Q Quit",
         )
         status.addPermanentWidget(self._status_label, 1)
 
@@ -427,11 +417,9 @@ class MainWindow(QMainWindow):
         self._run_background(_ping, _on_result)
 
     def _rebuild_view_menu(self) -> None:
-        """Rebuild the View menu to only show docks for the active mode."""
+        """Rebuild the View menu with all docks."""
         self._view_menu.clear()
-        asset = self.state.active_asset_class
-        mode_docks = self._all_docks.get(asset, [])
-        for dock in mode_docks + self._all_docks["shared"]:
+        for dock in self._all_docks:
             self._view_menu.addAction(dock.toggleViewAction())
 
     def _make_dock(self, title: str, widget: QWidget) -> QDockWidget:
@@ -450,42 +438,17 @@ class MainWindow(QMainWindow):
         return dock
 
     def _apply_dock_layout(self) -> None:
-        """Switch dock layout based on active asset class."""
-        asset = self.state.active_asset_class
-
-        stocks_only = [
-            self._watchlist_dock, self._positions_dock,
-            self._orders_dock, self._news_dock,
-        ]
-        poly_only = [self._poly_dock]
-        shared = [
-            self._chat_dock, self._agent_dock, self._settings_dock,
-        ]
-
-        if asset == "polymarket":
-            for d in stocks_only:
-                d.hide()
-            for d in shared + poly_only:
-                d.show()
-            self.addDockWidget(Qt.TopDockWidgetArea, self._poly_dock)
-            self.addDockWidget(Qt.LeftDockWidgetArea, self._settings_dock)
-            self.addDockWidget(Qt.RightDockWidgetArea, self._chat_dock)
-            self.addDockWidget(Qt.BottomDockWidgetArea, self._agent_dock)
-        else:
-            for d in poly_only:
-                d.hide()
-            for d in shared + stocks_only:
-                d.show()
-            self.addDockWidget(Qt.TopDockWidgetArea, self._watchlist_dock)
-            self.addDockWidget(Qt.LeftDockWidgetArea, self._settings_dock)
-            self.addDockWidget(Qt.LeftDockWidgetArea, self._positions_dock)
-            self.addDockWidget(Qt.RightDockWidgetArea, self._chat_dock)
-            self.addDockWidget(Qt.RightDockWidgetArea, self._news_dock)
-            self.addDockWidget(Qt.BottomDockWidgetArea, self._orders_dock)
-            self.splitDockWidget(self._orders_dock, self._agent_dock, Qt.Horizontal)
-
-        if hasattr(self, "_all_docks"):
-            self._rebuild_view_menu()
+        """Apply the stocks dock layout."""
+        for d in self._all_docks:
+            d.show()
+        self.addDockWidget(Qt.TopDockWidgetArea, self._watchlist_dock)
+        self.addDockWidget(Qt.LeftDockWidgetArea, self._settings_dock)
+        self.addDockWidget(Qt.LeftDockWidgetArea, self._positions_dock)
+        self.addDockWidget(Qt.RightDockWidgetArea, self._chat_dock)
+        self.addDockWidget(Qt.RightDockWidgetArea, self._news_dock)
+        self.addDockWidget(Qt.BottomDockWidgetArea, self._orders_dock)
+        self.splitDockWidget(self._orders_dock, self._agent_dock, Qt.Horizontal)
+        self._rebuild_view_menu()
 
     def _setup_shortcuts(self) -> None:
         """Register all keyboard shortcuts."""
@@ -507,10 +470,6 @@ class MainWindow(QMainWindow):
             ("E", self.action_show_instruments),
             ("L", self.action_toggle_protect),
             ("B", self.action_show_about),
-            ("M", self.action_main_menu),
-            ("1", lambda: self._switch_asset("stocks")),
-            ("2", lambda: self._switch_asset("polymarket")),
-            ("3", lambda: self._switch_asset("crypto")),
         ]
         for key, slot in shortcuts:
             QShortcut(QKeySequence(key), self, slot)
@@ -920,34 +879,26 @@ class MainWindow(QMainWindow):
         self.state.unrealised_pnl = upnl
 
     def _refresh_all_panels(self) -> None:
-        """Refresh only the panels relevant to the active mode."""
-        asset = self.state.active_asset_class
-
+        """Refresh all panels."""
         self.settings_panel.refresh_view(self.state)
         self.chat_panel.refresh_view(self.state)
         self.chart_panel.refresh_view(self.state)
         self.agent_log_panel.refresh_view(self.state)
 
-        if asset == "polymarket":
-            self._poly_panel.refresh_view(self.state)
-        else:
-            self.watchlist_panel.refresh_view(self.state)
-            self.positions_panel.refresh_view(self.state)
-            self.exchanges_panel.refresh_view(self.state)
-            self.orders_panel.refresh_view(self.state)
-            if self.news_agent and self.news_agent.news_data:
-                self.state.news_sentiment = self.news_agent.news_data
-            # Market-wide scraper feed — populated even when the watchlist
-            # is empty so the panel always has something to show. The
-            # agent reads the full table via its own ``get_news`` tool.
-            if self.history_manager:
-                try:
-                    self.state.market_news = self.history_manager.get_scraper_items(
-                        kinds=["news"], since_minutes=240, limit=15,
-                    )
-                except Exception:
-                    self.state.market_news = []
-            self.news_panel.refresh_view(self.state)
+        self.watchlist_panel.refresh_view(self.state)
+        self.positions_panel.refresh_view(self.state)
+        self.exchanges_panel.refresh_view(self.state)
+        self.orders_panel.refresh_view(self.state)
+        if self.news_agent and self.news_agent.news_data:
+            self.state.news_sentiment = self.news_agent.news_data
+        if self.history_manager:
+            try:
+                self.state.market_news = self.history_manager.get_scraper_items(
+                    kinds=["news"], since_minutes=240, limit=15,
+                )
+            except Exception:
+                self.state.market_news = []
+        self.news_panel.refresh_view(self.state)
 
         self._update_header()
 
@@ -968,68 +919,29 @@ class MainWindow(QMainWindow):
     @Slot()
     def _update_header(self) -> None:
         mode_str = "AUTO" if self.state.mode == "full_auto_limited" else "ADVISOR"
-        asset = self.state.active_asset_class
-        if asset == "polymarket":
-            self.setWindowTitle("blank predict")
-            self._header_label.setText(
-                "  blank predict | POLYMARKET | CERTIFIED RANDOM",
-            )
-            self._header_label.setStyleSheet(
-                "color: #00bfff; font-weight: bold; font-size: 11px; "
-                "background: transparent; padding: 2px 8px;",
-            )
-        else:
-            self.setWindowTitle("blank")
-            self._header_label.setText(
-                f"  blank [{mode_str}] | STOCKS | CERTIFIED RANDOM",
-            )
-            self._header_label.setStyleSheet(
-                "color: #ff8c00; font-weight: bold; font-size: 11px; "
-                "background: transparent; padding: 2px 8px;",
-            )
-
-    def action_main_menu(self) -> None:
-        """Show mode selector and switch asset class if changed."""
-        from desktop.dialogs.mode_selector import ModeSelector
-        selector = ModeSelector(self)
-        result = selector.run()
-        if result and result != self.state.active_asset_class:
-            self._switch_asset(result)
+        self.setWindowTitle("blank")
+        self._header_label.setText(
+            f"  blank [{mode_str}] | STOCKS | CERTIFIED RANDOM",
+        )
+        self._header_label.setStyleSheet(
+            "color: #ff8c00; font-weight: bold; font-size: 11px; "
+            "background: transparent; padding: 2px 8px;",
+        )
 
     def _switch_asset(self, asset_class: str) -> None:
-        """Switch active asset class."""
+        """Switch active asset class (currently only stocks)."""
         if asset_class == self.state.active_asset_class:
             return
-        asset_cfg = self.config.get(asset_class, {})
-        if asset_class != "stocks" and not asset_cfg.get("enabled", False):
-            self.statusBar().showMessage(
-                f"{asset_class.title()} is disabled in config.json", 3000,
-            )
-            return
-
         self.state.signals = None
         self.state.live_data = {}
-
         self.state.switch_asset_class(asset_class)
-        if asset_class == "stocks":
-            self.state.active_watchlist = self.config.get("active_watchlist", "Default")
-        else:
-            self.state.active_watchlist = asset_cfg.get("active_watchlist", "")
+        self.state.active_watchlist = self.config.get("active_watchlist", "Default")
         self._save_config_key("active_asset_class", asset_class)
-
         self._apply_dock_layout()
         self._update_header()
-
-        from desktop.theme import DARK_TERMINAL_QSS, MODE_OVERLAY_STOCKS, MODE_OVERLAY_POLYMARKET
-        from PySide6.QtWidgets import QApplication
-        overlay = MODE_OVERLAY_POLYMARKET if asset_class == "polymarket" else MODE_OVERLAY_STOCKS
-        QApplication.instance().setStyleSheet(DARK_TERMINAL_QSS + overlay)
-
-        if asset_class == "stocks":
-            self._populate_placeholder_signals()
+        self._populate_placeholder_signals()
         self._refresh_all_panels()
         self.action_refresh_data()
-        self.statusBar().showMessage(f"Switched to {asset_class.title()}", 3000)
 
     def action_toggle_mode(self) -> None:
         if self.state.mode == "recommendation":
@@ -1181,7 +1093,6 @@ class MainWindow(QMainWindow):
         """
         self._paper_window = MainWindow(
             config_path=self.config_path,
-            initial_asset=self.state.active_asset_class,
             forced_paper_mode=True,
         )
         self._paper_window.showMaximized()

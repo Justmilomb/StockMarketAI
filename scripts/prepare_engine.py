@@ -184,6 +184,14 @@ def _flatten_engine() -> None:
         shutil.copytree(src_vendor, RT_DIR / "vendor")
         _log("Copied vendor/ -> rt/vendor/")
 
+    # The CLI entry script uses ES module syntax (import). Node defaults
+    # to CommonJS for .js files unless the nearest package.json has
+    # "type": "module". The original package.json is about to be deleted
+    # with the npm tree, so we write a minimal one into rt/.
+    rt_pkg = RT_DIR / "package.json"
+    rt_pkg.write_text('{"type":"module"}\n', encoding="utf-8")
+    _log("Wrote rt/package.json (type=module)")
+
     # Remove the entire npm tree — only rt/ survives.
     for item in ("node_modules", "package.json", "package-lock.json"):
         target = CLI_DIR / item

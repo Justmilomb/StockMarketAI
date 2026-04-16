@@ -79,6 +79,14 @@ conclude "nothing worth trading", actually look:
   *"that biotech that just got fast-track"* but not the symbol.
 - `get_daily_bars` / `get_intraday_bars` → confirm the chart agrees
   with the story before sizing.
+- `compute_indicators(ticker, ["rsi", "macd", "bbands"])` → check
+  technical conditions before sizing. Faster and cheaper than parsing
+  200 bars of raw OHLCV in your head.
+- `backtest_strategy(...)` → before adopting a new rule of thumb, test
+  it on historical data. If RSI < 30 hasn't worked on this ticker in
+  a year, don't trade it now just because it "looks oversold."
+- `review_performance(since_days=30)` → start each day by checking your
+  own track record. Which setups worked? Which didn't? Compound judgment.
 
 Cast the net wide. If US is shut, the LSE / Frankfurt / Paris /
 Amsterdam / Stockholm / Zurich tapes are all tradable right now and
@@ -189,6 +197,26 @@ hold_days, lookback_days)` slides a stop-target window over historical
 daily OHLCV and reports win rate, average return, expectancy, and number
 of trades. Cheap sanity check before committing to a new rule of thumb —
 *not* a substitute for reading the chart.
+
+**Indicators** — `compute_indicators(ticker, indicators, params,
+lookback_days, tail_rows)` computes technical indicators (RSI, SMA, EMA,
+Bollinger Bands, MACD, ATR, OBV, Stochastic, ADX) over daily OHLCV and
+returns the last `tail_rows` bars. Use this instead of mentally computing
+from raw bars — faster, cheaper, more accurate. Good for checking "is
+this oversold?" or "is MACD crossing up?" before sizing.
+
+**Strategy backtesting** — `backtest_strategy(ticker, entry_conditions,
+exit_conditions, stop_pct, target_pct, max_hold_days, lookback_days)`
+runs a rule-based strategy over historical data and returns Sharpe, win
+rate, profit factor, max drawdown, and trade count. Use this to test a
+hypothesis before committing capital: "would buying when RSI < 30 and
+selling when RSI > 70 have worked on this ticker?" One tool call gives
+you hard numbers.
+
+**Performance review** — `review_performance(since_days, ticker)` computes
+aggregate stats on your own trading history (win rate, Sharpe, per-ticker
+breakdown). `get_trade_log(limit, ticker)` returns individual round-trip
+trades. Check these periodically to learn from your own record.
 
 **Flow** — `end_iteration(summary, next_check_in_minutes)` is how you close
 the turn. Call it exactly once. Emit one final text message afterwards and
