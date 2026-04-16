@@ -92,6 +92,11 @@ def _init_db(conn: psycopg2.extensions.connection) -> None:
                 scheduled_at TIMESTAMPTZ
             );
             CREATE INDEX IF NOT EXISTS idx_releases_current ON releases(is_current);
+            CREATE TABLE IF NOT EXISTS waitlist (
+                id SERIAL PRIMARY KEY,
+                email TEXT UNIQUE NOT NULL,
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            );
         """)
         # Additive migration for databases that pre-date scheduled releases.
         # Must run before creating the scheduled_at index — if the table already
@@ -845,6 +850,195 @@ def public_signup(
         # key so a shoulder-surfer on the signup page can't farm it.
         "key": key if not RESEND_API_KEY else None,
     }
+
+
+# ── Waitlist (coming-soon page — no access key) ─────────────────────────
+
+def _render_waitlist_email_html() -> str:
+    """Welcome email for waitlist subscribers. No access key — just hype."""
+    return """\
+<!DOCTYPE html>
+<html><body style="margin:0;padding:0;background:#000;font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#fff;">
+  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#000;">
+    <tr><td align="center" style="padding:40px 20px;">
+      <table width="520" cellpadding="0" cellspacing="0" border="0" style="max-width:520px;">
+        <tr><td style="padding:0 0 32px 0;">
+          <h1 style="margin:0;font-size:44px;font-weight:700;letter-spacing:-0.04em;color:#fff;">blank</h1>
+          <p style="margin:6px 0 0 0;font-size:13px;color:rgba(255,255,255,0.5);letter-spacing:0.02em;">autonomous ai trading terminal</p>
+        </td></tr>
+        <tr><td style="padding:24px 20px;border:1px solid rgba(255,255,255,0.12);background:#050505;">
+          <p style="margin:0 0 14px 0;font-family:'JetBrains Mono',ui-monospace,Menlo,monospace;font-size:10px;letter-spacing:0.32em;text-transform:uppercase;color:#00ff87;">welcome to the waitlist</p>
+          <p style="margin:0 0 16px 0;font-size:15px;line-height:1.65;color:rgba(255,255,255,0.85);">
+            you're in. we're building something exciting &mdash; an ai that trades the stock market for you.
+          </p>
+          <p style="margin:0 0 16px 0;font-size:13px;line-height:1.65;color:rgba(255,255,255,0.55);">
+            blank is an autonomous trading terminal for windows. you download it, open it, and let it run.
+            the ai watches prices, reads the news, and makes trades on its own. no experience needed.
+          </p>
+          <p style="margin:0 0 16px 0;font-size:13px;line-height:1.65;color:rgba(255,255,255,0.55);">
+            we're a small team called <strong style="color:#fff;font-weight:400;">certified random</strong>.
+            we believe making money from the stock market shouldn't require years of experience or expensive tools.
+            blank is our answer to that.
+          </p>
+          <p style="margin:0;font-size:13px;line-height:1.65;color:rgba(255,255,255,0.55);">
+            we'll send you <strong style="color:#fff;font-weight:400;">monthly updates</strong> on how development is going,
+            what features we're adding, and when you can get your hands on it.
+            launch day is <strong style="color:#00ff87;font-weight:400;">1 july 2026</strong>.
+          </p>
+        </td></tr>
+        <tr><td style="padding:28px 0 0 0;" align="center">
+          <p style="margin:0;font-family:'JetBrains Mono',ui-monospace,Menlo,monospace;font-size:11px;letter-spacing:0.08em;color:#00ff87;">
+            the journey to easy money starts here
+          </p>
+        </td></tr>
+        <tr><td style="padding:40px 0 0 0;border-top:1px solid rgba(255,255,255,0.08);margin-top:40px;">
+          <p style="margin:24px 0 0 0;font-size:10px;letter-spacing:0.1em;color:rgba(255,255,255,0.25);">certified random &middot; you joined the blank waitlist.</p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>"""
+
+
+def _send_waitlist_email(email: str) -> bool:
+    """Send the waitlist welcome email via Resend."""
+    if not RESEND_API_KEY:
+        logger.warning("RESEND_API_KEY unset — skipping waitlist email to %s", email)
+        return False
+
+    payload = {
+        "from": RESEND_FROM,
+        "to": [email],
+        "subject": "you're on the blank waitlist",
+        "html": _render_waitlist_email_html(),
+    }
+    try:
+        r = requests.post(
+            "https://api.resend.com/emails",
+            json=payload,
+            headers={
+                "Authorization": f"Bearer {RESEND_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            timeout=10,
+        )
+    except requests.RequestException as e:
+        logger.error("resend transport error for waitlist %s: %s", email, e)
+        return False
+
+    if r.status_code >= 300:
+        logger.error("resend %s for waitlist %s: %s", r.status_code, email, r.text[:500])
+        return False
+    return True
+
+
+def _render_waitlist_repeat_html() -> str:
+    """Email for someone who's already on the waitlist and signed up again."""
+    return """\
+<!DOCTYPE html>
+<html><body style="margin:0;padding:0;background:#000;font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#fff;">
+  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#000;">
+    <tr><td align="center" style="padding:40px 20px;">
+      <table width="520" cellpadding="0" cellspacing="0" border="0" style="max-width:520px;">
+        <tr><td style="padding:0 0 32px 0;">
+          <h1 style="margin:0;font-size:44px;font-weight:700;letter-spacing:-0.04em;color:#fff;">blank</h1>
+          <p style="margin:6px 0 0 0;font-size:13px;color:rgba(255,255,255,0.5);letter-spacing:0.02em;">autonomous ai trading terminal</p>
+        </td></tr>
+        <tr><td style="padding:24px 20px;border:1px solid rgba(255,255,255,0.12);background:#050505;">
+          <p style="margin:0 0 14px 0;font-family:'JetBrains Mono',ui-monospace,Menlo,monospace;font-size:10px;letter-spacing:0.32em;text-transform:uppercase;color:#00ff87;">you're already on the list</p>
+          <p style="margin:0 0 16px 0;font-size:15px;line-height:1.65;color:rgba(255,255,255,0.85);">
+            we see you signed up again &mdash; love the enthusiasm, keep it up!
+          </p>
+          <p style="margin:0 0 16px 0;font-size:13px;line-height:1.65;color:rgba(255,255,255,0.55);">
+            you're already locked in for launch day. we've got your email and you'll be the first to know when blank is ready.
+          </p>
+          <p style="margin:0;font-size:13px;line-height:1.65;color:rgba(255,255,255,0.55);">
+            keep this energy up and you might just get a personal email from our ceo.
+          </p>
+        </td></tr>
+        <tr><td style="padding:28px 0 0 0;" align="center">
+          <p style="margin:0;font-family:'JetBrains Mono',ui-monospace,Menlo,monospace;font-size:11px;letter-spacing:0.08em;color:#00ff87;">
+            1 july 2026 &mdash; it's coming
+          </p>
+        </td></tr>
+        <tr><td style="padding:40px 0 0 0;border-top:1px solid rgba(255,255,255,0.08);margin-top:40px;">
+          <p style="margin:24px 0 0 0;font-size:10px;letter-spacing:0.1em;color:rgba(255,255,255,0.25);">certified random &middot; you joined the blank waitlist.</p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>"""
+
+
+def _send_waitlist_repeat_email(email: str) -> bool:
+    """Send the 'already signed up' email via Resend."""
+    if not RESEND_API_KEY:
+        logger.warning("RESEND_API_KEY unset — skipping waitlist repeat email to %s", email)
+        return False
+
+    payload = {
+        "from": RESEND_FROM,
+        "to": [email],
+        "subject": "you're already on the blank waitlist!",
+        "html": _render_waitlist_repeat_html(),
+    }
+    try:
+        r = requests.post(
+            "https://api.resend.com/emails",
+            json=payload,
+            headers={
+                "Authorization": f"Bearer {RESEND_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            timeout=10,
+        )
+    except requests.RequestException as e:
+        logger.error("resend transport error for waitlist repeat %s: %s", email, e)
+        return False
+
+    if r.status_code >= 300:
+        logger.error("resend %s for waitlist repeat %s: %s", r.status_code, email, r.text[:500])
+        return False
+    return True
+
+
+@app.post("/api/waitlist")
+def public_waitlist(
+    body: SignupRequest,
+    request: Request,
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> dict[str, Any]:
+    """Pre-launch waitlist: email only, no access key.
+
+    Stores the email in the waitlist table and sends a welcome email
+    about monthly updates and who we are. If the email is already on
+    the list we just return success without re-sending.
+    """
+    email = (body.email or "").strip().lower()
+    if not _is_valid_email(email):
+        raise HTTPException(status_code=400, detail="please enter a valid email address")
+
+    ip = request.client.host if request.client else "unknown"
+    if not _signup_rate_ok(ip):
+        raise HTTPException(
+            status_code=429,
+            detail="too many attempts — try again in an hour",
+        )
+
+    with conn.cursor() as cur:
+        cur.execute("SELECT id FROM waitlist WHERE LOWER(email) = %s", (email,))
+        existing = cur.fetchone()
+
+    if existing:
+        _send_waitlist_repeat_email(email)
+        return {"status": "ok", "sent": True, "already_joined": True}
+
+    with conn.cursor() as cur:
+        cur.execute("INSERT INTO waitlist (email) VALUES (%s)", (email,))
+    conn.commit()
+
+    sent = _send_waitlist_email(email)
+    return {"status": "ok", "sent": sent, "already_joined": False}
 
 
 # ── Download tracking (public) ──────────────────────────────────────────

@@ -1305,7 +1305,7 @@
                 btn.querySelector('span').textContent = 'sending...';
                 setNote('', null);
 
-                fetch(window.location.origin + '/api/signup', {
+                fetch(window.location.origin + '/api/waitlist', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ email: email })

@@ -313,13 +313,13 @@ class MainWindow(QMainWindow):
         self.resizeDocks([self._watchlist_dock], [220], Qt.Vertical)
         self.resizeDocks([self._orders_dock], [140], Qt.Vertical)
 
-        self._apply_dock_layout()
-
         self._all_docks = [
             self._watchlist_dock, self._positions_dock,
             self._exchanges_dock, self._orders_dock, self._news_dock,
             self._settings_dock, self._chat_dock, self._agent_dock,
         ]
+
+        self._apply_dock_layout()
         self._rebuild_view_menu()
 
         status = QStatusBar()
@@ -378,10 +378,7 @@ class MainWindow(QMainWindow):
             " }"
         )
         if hasattr(self, "_all_docks"):
-            docks: List[QDockWidget] = []
-            for group in self._all_docks.values():
-                docks.extend(group)
-            for dock in docks:
+            for dock in self._all_docks:
                 dock.setStyleSheet(dock_qss)
 
         # Status-bar broker label picks up the mode colour too so the
