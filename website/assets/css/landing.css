@@ -130,3 +130,29 @@
     .uth, .faq { padding: 80px 24px; }
     .uth-grid { margin-top: 32px; }
 }
+
+@media (max-width: 600px) {
+    .uth, .faq { padding: 56px 1rem; }
+
+    .uth-inner, .faq-inner { max-width: 100%; }
+
+    .uth-card { padding: 24px 18px; gap: 10px; }
+    .uth-title { font-size: 16px; }
+    .uth-body { font-size: 13px; }
+    .uth-grid { margin-top: 24px; }
+
+    .faq-list details { padding: 16px 0; }
+    .faq-list summary {
+        font-size: 15px;
+        min-height: 44px;
+        align-items: center;
+        gap: 16px;
+    }
+    .faq-list details p { font-size: 13px; margin-top: 10px; }
+}
+
+@media (max-width: 420px) {
+    .uth-grid { grid-template-columns: 1fr; }
+    .uth, .faq { padding: 48px 1rem; }
+    .faq-list summary { font-size: 14px; }
+}

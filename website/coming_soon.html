@@ -90,11 +90,12 @@
             z-index: 1;
             pointer-events: none;
             background: radial-gradient(
-                600px circle at var(--mx, 50%) var(--my, 50%),
-                rgba(255, 255, 255, 0.03),
-                transparent 70%
+                900px circle at var(--mx, 50%) var(--my, 50%),
+                rgba(0, 255, 135, 0.045),
+                rgba(0, 255, 135, 0.01) 45%,
+                transparent 65%
             );
-            transition: opacity 0.4s ease;
+            transition: opacity 0.5s ease;
         }
 
         /* subtle scanline grid background over the hero */
@@ -104,11 +105,11 @@
             z-index: 0;
             pointer-events: none;
             background-image:
-                linear-gradient(rgba(255,255,255,0.015) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(255,255,255,0.015) 1px, transparent 1px);
+                linear-gradient(rgba(255,255,255,0.022) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255,255,255,0.022) 1px, transparent 1px);
             background-size: 64px 64px;
-            mask-image: radial-gradient(ellipse at center, rgba(0,0,0,0.9), transparent 75%);
-            -webkit-mask-image: radial-gradient(ellipse at center, rgba(0,0,0,0.9), transparent 75%);
+            mask-image: radial-gradient(ellipse 90% 85% at 50% 35%, rgba(0,0,0,1), transparent 80%);
+            -webkit-mask-image: radial-gradient(ellipse 90% 85% at 50% 35%, rgba(0,0,0,1), transparent 80%);
         }
 
         /* ── hero ─────────────────────────────────────────────────── */
@@ -918,29 +919,103 @@
         .footer-links a:hover { color: var(--glow); }
 
         /* ── responsive ────────────────────────────────────────── */
+
+        /* tablet landscape */
+        @media (max-width: 1100px) {
+            .preview { padding: 6rem 1.5rem 3.5rem; }
+        }
+
+        /* tablet portrait */
         @media (max-width: 920px) {
             .panels { grid-template-columns: repeat(6, 1fr); }
-            .col-4 { grid-column: span 6; }
+            .col-4 { grid-column: span 3; }
             .col-6 { grid-column: span 6; }
             .col-8 { grid-column: span 6; }
         }
 
+        @media (max-width: 720px) {
+            .col-4 { grid-column: span 6; }
+        }
+
+        /* large mobile */
         @media (max-width: 600px) {
-            .status-bar { font-size: 0.5625rem; padding: 0.625rem 0.875rem; }
-            .status-bar .left, .status-bar .right { gap: 0.875rem; }
+            .status-bar {
+                font-size: 0.5625rem;
+                padding: 0.625rem 0.875rem;
+            }
+            .status-bar .left,
+            .status-bar .right { gap: 0.875rem; }
             .status-bar .hide-mobile { display: none; }
+
+            main {
+                padding: 5.5rem 1.25rem 2.5rem;
+                min-height: 100svh;
+                min-height: 100vh;
+            }
+
+            .tagline {
+                font-size: clamp(0.875rem, 3.8vw, 1rem);
+                margin-bottom: 2.5rem;
+            }
+
             .countdown { gap: 0.5rem; }
             .unit { min-width: 0; padding: 0.875rem 0.5rem 0.625rem; }
             .unit .num { font-size: 1.75rem; }
             .unit .lab { font-size: 0.5rem; letter-spacing: 0.15em; }
-            .panels { grid-template-columns: 1fr; }
+
+            .scroll-hint { bottom: 1.25rem; }
+
+            .preview { padding: 4rem 1rem 2.5rem; }
+            .section-sub { margin-bottom: 2.5rem; }
+
+            .panels { grid-template-columns: 1fr; gap: 0.625rem; }
             .col-4, .col-6, .col-8 { grid-column: span 1; }
-            .preview { padding-top: 5rem; }
+
+            .panel { padding: 1rem 1.125rem 1.25rem; }
+            .panel h3 { font-size: 0.9375rem; }
+            .panel p { font-size: 0.75rem; margin-bottom: 0.75rem; }
+
+            .mock-stream { font-size: 0.6rem; min-height: 7rem; }
+            .mock-stream .row { gap: 0.375rem; }
+            .mock-pnl .big { font-size: 1.5rem; }
+            .mock-watch { font-size: 0.6875rem; }
+
             .cta { margin-top: 3rem; padding: 1.75rem 1.25rem; }
+
+            .waitlist-form {
+                flex-direction: column;
+                border: none;
+                gap: 0.5rem;
+            }
+            .waitlist-form input[type="email"] {
+                border: 1px solid var(--panel-border-strong);
+                padding: 0.9375rem 1rem;
+                font-size: 0.875rem;
+                min-height: 3rem;
+                transition: border-color 0.3s ease;
+            }
+            .waitlist-form input[type="email"]:focus { border-color: var(--glow); }
+            .waitlist-form:focus-within { border: none; }
+            .waitlist-form button {
+                width: 100%;
+                padding: 0.9375rem 1.5rem;
+                min-height: 3rem;
+            }
+
+            footer { padding: 2rem 1.25rem; }
         }
 
-        @media (max-width: 400px) {
-            .countdown-label::before, .countdown-label::after { width: 1rem; }
+        /* small mobile */
+        @media (max-width: 420px) {
+            .title { letter-spacing: -0.05em; }
+            main { padding: 5rem 1rem 2rem; }
+            .countdown-label::before,
+            .countdown-label::after { width: 1rem; }
+            .mock-stream .ts { display: none; }
+            .mock-exchanges { grid-template-columns: repeat(2, 1fr); }
+            .mock-news .item { grid-template-columns: auto 1fr; row-gap: 0.25rem; }
+            .mock-news .sent { grid-column: 2; }
+            .panel { padding: 0.875rem 1rem 1.125rem; }
         }
 
         /* reduced motion */
@@ -1215,7 +1290,7 @@
     </footer>
 
     <script>
-        // cursor-follow spotlight
+        // cursor-follow spotlight (mouse + touch)
         const spot = document.querySelector('.spotlight');
         let mx = 0.5, my = 0.5, cx = 0.5, cy = 0.5;
 
@@ -1223,6 +1298,18 @@
             mx = e.clientX / window.innerWidth;
             my = e.clientY / window.innerHeight;
         });
+
+        document.addEventListener('touchmove', (e) => {
+            const t = e.touches[0];
+            mx = t.clientX / window.innerWidth;
+            my = t.clientY / window.innerHeight;
+        }, { passive: true });
+
+        document.addEventListener('touchstart', (e) => {
+            const t = e.touches[0];
+            mx = t.clientX / window.innerWidth;
+            my = t.clientY / window.innerHeight;
+        }, { passive: true });
 
         (function tick() {
             cx += (mx - cx) * 0.08;
