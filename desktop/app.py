@@ -215,6 +215,8 @@ class MainWindow(QMainWindow):
         menu_bar = self.menuBar()
 
         file_menu = menu_bar.addMenu("&File")
+        file_menu.addAction("Export My Data...", self._on_export_user_data)
+        file_menu.addSeparator()
         file_menu.addAction("Quit  (Q)", self.close)
 
         self._view_menu = menu_bar.addMenu("&View")
@@ -1149,6 +1151,56 @@ class MainWindow(QMainWindow):
             forced_paper_mode=True,
         )
         self._paper_window.showMaximized()
+
+    @Slot()
+    def _on_export_user_data(self) -> None:
+        """Bundle every local DB + sanitised config into a timestamped zip.
+
+        Gives the user full control over the training corpus their
+        usage produces — they pick the save path, and nothing leaves
+        the machine unless they choose to hand the file back to us.
+        """
+        from pathlib import Path
+
+        from PySide6.QtWidgets import QFileDialog, QMessageBox
+
+        from desktop import __version__
+        from desktop.data_export import default_export_filename, export_user_data
+
+        default_dir = Path.home() / "Desktop"
+        if not default_dir.exists():
+            default_dir = Path.home()
+        suggested = str(default_dir / default_export_filename())
+
+        save_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export My Data",
+            suggested,
+            "Zip archive (*.zip)",
+        )
+        if not save_path:
+            return
+
+        try:
+            summary = export_user_data(Path(save_path), app_version=__version__)
+        except Exception as exc:
+            logging.getLogger(__name__).exception("export_user_data failed")
+            QMessageBox.warning(
+                self,
+                "Export failed",
+                f"Could not build the export bundle:\n\n{exc}",
+            )
+            self.statusBar().showMessage(f"Export failed: {exc}", 5000)
+            return
+
+        QMessageBox.information(
+            self,
+            "Export complete",
+            f"{summary.headline()}\n\nSaved to:\n{summary.zip_path}",
+        )
+        self.statusBar().showMessage(
+            f"Exported {summary.headline()}.", 5000,
+        )
 
     @Slot()
     def _on_reset_paper_account(self) -> None:
