@@ -16,7 +16,7 @@ from typing import Any, Deque, Dict, Generator, List, Optional
 import psycopg2
 import psycopg2.extras
 import requests
-from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi import Body, Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -42,6 +42,11 @@ DOWNLOAD_URL = os.environ.get(
     "BLANK_DOWNLOAD_URL",
     "https://github.com/Justmilomb/StockMarketAI/releases/latest/download/BlankSetup.exe",
 )
+# Public-facing URL used in outbound emails that ask the user to take
+# action (renew, contact, give feedback). No billing page yet — point at
+# the marketing site root and let the admin override per-deploy via env.
+SITE_URL = os.environ.get("BLANK_SITE_URL", "https://stockmarketai-3qhs.onrender.com/")
+SUPPORT_URL = os.environ.get("BLANK_SUPPORT_URL", SITE_URL)
 
 # ── Database ─────────────────────────────────────────────────────────────
 
@@ -98,6 +103,20 @@ def _init_db(conn: psycopg2.extensions.connection) -> None:
                 email TEXT UNIQUE NOT NULL,
                 created_at TIMESTAMPTZ DEFAULT NOW()
             );
+            -- Idempotency ledger for the auto-email system. Every send
+            -- via send_template_once() writes one row. The composite
+            -- unique constraint is what makes re-runs of the scheduler
+            -- tick (or a double-click in the admin UI) safe.
+            CREATE TABLE IF NOT EXISTS email_sent (
+                id SERIAL PRIMARY KEY,
+                recipient TEXT NOT NULL,
+                template_id TEXT NOT NULL,
+                reason_key TEXT NOT NULL,
+                sent_at TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE (recipient, template_id, reason_key)
+            );
+            CREATE INDEX IF NOT EXISTS idx_email_sent_template
+                ON email_sent(template_id);
         """)
         # Additive migration for databases that pre-date scheduled releases.
         # Must run before creating the scheduled_at index — if the table already
@@ -238,6 +257,16 @@ class LicenseUpdateRequest(BaseModel):
     email: Optional[str] = None
     name: Optional[str] = None
     days: Optional[int] = None
+
+
+class LicenseRevokeRequest(BaseModel):
+    """Optional body for DELETE /api/admin/licenses/{key}.
+
+    The admin UI sends ``reason`` so the outbound revocation email can
+    explain what happened. Clients that send a bare DELETE still work —
+    FastAPI's ``Body(default=...)`` hands this endpoint an empty model.
+    """
+    reason: str = ""
 
 
 class ConfigUpdateRequest(BaseModel):
@@ -844,7 +873,23 @@ def public_signup(
         conn.commit()
 
     expires_iso = expires.strftime("%d %b %Y") if expires else "no expiry"
-    sent = _send_signup_email(email, key, expires_iso)
+    # Route via the idempotent template registry so the mail is logged
+    # in email_sent and dedup'd against any future ticks. Reason key is
+    # the licence key itself — one welcome mail per licence, ever.
+    ok, info = send_template_once(
+        conn,
+        "welcome_new_license",
+        {
+            "name": (body.name or "there").strip() or "there",
+            "license_key": key,
+            "download_url": DOWNLOAD_URL,
+        },
+        recipient=email,
+        reason_key=f"issue:{key}",
+    )
+    sent = ok
+    if not ok:
+        logger.info("signup email skipped for %s (%s)", email, info)
 
     return {
         "status": "ok",
@@ -1034,16 +1079,30 @@ def public_waitlist(
         cur.execute("SELECT id FROM waitlist WHERE LOWER(email) = %s", (email,))
         existing = cur.fetchone()
 
+    launch_date = "01 July 2026"
+
     if existing:
-        _send_waitlist_repeat_email(email)
-        return {"status": "ok", "sent": True, "already_joined": True}
+        ok, _info = send_template_once(
+            conn,
+            "waitlist_repeat",
+            {"name": "there", "launch_date": launch_date},
+            recipient=email,
+            reason_key="repeat",
+        )
+        return {"status": "ok", "sent": ok, "already_joined": True}
 
     with conn.cursor() as cur:
         cur.execute("INSERT INTO waitlist (email) VALUES (%s)", (email,))
     conn.commit()
 
-    sent = _send_waitlist_email(email)
-    return {"status": "ok", "sent": sent, "already_joined": False}
+    ok, _info = send_template_once(
+        conn,
+        "waitlist_joined",
+        {"name": "there", "launch_date": launch_date},
+        recipient=email,
+        reason_key="joined",
+    )
+    return {"status": "ok", "sent": ok, "already_joined": False}
 
 
 # ── Download tracking (public) ──────────────────────────────────────────
@@ -1191,6 +1250,20 @@ def admin_create_license(
             (key, body.email, body.name, expires),
         )
     conn.commit()
+    # Same welcome mail as the public signup path, same idempotency
+    # semantics — reason_key is the licence key.
+    if body.email:
+        send_template_once(
+            conn,
+            "welcome_new_license",
+            {
+                "name": (body.name or "there").strip() or "there",
+                "license_key": key,
+                "download_url": DOWNLOAD_URL,
+            },
+            recipient=body.email,
+            reason_key=f"issue:{key}",
+        )
     return {"key": key, "email": body.email, "expires_at": expires.isoformat()}
 
 
@@ -1202,11 +1275,15 @@ def admin_update_license(
     conn: psycopg2.extensions.connection = Depends(db_dependency),
 ) -> dict[str, str]:
     with conn.cursor() as cur:
-        cur.execute("SELECT id FROM licenses WHERE key = %s", (license_key,))
+        cur.execute(
+            "SELECT id, email, name FROM licenses WHERE key = %s",
+            (license_key,),
+        )
         row = cur.fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="license not found")
 
+    new_expires: Optional[datetime] = None
     with conn.cursor() as cur:
         if body.status:
             cur.execute("UPDATE licenses SET status = %s WHERE key = %s", (body.status, license_key))
@@ -1215,21 +1292,70 @@ def admin_update_license(
         if body.name:
             cur.execute("UPDATE licenses SET name = %s WHERE key = %s", (body.name, license_key))
         if body.days:
-            expires = datetime.now(timezone.utc) + timedelta(days=body.days)
-            cur.execute("UPDATE licenses SET expires_at = %s WHERE key = %s", (expires, license_key))
+            new_expires = datetime.now(timezone.utc) + timedelta(days=body.days)
+            cur.execute(
+                "UPDATE licenses SET expires_at = %s WHERE key = %s",
+                (new_expires, license_key),
+            )
     conn.commit()
+
+    # If the days were extended, treat this as a renewal and mail the
+    # licence holder. Uses (recipient, template, f"renew:{date}:{key}")
+    # as the idempotency tuple so two admin clicks on the same day don't
+    # double-send, but a second extension on a later date does.
+    if new_expires is not None:
+        recipient = (body.email or row["email"] or "").strip()
+        display_name = ((body.name or row["name"] or "there")).strip() or "there"
+        if recipient:
+            send_template_once(
+                conn,
+                "license_renewed",
+                {
+                    "name": display_name,
+                    "license_key": license_key,
+                    "next_renewal": new_expires.strftime("%d %B %Y"),
+                },
+                recipient=recipient,
+                reason_key=f"renew:{new_expires.date().isoformat()}:{license_key}",
+            )
     return {"status": "updated"}
 
 
 @app.delete("/api/admin/licenses/{license_key}")
 def admin_revoke_license(
     license_key: str,
+    body: LicenseRevokeRequest = Body(default=LicenseRevokeRequest()),
     _: str = Depends(require_admin),
     conn: psycopg2.extensions.connection = Depends(db_dependency),
 ) -> dict[str, str]:
     with conn.cursor() as cur:
+        cur.execute(
+            "SELECT email, name FROM licenses WHERE key = %s",
+            (license_key,),
+        )
+        row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="license not found")
+
+    with conn.cursor() as cur:
         cur.execute("UPDATE licenses SET status = 'revoked' WHERE key = %s", (license_key,))
     conn.commit()
+
+    recipient = (row["email"] or "").strip()
+    if recipient:
+        display_name = (row["name"] or "there").strip() or "there"
+        reason = body.reason.strip() or "no reason provided"
+        send_template_once(
+            conn,
+            "license_revoked",
+            {
+                "name": display_name,
+                "reason": reason,
+                "contact_url": SUPPORT_URL,
+            },
+            recipient=recipient,
+            reason_key=f"revoke:{license_key}",
+        )
     return {"status": "revoked"}
 
 
@@ -1503,6 +1629,121 @@ def admin_clear_notification(
     return {"status": "cleared"}
 
 
+# ── Email auto-send: idempotent helper + scheduler ─────────────────────
+
+def _reserve_email_slot(
+    conn: psycopg2.extensions.connection,
+    recipient: str,
+    template_id: str,
+    reason_key: str,
+) -> bool:
+    """Claim the (recipient, template_id, reason_key) slot in email_sent.
+
+    Returns True if we got the slot (caller should send), False if the
+    slot was already taken (already sent — skip). Claiming happens
+    BEFORE the Resend call so two concurrent ticks can't both try to
+    send. On Resend failure the caller deletes the row to re-arm the
+    slot for the next tick.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO email_sent (recipient, template_id, reason_key) "
+            "VALUES (%s, %s, %s) ON CONFLICT DO NOTHING RETURNING id",
+            (recipient.strip().lower(), template_id, reason_key),
+        )
+        got = cur.fetchone() is not None
+    conn.commit()
+    return got
+
+
+def _release_email_slot(
+    conn: psycopg2.extensions.connection,
+    recipient: str,
+    template_id: str,
+    reason_key: str,
+) -> None:
+    """Undo a :func:`_reserve_email_slot` so the next tick can retry."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "DELETE FROM email_sent WHERE recipient = %s AND template_id = %s "
+            "AND reason_key = %s",
+            (recipient.strip().lower(), template_id, reason_key),
+        )
+    conn.commit()
+
+
+def send_template_once(
+    conn: psycopg2.extensions.connection,
+    template_id: str,
+    ctx: Dict[str, Any],
+    *,
+    recipient: str,
+    reason_key: str,
+    unsubscribe_url: str = "",
+) -> tuple[bool, str]:
+    """Render + send one template idempotently.
+
+    Returns ``(sent, info)`` — ``sent`` is True only if this call
+    actually delivered the mail. ``info`` is a short reason ("ok",
+    "already_sent", "render:…", "resend:…", "no_api_key") for logging
+    and the admin status line.
+    """
+    from server.email_templates import render
+
+    addr = recipient.strip()
+    if not addr:
+        return False, "empty_recipient"
+
+    if not _reserve_email_slot(conn, addr, template_id, reason_key):
+        return False, "already_sent"
+
+    try:
+        subject, html, text = render(
+            template_id, dict(ctx),
+            recipient=addr,
+            unsubscribe_url=unsubscribe_url,
+        )
+    except Exception as e:
+        _release_email_slot(conn, addr, template_id, reason_key)
+        return False, f"render: {e}"
+
+    if not RESEND_API_KEY:
+        # No API key — typical dev runs. Treat as "held": leave the
+        # ledger row so we don't spam dev mailboxes on repeated ticks,
+        # but log loudly so nobody thinks prod is silently dropping.
+        logger.warning(
+            "RESEND_API_KEY unset — would have sent %s to %s (%s)",
+            template_id, addr, reason_key,
+        )
+        return False, "no_api_key"
+
+    try:
+        r = requests.post(
+            "https://api.resend.com/emails",
+            json={
+                "from": RESEND_FROM,
+                "to": [addr],
+                "subject": subject,
+                "html": html,
+                "text": text,
+            },
+            headers={
+                "Authorization": f"Bearer {RESEND_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            timeout=10,
+        )
+    except requests.RequestException as e:
+        _release_email_slot(conn, addr, template_id, reason_key)
+        return False, f"resend: {e}"
+
+    if r.status_code >= 300:
+        _release_email_slot(conn, addr, template_id, reason_key)
+        return False, f"resend_{r.status_code}: {r.text[:200]}"
+
+    return True, "ok"
+
+
 # ── Admin: email template library ────────────────────────────────────────
 
 class _EmailPreviewBody(BaseModel):
@@ -1519,8 +1760,13 @@ class _EmailSendBody(BaseModel):
 
 @app.get("/api/admin/email-templates")
 def admin_email_templates_list(_: str = Depends(require_admin)) -> Dict[str, Any]:
+    from server.email_rules import trigger_for
     from server.email_templates import list_templates
-    return {"templates": list_templates()}
+    templates = list_templates()
+    for t in templates:
+        spec = trigger_for(t["id"])
+        t["trigger"] = {"kind": spec.kind, "rule": spec.rule}
+    return {"templates": templates}
 
 
 @app.post("/api/admin/email-templates/preview")
@@ -1561,12 +1807,12 @@ def admin_email_templates_send(
                 cur.execute(
                     "SELECT email FROM licenses WHERE status = 'active' AND email IS NOT NULL"
                 )
-                addresses.extend(row[0] for row in cur.fetchall() if row[0])
+                addresses.extend(row["email"] for row in cur.fetchall() if row.get("email"))
         elif entry == "all_waitlist":
             with get_db() as conn:
                 cur = conn.cursor()
                 cur.execute("SELECT email FROM waitlist WHERE email IS NOT NULL")
-                addresses.extend(row[0] for row in cur.fetchall() if row[0])
+                addresses.extend(row["email"] for row in cur.fetchall() if row.get("email"))
         else:
             addresses.append(entry)
 
@@ -1619,6 +1865,170 @@ def admin_email_templates_send(
             continue
         sent.append(addr)
     return {"sent": sent, "errors": errors}
+
+
+# ── Scheduled email sweeps ───────────────────────────────────────────────
+
+_ONBOARDING_TIPS: list[str] = [
+    "Start in paper mode. £100 GBP sandbox, no real money at risk.",
+    "Let a few 45-second cycles run before you touch anything — early "
+    "decisions read calmer in context.",
+    "The information panel is where the agent explains itself. Open it "
+    "whenever a trade surprises you.",
+    "The agent journal logs every iteration, so you can always scroll "
+    "back and see what the brain was thinking.",
+]
+
+_WEEKLY_HIGHLIGHTS: list[str] = [
+    "Markets closed — the agent paused automation over the weekend.",
+    "Catch up on the week's changelog inside the desktop app's "
+    "releases panel.",
+]
+
+
+def _run_sweep(
+    conn: psycopg2.extensions.connection,
+    template_id: str,
+    rows: list[dict[str, Any]],
+    build_ctx,
+    build_reason_key,
+) -> dict[str, int]:
+    """Iterate candidate rows through ``send_template_once``.
+
+    ``build_ctx`` and ``build_reason_key`` are callables taking the row
+    and returning the template context / ledger key. Each sweep owns its
+    own shape so we don't try to push a one-size-fits-all contract on
+    four different templates.
+    """
+    counts = {"candidates": len(rows), "sent": 0, "skipped": 0, "errors": 0}
+    for row in rows:
+        recipient = (row.get("email") or "").strip()
+        if not recipient:
+            counts["errors"] += 1
+            continue
+        try:
+            ctx = build_ctx(row)
+            reason_key = build_reason_key(row)
+        except Exception:
+            counts["errors"] += 1
+            continue
+        ok, info = send_template_once(
+            conn, template_id, ctx,
+            recipient=recipient,
+            reason_key=reason_key,
+        )
+        if ok:
+            counts["sent"] += 1
+        elif info == "already_sent":
+            counts["skipped"] += 1
+        else:
+            counts["errors"] += 1
+    return counts
+
+
+@app.post("/api/admin/emails/tick")
+def admin_emails_tick(
+    _: str = Depends(require_admin),
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> Dict[str, Any]:
+    """Run all four scheduled email sweeps in one call.
+
+    Idempotent via the ``email_sent`` ledger — safe to call hourly from
+    an external cron (Render cron job, systemd timer, curl from a
+    watcher). The endpoint does not schedule itself; it just runs when
+    asked. Duplicate reason keys return ``skipped``, not ``sent``.
+    """
+    ran_at = datetime.now(timezone.utc)
+    out: Dict[str, Dict[str, int]] = {}
+
+    # license_expiring — 7-day window, ±1 day wiggle so a late cron run
+    # still catches yesterday's candidates.
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT key, email, name, expires_at FROM licenses "
+            "WHERE status = 'active' AND email IS NOT NULL "
+            "AND expires_at BETWEEN NOW() + INTERVAL '6 days' "
+            "                   AND NOW() + INTERVAL '8 days'"
+        )
+        rows = [dict(r) for r in cur.fetchall()]
+    out["license_expiring"] = _run_sweep(
+        conn, "license_expiring", rows,
+        build_ctx=lambda r: {
+            "name": (r.get("name") or "there").strip() or "there",
+            "license_key": r["key"],
+            "expires_at": r["expires_at"].strftime("%d %B %Y"),
+            "renew_url": SUPPORT_URL,
+        },
+        build_reason_key=lambda r: f"expire:{r['key']}:{r['expires_at'].date().isoformat()}",
+    )
+
+    # first_time_tips — roughly 24 hours after the first heartbeat.
+    # The ~20–30 hour window lets hourly ticks catch everyone without
+    # depending on exact clock alignment.
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT key, email, name, last_active FROM licenses "
+            "WHERE status = 'active' AND email IS NOT NULL "
+            "AND last_active BETWEEN NOW() - INTERVAL '30 hours' "
+            "                    AND NOW() - INTERVAL '20 hours'"
+        )
+        rows = [dict(r) for r in cur.fetchall()]
+    out["first_time_tips"] = _run_sweep(
+        conn, "first_time_tips", rows,
+        build_ctx=lambda r: {
+            "name": (r.get("name") or "there").strip() or "there",
+            "tips": list(_ONBOARDING_TIPS),
+        },
+        build_reason_key=lambda r: f"tips:{r['key']}",
+    )
+
+    # feedback_request — 14 days after issue.
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT key, email, name, created_at FROM licenses "
+            "WHERE status = 'active' AND email IS NOT NULL "
+            "AND created_at BETWEEN NOW() - INTERVAL '15 days' "
+            "                   AND NOW() - INTERVAL '13 days'"
+        )
+        rows = [dict(r) for r in cur.fetchall()]
+    out["feedback_request"] = _run_sweep(
+        conn, "feedback_request", rows,
+        build_ctx=lambda r: {
+            "name": (r.get("name") or "there").strip() or "there",
+            "form_url": SUPPORT_URL,
+        },
+        build_reason_key=lambda r: f"feedback:{r['key']}",
+    )
+
+    # holiday_check_in — weekly digest, Sunday only. ISO week in the
+    # reason key means one send per licence per ISO week even if the
+    # tick fires multiple times on Sunday.
+    if ran_at.weekday() == 6:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT key, email, name FROM licenses "
+                "WHERE status = 'active' AND email IS NOT NULL"
+            )
+            rows = [dict(r) for r in cur.fetchall()]
+        iso_year, iso_week, _ = ran_at.isocalendar()
+        period_end = ran_at
+        period_start = period_end - timedelta(days=6)
+        out["holiday_check_in"] = _run_sweep(
+            conn, "holiday_check_in", rows,
+            build_ctx=lambda r: {
+                "name": (r.get("name") or "there").strip() or "there",
+                "period_start": period_start.strftime("%d %B %Y"),
+                "period_end": period_end.strftime("%d %B %Y"),
+                "highlights": list(_WEEKLY_HIGHLIGHTS),
+            },
+            build_reason_key=lambda r: f"weekly:{iso_year}-W{iso_week:02d}:{r['key']}",
+        )
+    else:
+        out["holiday_check_in"] = {
+            "candidates": 0, "sent": 0, "skipped": 0, "errors": 0,
+        }
+
+    return {"ran_at": ran_at.isoformat(), "counts": out}
 
 
 # ── Run ──────────────────────────────────────────────────────────────────

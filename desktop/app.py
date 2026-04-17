@@ -303,8 +303,6 @@ class MainWindow(QMainWindow):
         self.exchanges_panel = ExchangesPanel(self.state)
         self.orders_panel = OrdersPanel(self.state)
         self.news_panel = NewsPanel(self.state)
-        ai_ok = self._ai_client is not None and getattr(self._ai_client, "available", False)
-        self.news_panel.set_ai_available(ai_ok)
 
         self._watchlist_dock = self._make_dock("WATCHLIST", self.watchlist_panel)
         self._settings_dock = self._make_dock("SETTINGS", self.settings_panel)
@@ -346,10 +344,13 @@ class MainWindow(QMainWindow):
         )
         status.addPermanentWidget(self._status_label, 1)
 
-        ai_ok = self._ai_client is not None and getattr(self._ai_client, "available", False)
-        self._ai_status = QLabel("AI: OK" if ai_ok else "AI: OFF")
+        # The legacy `_ai_client` flag is gone — the agent loop is the
+        # brain now and is always available once the app has booted. If
+        # the loop genuinely fails, the agent log panel and banners
+        # surface the error; this label no longer lies about it.
+        self._ai_status = QLabel("AI: ON")
         self._ai_status.setStyleSheet(
-            f"color: {'#00ff00' if ai_ok else '#ff0000'}; font-weight: bold; padding: 0 8px;",
+            "color: #00ff00; font-weight: bold; padding: 0 8px;",
         )
         status.addPermanentWidget(self._ai_status)
 
