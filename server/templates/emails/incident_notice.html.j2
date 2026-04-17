@@ -1,12 +1,12 @@
 {% extends "_layout.html.j2" %}
 {% block content %}
-<div style="font-family:'JetBrains Mono',monospace;color:#ffb020;font-size:11px;letter-spacing:0.25em;text-transform:uppercase;margin-bottom:8px;">incident</div>
+<div style="font-family:'JetBrains Mono','Consolas','Courier New',monospace;color:#ffb020;font-size:11px;letter-spacing:0.25em;text-transform:uppercase;margin-bottom:8px;">incident</div>
 <h1 style="font-size:26px;font-weight:200;margin:0 0 16px;">something's not right.</h1>
 <p style="color:rgba(255,255,255,0.75);font-size:15px;line-height:1.6;margin:0 0 20px;">
 {{ summary|e }}
 </p>
 <p style="margin:0 0 24px;">
-<a href="{{ status_url|e }}" style="display:inline-block;background:transparent;color:#00ff87;text-decoration:none;font-family:'JetBrains Mono',monospace;font-size:13px;letter-spacing:0.06em;text-transform:uppercase;padding:12px 24px;border:1px solid #00ff87;">View status page</a>
+<a href="{{ status_url|e }}" style="display:inline-block;background:transparent;color:#00ff87;text-decoration:none;font-family:'JetBrains Mono','Consolas','Courier New',monospace;font-size:13px;letter-spacing:0.06em;text-transform:uppercase;padding:12px 24px;border:1px solid #00ff87;">View status page</a>
 </p>
 <p style="color:rgba(255,255,255,0.5);font-size:13px;line-height:1.6;">
 The desktop app keeps running. Only licence checks pause while we sort it.

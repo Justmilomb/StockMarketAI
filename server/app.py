@@ -1796,6 +1796,22 @@ def admin_email_templates_send(
     if not body.recipients:
         raise HTTPException(status_code=400, detail="no recipients")
 
+    # Reject sends where required template vars are blank.
+    from server.email_templates import _spec as _get_spec
+    try:
+        spec = _get_spec(body.template_id)
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    blank_vars = [
+        v for v in spec.required_vars
+        if not body.vars.get(v)
+    ]
+    if blank_vars:
+        raise HTTPException(
+            status_code=422,
+            detail=f"blank required fields: {', '.join(blank_vars)}",
+        )
+
     # Expand audience sentinels ("all_licensed" / "all_waitlist") into
     # real email addresses by querying the DB. Anything else is taken
     # verbatim, so individual emails still work.
@@ -1884,6 +1900,71 @@ _WEEKLY_HIGHLIGHTS: list[str] = [
     "Catch up on the week's changelog inside the desktop app's "
     "releases panel.",
 ]
+
+
+def _generate_weekly_highlights(
+    conn: "psycopg2.extensions.connection",
+    period_start: "datetime",
+    period_end: "datetime",
+) -> list[str]:
+    """Return a list of weekly highlight strings for holiday_check_in.
+
+    Queries the DB for period activity, then asks Claude Haiku to turn
+    the raw stats into 3–4 plain-English bullet points. Falls back to
+    ``_WEEKLY_HIGHLIGHTS`` if the API key is absent or the call fails.
+    """
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT COUNT(*) AS n FROM licenses "
+                "WHERE created_at BETWEEN %s AND %s",
+                (period_start, period_end),
+            )
+            new_licenses: int = (cur.fetchone() or {}).get("n", 0)
+
+            cur.execute("SELECT COUNT(*) AS n FROM licenses WHERE status = 'active'")
+            active_licenses: int = (cur.fetchone() or {}).get("n", 0)
+
+            cur.execute(
+                "SELECT COUNT(*) AS n FROM downloads "
+                "WHERE downloaded_at BETWEEN %s AND %s",
+                (period_start, period_end),
+            )
+            downloads_this_week: int = (cur.fetchone() or {}).get("n", 0)
+    except Exception:
+        return list(_WEEKLY_HIGHLIGHTS)
+
+    api_key = os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("CLAUDE_API_KEY")
+    if not api_key:
+        return list(_WEEKLY_HIGHLIGHTS)
+
+    try:
+        import anthropic
+        client = anthropic.Anthropic(api_key=api_key)
+        prompt = (
+            f"You write weekly highlights for Blank — an autonomous AI trading terminal.\n"
+            f"This week's stats:\n"
+            f"- New licences issued: {new_licenses}\n"
+            f"- Total active licences: {active_licenses}\n"
+            f"- Installer downloads: {downloads_this_week}\n"
+            f"Write 3-4 short, plain-English highlight sentences (no bullet symbols, "
+            f"no markdown). Each sentence should be a standalone string. "
+            f"Return ONLY a JSON array of strings, e.g. [\"...\", \"...\"]."
+        )
+        msg = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=256,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        import json
+        raw = msg.content[0].text.strip()
+        highlights = json.loads(raw)
+        if isinstance(highlights, list) and highlights:
+            return [str(h) for h in highlights]
+    except Exception:
+        pass
+
+    return list(_WEEKLY_HIGHLIGHTS)
 
 
 def _run_sweep(
@@ -2019,7 +2100,7 @@ def admin_emails_tick(
                 "name": (r.get("name") or "there").strip() or "there",
                 "period_start": period_start.strftime("%d %B %Y"),
                 "period_end": period_end.strftime("%d %B %Y"),
-                "highlights": list(_WEEKLY_HIGHLIGHTS),
+                "highlights": _generate_weekly_highlights(conn, period_start, period_end),
             },
             build_reason_key=lambda r: f"weekly:{iso_year}-W{iso_week:02d}:{r['key']}",
         )

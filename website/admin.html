@@ -1610,6 +1610,25 @@
                 return;
             }
             const recipients = audience === 'single' ? [single] : [audience];
+
+            // Validate required vars — highlight blanks before confirming.
+            const blankInputs = [];
+            document.querySelectorAll('#email-form [data-var]').forEach(el => {
+                el.style.borderColor = '';
+                const isEmpty = el.dataset.kind === 'list'
+                    ? !el.value.trim()
+                    : !el.value.trim();
+                if (isEmpty) {
+                    el.style.borderColor = 'var(--red, #ff4444)';
+                    blankInputs.push(el.dataset.var);
+                }
+            });
+            if (blankInputs.length) {
+                document.getElementById('email-status').textContent =
+                    'fill in required fields: ' + blankInputs.join(', ');
+                return;
+            }
+
             const label = EMAIL_CURRENT.label;
             const confirmMsg = audience === 'single'
                 ? 'Send "' + label + '" to ' + single + '?'
