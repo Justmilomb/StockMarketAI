@@ -1,54 +1,10 @@
-/* blank base reset + typography + layout primitives.
-   Loaded after theme.css; consumes its CSS variables. */
+/* base.css — opt-in helper classes only.
+   This file intentionally contains NO global selectors. The existing
+   landing/coming-soon/admin pages have their own inline <style>
+   blocks; a site-wide reset here was breaking their layout (footer
+   alignment, toggle switches, section padding). Anything in here must
+   be class-scoped so a page has to ask for it. */
 
-*, *::before, *::after {
-    margin: 0;
-    padding: 0;
-    box-sizing: border-box;
-}
-
-html {
-    font-size: 16px;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-    scroll-behavior: smooth;
-}
-
-body {
-    background: var(--bg-0);
-    color: var(--fg-0);
-    font-family: var(--font-sans);
-    font-weight: 300;
-    line-height: 1.55;
-    min-height: 100vh;
-    overflow-x: hidden;
-}
-
-h1, h2, h3, h4, h5, h6 {
-    font-weight: 200;
-    letter-spacing: -0.02em;
-    line-height: 1.08;
-}
-
-h1 { font-size: var(--step-5); }
-h2 { font-size: var(--step-4); }
-h3 { font-size: var(--step-3); font-weight: 300; }
-
-p  { color: var(--fg-1); max-width: 64ch; }
-a  { color: var(--accent); text-decoration: none; }
-a:hover { color: var(--fg-0); }
-
-code, kbd, pre, .mono { font-family: var(--font-mono); }
-
-.container {
-    width: min(100% - 2rem, 1200px);
-    margin-inline: auto;
-}
-
-.stack > * + * { margin-top: 1rem; }
-.stack-lg > * + * { margin-top: 2rem; }
-
-/* Buttons — sharp, mono label, minimal surface. */
 .btn {
     display: inline-flex;
     align-items: center;
@@ -57,6 +13,7 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
     background: transparent;
     color: var(--fg-0);
     border: 1px solid var(--border-1);
+    border-radius: 0;
     font-family: var(--font-mono);
     font-size: var(--step-0);
     font-weight: 400;
@@ -74,19 +31,12 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
     color: var(--bg-0);
     border-color: var(--accent);
 }
-.btn-primary:hover { background: var(--fg-0); border-color: var(--fg-0); color: var(--bg-0); }
-
-/* Sections + dividers */
-section { padding: 5rem 0; border-top: 1px solid var(--border-0); }
-section:first-of-type { border-top: 0; }
-
-/* Focus-visible for accessibility — skip the default chrome ring. */
-:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: 2px;
+.btn-primary:hover {
+    background: var(--fg-0);
+    border-color: var(--fg-0);
+    color: var(--bg-0);
 }
 
-/* Utility: muted caption (mono) */
 .kicker {
     font-family: var(--font-mono);
     font-size: var(--step-0);
@@ -95,4 +45,5 @@ section:first-of-type { border-top: 0; }
     text-transform: uppercase;
 }
 
+.mono  { font-family: var(--font-mono); }
 .muted { color: var(--fg-2); }

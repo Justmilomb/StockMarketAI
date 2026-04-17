@@ -4,9 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>blank — autonomous AI trading terminal</title>
-    <meta name="description" content="blank is an autonomous AI trading terminal for Windows. Runs Claude on a 45-second loop, pulls signals from news and social, and trades your Trading 212 account — paper or live.">
+    <meta name="description" content="blank is an autonomous AI trading terminal for Windows. Runs on a 45-second loop, pulls signals from news and social, and trades your Trading 212 account — paper or live.">
     <meta property="og:title" content="blank — autonomous AI trading terminal">
-    <meta property="og:description" content="Claude runs your desk. 45-second loop, paper or live, Trading 212 supported.">
+    <meta property="og:description" content="Autonomous trading on a 45-second loop. Paper or live. Trading 212 supported.">
     <meta property="og:type" content="website">
     <meta name="twitter:card" content="summary_large_image">
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -1141,9 +1141,9 @@
                 </div>
                 <div class="uth-card">
                     <div class="uth-kicker">02 · brain</div>
-                    <h3 class="uth-title">claude makes the call</h3>
+                    <h3 class="uth-title">the agent makes the call</h3>
                     <p class="uth-body">
-                        claude opus 4.7 reads the feed, checks your positions, and decides
+                        the agent reads the feed, checks your positions, and decides
                         whether to buy, sell or wait. every decision is logged with its
                         reasoning so you can read back exactly what it saw.
                     </p>
@@ -1177,8 +1177,8 @@
             <div class="faq-list">
                 <details>
                     <summary>what do i need to run it?</summary>
-                    <p>a windows 10 or 11 pc, a trading 212 account (free to open), and
-                    a claude subscription. no api keys to manage.</p>
+                    <p>a windows 10 or 11 pc and a trading 212 account (free to open).
+                    that's it &mdash; no api keys, no extra services to sign up for.</p>
                 </details>
                 <details>
                     <summary>which broker does it support?</summary>
@@ -1186,20 +1186,21 @@
                     and has a clean api. more brokers are on the roadmap.</p>
                 </details>
                 <details>
-                    <summary>do i need a claude api key?</summary>
-                    <p>no. blank uses your existing claude subscription through the
-                    claude code cli &mdash; no separate billing, no api key to paste.</p>
+                    <summary>is there anything else i need to pay for?</summary>
+                    <p>no extra subscriptions, no api keys to top up. one licence for
+                    blank and you're done.</p>
                 </details>
                 <details>
                     <summary>where does my data go?</summary>
-                    <p>your journal, positions and config all live on your pc in a local
-                    sqlite file. the only thing that leaves your machine is the prompt
-                    sent to claude and the order sent to your broker.</p>
+                    <p>your journal, positions and config all live on your pc in a
+                    local sqlite file. nothing about your account or history is
+                    stored on our servers.</p>
                 </details>
                 <details>
-                    <summary>can i bring my own api key?</summary>
-                    <p>not at launch. the desktop app is wired to the claude subscription
-                    flow. if enough people ask for byo-key it'll get added.</p>
+                    <summary>can i use my own settings?</summary>
+                    <p>yes &mdash; risk limits, watchlists, cadence, paper or live,
+                    and dozens of smaller knobs are all in settings. defaults are
+                    conservative so you can tune from there.</p>
                 </details>
                 <details>
                     <summary>does it have to run 24/7?</summary>
@@ -1207,16 +1208,16 @@
                     stops; open it again and it picks up where it left off.</p>
                 </details>
                 <details>
-                    <summary>what happens if claude is down or i lose internet?</summary>
+                    <summary>what happens if i lose internet?</summary>
                     <p>the loop skips the iteration and waits 45 seconds to try again.
-                    no trades are placed on stale data. existing positions stay exactly
-                    as they were.</p>
+                    no trades are placed on stale data. existing positions stay
+                    exactly as they were.</p>
                 </details>
                 <details>
                     <summary>how do i see what it did overnight?</summary>
                     <p>open the information panel and the trade log &mdash; every
-                    decision, every tool call and every order is there with timestamps
-                    and the reasoning claude used.</p>
+                    decision, every tool call and every order is there with
+                    timestamps and the reasoning the agent used.</p>
                 </details>
             </div>
         </div>

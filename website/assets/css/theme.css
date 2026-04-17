@@ -1,5 +1,7 @@
 /* blank design tokens — shared across landing, coming-soon, admin.
-   Terminal-dark, sharp borders (no rounded corners), mono for numbers. */
+   This file ONLY defines CSS custom properties. It intentionally makes
+   zero structural changes to the page — each HTML file keeps its own
+   inline <style> block for layout + typography. */
 
 :root {
     /* Surfaces */
@@ -14,7 +16,7 @@
     --fg-2: rgba(255, 255, 255, 0.32);
     --fg-3: rgba(255, 255, 255, 0.14);
 
-    /* Accents — inherit the legacy hero green, add amber + red */
+    /* Accents */
     --accent:       #00ff87;
     --accent-soft:  rgba(0, 255, 135, 0.55);
     --accent-dim:   rgba(0, 255, 135, 0.08);
@@ -30,12 +32,12 @@
     --font-mono: 'JetBrains Mono', 'IBM Plex Mono', ui-monospace, SFMono-Regular,
                  Menlo, Consolas, monospace;
 
-    /* Scale (fluid-ish) */
-    --step-0: 0.875rem;   /* 14px */
-    --step-1: 1rem;       /* 16px */
-    --step-2: 1.25rem;    /* 20px */
-    --step-3: 1.75rem;    /* 28px */
-    --step-4: 2.75rem;    /* 44px */
+    /* Scale */
+    --step-0: 0.875rem;
+    --step-1: 1rem;
+    --step-2: 1.25rem;
+    --step-3: 1.75rem;
+    --step-4: 2.75rem;
     --step-5: clamp(2.5rem, 5vw + 1rem, 4.5rem);
 
     /* Motion */
@@ -43,10 +45,4 @@
     --dur-fast: 140ms;
     --dur-med:  280ms;
     --dur-slow: 520ms;
-}
-
-/* Sharp corners everywhere. Any component that needs rounding can
-   explicitly override, but default is terminal aesthetic. */
-:where(*, *::before, *::after) {
-    border-radius: 0 !important;
 }
