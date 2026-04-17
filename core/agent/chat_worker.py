@@ -201,7 +201,10 @@ class ChatWorker(QThread):
     def _snapshot_watchlist(self, config: Dict[str, Any]) -> str:
         try:
             active = config.get("active_watchlist") or "Default"
-            lists = config.get("watchlists") or {}
+            # Paper and live keep separate watchlists — read the one that
+            # matches this worker's mode so paper chat never sees live names.
+            key = "watchlists_paper" if self._paper_mode else "watchlists"
+            lists = config.get(key) or {}
             tickers = list(lists.get(active) or [])
         except Exception:
             logger.debug("snapshot watchlist failed", exc_info=True)
@@ -296,7 +299,7 @@ class ChatWorker(QThread):
             allowed_tool_names,
             build_mcp_server,
         )
-        from core.agent.model_router import chat_worker_model
+        from core.agent.model_router import chat_worker_effort, chat_worker_model
         from core.agent.paths import (
             cli_path_for_sdk,
             prepare_env_for_bundled_engine,
@@ -334,10 +337,12 @@ class ChatWorker(QThread):
         # safe default for chat because the supervisor handles
         # autonomous decisions.
         model_id, tier = chat_worker_model(effective_config, self._message)
+        effort = chat_worker_effort(effective_config, tier)
 
         self.log_line.emit(
             f"[chat:{self._worker_id}] iteration {iteration_id} "
-            f"(paper={self._paper_mode}, tier={tier}, model={model_id}, no caps)",
+            f"(paper={self._paper_mode}, tier={tier}, model={model_id}, "
+            f"effort={effort}, no caps)",
         )
 
         mcp_server = build_mcp_server()
@@ -381,6 +386,7 @@ class ChatWorker(QThread):
             allowed_tools=allowed_tool_names(),
             permission_mode="bypassPermissions",
             model=model_id,
+            effort=effort,  # type: ignore[arg-type]
             cwd=str(self._config_path.parent),
             cli_path=resolved_cli,
             stderr=_on_stderr,

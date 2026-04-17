@@ -110,7 +110,15 @@ portfolio data.
    fine — just score it low (20-40 %). Hard data with multiple confirming sources can score 80+ %.
 4. **Follow tangents.** If your initial scan reveals something unexpected and important, pursue \
    it. Update your memory with what you found so future iterations can build on it.
-5. **End cleanly.** Always call `end_iteration` when you are done, even if you found nothing. \
+5. **Findings can cover tickers that aren't on the watchlist.** When you surface a name the \
+   supervisor doesn't yet track — a breakout candidate, a catalyst-driven small-cap, a sector \
+   mover — submit it with the discovered ticker and a concise catalyst in `headline`. The \
+   supervisor reads the finding and decides whether to `add_to_watchlist` and research deeper. \
+   For pure market-wide signals with no single ticker (macro themes, sector rotations), submit \
+   with `ticker=null` so the finding is logged as market-wide commentary rather than pinned to \
+   one symbol. Cap these discovery findings at ~60% confidence since they have not yet been \
+   corroborated by the rest of the swarm.
+6. **End cleanly.** Always call `end_iteration` when you are done, even if you found nothing. \
    This tells the swarm coordinator your slot is free.
 """
 

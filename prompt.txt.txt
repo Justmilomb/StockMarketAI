@@ -1,0 +1,8 @@
+make sure the file naming for website makes sense and rfully revamp it to kae it look 100x proffesional now on coming soon and releaed website and amke sure we have loadfs of defualt templates for emails made that i can send to people from the admin dashboard. and do
+  the outoc scope stuff  ---
+  Out of scope (deliberately deferred)
+
+  - Ripping out core/ai_service.py and the legacy ML pipeline entirely. The dead UI columns are removed, but the underlying service still runs — removing it is a bigger refactor worth its own session.
+  - A true "post-iteration grader" assessor agent (would add a second Claude invocation per iteration; user chose the simpler "just upgrade the supervisor" path).
+  - Live video-watching (as opposed to caption reading) for the Bloomberg TV 24/7 stream. Transcript delay is ~60-120s which is acceptable for non-HFT use.
+  - Migrating config.json from base64-wrapped model IDs to plain strings is included, but we don't add any general config-schema validation — noted for a future pass.

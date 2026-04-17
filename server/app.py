@@ -11,7 +11,7 @@ from collections import deque
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from threading import Lock
-from typing import Any, Deque, Dict, Generator, Optional
+from typing import Any, Deque, Dict, Generator, List, Optional
 
 import psycopg2
 import psycopg2.extras
@@ -19,6 +19,7 @@ import requests
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 logger = logging.getLogger("blank.server")
@@ -286,6 +287,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+_ASSETS_DIR = os.path.join(WEBSITE_DIR, "assets")
+if os.path.isdir(_ASSETS_DIR):
+    app.mount("/assets", StaticFiles(directory=_ASSETS_DIR), name="assets")
 
 
 @app.on_event("startup")
@@ -1496,6 +1501,92 @@ def admin_clear_notification(
         )
     conn.commit()
     return {"status": "cleared"}
+
+
+# ── Admin: email template library ────────────────────────────────────────
+
+class _EmailPreviewBody(BaseModel):
+    template_id: str
+    vars: Dict[str, Any] = {}
+    recipient: str = "preview@example.com"
+
+
+class _EmailSendBody(BaseModel):
+    template_id: str
+    vars: Dict[str, Any] = {}
+    recipients: List[str]
+
+
+@app.get("/api/admin/email-templates")
+def admin_email_templates_list(_: str = Depends(require_admin)) -> Dict[str, Any]:
+    from server.email_templates import list_templates
+    return {"templates": list_templates()}
+
+
+@app.post("/api/admin/email-templates/preview")
+def admin_email_templates_preview(
+    body: _EmailPreviewBody,
+    _: str = Depends(require_admin),
+) -> Dict[str, Any]:
+    from server.email_templates import render
+    try:
+        subject, html, text = render(
+            body.template_id, dict(body.vars), recipient=body.recipient,
+        )
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"render error: {e}")
+    return {"subject": subject, "html": html, "text": text}
+
+
+@app.post("/api/admin/email-templates/send")
+def admin_email_templates_send(
+    body: _EmailSendBody,
+    _: str = Depends(require_admin),
+) -> Dict[str, Any]:
+    from server.email_templates import render
+
+    if not body.recipients:
+        raise HTTPException(status_code=400, detail="no recipients")
+
+    sent: list[str] = []
+    errors: list[Dict[str, str]] = []
+    for addr in body.recipients:
+        try:
+            subject, html, text = render(
+                body.template_id, dict(body.vars), recipient=addr,
+            )
+        except Exception as e:
+            errors.append({"recipient": addr, "error": f"render: {e}"})
+            continue
+        if not RESEND_API_KEY:
+            errors.append({"recipient": addr, "error": "RESEND_API_KEY unset"})
+            continue
+        try:
+            r = requests.post(
+                "https://api.resend.com/emails",
+                json={
+                    "from": RESEND_FROM,
+                    "to": [addr],
+                    "subject": subject,
+                    "html": html,
+                    "text": text,
+                },
+                headers={
+                    "Authorization": f"Bearer {RESEND_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                timeout=10,
+            )
+            if r.status_code >= 300:
+                errors.append({"recipient": addr, "error": f"resend {r.status_code}"})
+                continue
+        except requests.RequestException as e:
+            errors.append({"recipient": addr, "error": str(e)})
+            continue
+        sent.append(addr)
+    return {"sent": sent, "errors": errors}
 
 
 # ── Run ──────────────────────────────────────────────────────────────────

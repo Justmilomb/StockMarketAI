@@ -1,22 +1,119 @@
-"""App state wrapper for the PySide6 desktop app.
+"""App state + config helpers for the desktop app.
 
-Reuses the existing AppState dataclass from terminal/state.py unchanged.
-This module provides a thin wrapper that can be extended with Qt-specific
-signalling if needed in future.
+Historically this was a thin wrapper around ``terminal.state``; the
+Textual TUI has now been retired, so the dataclass lives here directly.
 """
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, List, Literal, Optional
 
-from terminal.state import AppState
+import pandas as pd
 
-# Minimal valid config — enough to boot the app without crashing.
-# User is prompted to import their real config on first launch.
-# Phase 3: strategy / ensemble / regime / risk / strategy_profiles /
-# consensus / forecasters / pipeline / timeframes sections are gone.
-# The agent is the brain and owns its own risk rules.
+from types_shared import AssetClass
+
+
+Mode = Literal["recommendation", "full_auto_limited"]
+
+
+@dataclass
+class AppState:
+    """Shared in-memory state for the desktop trading terminal."""
+
+    mode: Mode = "recommendation"
+    refresh_interval_seconds: int = 15
+    theme: str = "default"
+    max_daily_loss: float = 0.05
+
+    capital: float = 100_000.0
+    realised_pnl: float = 0.0
+    unrealised_pnl: float = 0.0
+
+    last_refresh: Optional[datetime] = None
+
+    active_watchlist: str = ""
+    selected_ticker: str = ""
+    signals: Optional[pd.DataFrame] = None
+    active_watchlist_tickers: List[str] = field(default_factory=list)
+    positions: List[Dict[str, Any]] = field(default_factory=list)
+    position_notes: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    history_manager: Any = None
+    recent_orders: List[Dict[str, Any]] = field(default_factory=list)
+    live_data: Dict[str, Dict[str, float]] = field(default_factory=dict)
+    ai_insights: str = ""
+
+    news_sentiment: Dict[str, Any] = field(default_factory=dict)
+    market_news: List[Dict[str, Any]] = field(default_factory=list)
+    research_findings: List[Dict[str, Any]] = field(default_factory=list)
+    swarm_status: Dict[str, Any] = field(default_factory=dict)
+
+    chart_data: List[float] = field(default_factory=list)
+    chat_history: List[Dict[str, str]] = field(default_factory=list)
+
+    account_info: Dict[str, Any] = field(default_factory=dict)
+    account_metadata: Dict[str, Any] = field(default_factory=dict)
+
+    order_history: List[Dict[str, Any]] = field(default_factory=list)
+    dividend_history: List[Dict[str, Any]] = field(default_factory=list)
+    transaction_history: List[Dict[str, Any]] = field(default_factory=list)
+
+    pies: List[Dict[str, Any]] = field(default_factory=list)
+    broker_is_live: bool = False
+    protected_tickers: set[str] = field(default_factory=set)
+
+    # Legacy carry-overs — kept so desktop/app.py's asset-switching and
+    # polymarket panel keep working. Fields are written but the legacy
+    # computation that populated them has been retired.
+    consensus_data: Dict[str, Any] = field(default_factory=dict)
+    current_regime: str = "unknown"
+    regime_confidence: float = 0.0
+    ensemble_model_count: int = 0
+    statistical_model_count: int = 0
+    pipeline_last_duration: float = 0.0
+    ai_color_grades: Dict[str, str] = field(default_factory=dict)
+    strategy_assignments: Dict[str, Any] = field(default_factory=dict)
+    regime_strategy_map: Dict[str, str] = field(default_factory=dict)
+
+    active_asset_class: AssetClass = "stocks"
+    enabled_asset_classes: List[AssetClass] = field(default_factory=lambda: ["stocks"])
+
+    signals_by_asset: Dict[AssetClass, Optional[pd.DataFrame]] = field(default_factory=dict)
+    consensus_by_asset: Dict[AssetClass, Dict[str, Any]] = field(default_factory=dict)
+    regime_by_asset: Dict[AssetClass, str] = field(default_factory=dict)
+    positions_by_asset: Dict[AssetClass, List[Dict[str, Any]]] = field(default_factory=dict)
+
+    polymarket_id_map: Dict[str, str] = field(default_factory=dict)
+
+    # Agent runner state
+    agent_running: bool = False
+    agent_paper_mode: bool = True
+    last_iteration_ts: Optional[datetime] = None
+    last_summary: str = ""
+    recent_tool_calls: List[Dict[str, Any]] = field(default_factory=list)
+    agent_journal_tail: List[str] = field(default_factory=list)
+
+    def switch_asset_class(self, asset_class: AssetClass) -> None:
+        """Switch the active asset class, swapping cached data in/out."""
+        if asset_class == self.active_asset_class:
+            return
+
+        self.signals_by_asset[self.active_asset_class] = self.signals
+        self.consensus_by_asset[self.active_asset_class] = self.consensus_data
+        self.regime_by_asset[self.active_asset_class] = self.current_regime
+        self.positions_by_asset[self.active_asset_class] = self.positions
+
+        self.active_asset_class = asset_class
+        self.signals = self.signals_by_asset.get(asset_class)
+        self.consensus_data = self.consensus_by_asset.get(asset_class, {})
+        self.current_regime = self.regime_by_asset.get(asset_class, "unknown")
+        self.positions = self.positions_by_asset.get(asset_class, [])
+        self.selected_ticker = ""
+        self.chart_data = []
+
+
 DEFAULT_CONFIG: Dict[str, Any] = {
     "watchlists": {"Default": []},
     "watchlists_paper": {"Default": []},
@@ -26,7 +123,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "capital": 10,
     "agent": {
         "enabled": False,
-        "cadence_seconds": 90,
+        "cadence_seconds": 45,
         "paper_mode": True,
         "daily_max_drawdown_pct": 3.0,
         "max_position_pct": 20.0,
@@ -35,10 +132,17 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "chat_model": "sonnet",
     },
     "ai": {
-        "model": "Y2xhdWRlLXNvbm5ldC00LTIwMjUwNTE0",
-        "model_complex": "Y2xhdWRlLW9wdXMtNC02",
-        "model_medium": "Y2xhdWRlLXNvbm5ldC00LTIwMjUwNTE0",
-        "model_simple": "Y2xhdWRlLWhhaWt1LTQtNS0yMDI1MTAwMQ==",
+        "model": "claude-opus-4-7",
+        "model_complex": "claude-opus-4-7",
+        "model_medium": "claude-sonnet-4-6",
+        "model_simple": "claude-haiku-4-5-20251001",
+        "model_assessor": "claude-sonnet-4-6",
+        "effort_supervisor": "max",
+        "effort_decision": "high",
+        "effort_info": "medium",
+        "effort_research_deep": "high",
+        "effort_research_quick": "medium",
+        "effort_assessor": "medium",
     },
     "news": {
         "refresh_interval_minutes": 5,
@@ -46,10 +150,6 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     },
     "updates": {
         "auto_check": True,
-        # 60s heartbeat: one poll per minute delivers update availability,
-        # maintenance mode flips, and last-online tracking in one round
-        # trip. Clamped to 30s floor by UpdateService.start() to stop
-        # a config typo from DoSing the server.
         "check_interval_seconds": 60,
         "skip_version": "",
         "pending_install": None,
@@ -73,11 +173,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
 
 
 def init_state(config: Dict[str, Any]) -> AppState:
-    """Create an AppState from a parsed config dict.
-
-    Mirrors TradingTerminalApp._init_state() so the desktop app
-    initialises identically to the Textual TUI.
-    """
+    """Create an AppState from a parsed config dict."""
     t_cfg = config.get("terminal", {})
     return AppState(
         mode=t_cfg.get("mode", "recommendation"),
@@ -94,16 +190,10 @@ def init_state(config: Dict[str, Any]) -> AppState:
 def resolve_config_path(config_path: Path | str = "config.json") -> Path:
     """Resolve config path for the desktop app.
 
-    For frozen (PyInstaller) builds, the user's config **always** lives at
-    ``%LOCALAPPDATA%\\blank\\config.json`` — the durable per-user location
-    owned by :mod:`desktop.paths`. The ``config_path`` argument is ignored
-    for frozen runs because the old "exe-adjacent" semantics meant user
-    state lived inside ``C:\\Program Files\\blank\\``, which was read-only
-    for unprivileged processes and got wiped by the v1 uninstaller.
-
-    For source/dev runs we honour the caller's path (typically
-    ``config.json`` resolved against cwd) so hot-reloading against the
-    repo-local config keeps working.
+    Frozen builds always read from ``%LOCALAPPDATA%\\blank\\config.json``
+    (the durable per-user location owned by :mod:`desktop.paths`); source
+    runs honour the caller's path so hot-reload works against the
+    repo-local ``config.json``.
     """
     import sys
 
@@ -118,14 +208,7 @@ def resolve_config_path(config_path: Path | str = "config.json") -> Path:
 
 
 def load_config(config_path: Path | str = "config.json") -> Dict[str, Any]:
-    """Load config, creating a default if the file doesn't exist.
-
-    For frozen builds this reads from ``%LOCALAPPDATA%\\blank\\config.json``
-    via :func:`resolve_config_path`. On first run (no migration source
-    found), we prefer copying the PyInstaller-bundled seed config before
-    falling back to :data:`DEFAULT_CONFIG`, so the shipped defaults win
-    over the terser Python dict.
-    """
+    """Load config, creating a default if the file doesn't exist."""
     import sys
 
     path = resolve_config_path(config_path)
@@ -145,7 +228,12 @@ def load_config(config_path: Path | str = "config.json") -> Dict[str, Any]:
 
     with path.open("r", encoding="utf-8") as f:
         data = json.load(f)
-    # Backfill paper watchlists if missing (migration for existing configs).
     if "watchlists_paper" not in data:
         data["watchlists_paper"] = {name: [] for name in data.get("watchlists", {})}
-    return data
+    try:
+        from core.config_schema import AppConfig
+        merged = AppConfig.model_validate(data).model_dump()
+        merged.update(data)
+        return merged
+    except Exception:
+        return data

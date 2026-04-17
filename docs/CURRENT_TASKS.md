@@ -144,9 +144,70 @@ tests** — 2026-04-14
   `core.market_hours`, `core.agent.tools.market_hours_tools`,
   `core.agent.tools.backtest_tools`, `desktop.panels.exchanges`.
 
+**Rebuild Phase 9 — Opus 4.7 upgrade, transcript scraper, UI polish** — 2026-04-16
+- [x] `config.json` — `ai` block rewritten with plain-string model IDs
+  (no base64), supervisor pinned to `claude-opus-4-7`, workers to
+  `claude-opus-4-7` / `claude-sonnet-4-6` / `claude-haiku-4-5-20251001`,
+  plus `effort_supervisor=max` / `effort_decision=high` /
+  `effort_info=medium` / `effort_research_deep=high` /
+  `effort_research_quick=medium`.
+- [x] `core/agent/model_router.py` — added `supervisor_effort`,
+  `decision_effort`, `info_effort`, `chat_worker_effort`,
+  `research_effort` accessors; `_coerce_effort` validator enforces
+  the SDK's `low|medium|high|max` literal.
+- [x] `core/agent/runner.py` / `chat_worker.py` / `research_worker.py`
+  — pass `effort=<tier>` through to `ClaudeAgentOptions`; logged in
+  the startup log_line.
+- [x] `core/agent/tools/watchlist_tools.py` — extracted
+  `add_to_watchlist_sync` plain helper; MCP tool calls it.
+- [x] `core/agent/tools/broker_tools.py` — `place_order` auto-adds
+  the ticker to the watchlist on successful BUY, never blocks the
+  order on a watchlist failure.
+- [x] `core/agent/prompts.py` — "Small capital, small wins" section
+  (£200 accounts, pennies = wins, bank 0.5–2 % gains); "Operating
+  mode" updated for the new 45 s default cadence.
+- [x] `config.json` — `cadence_seconds: 90 → 45`.
+- [x] `desktop/panels/positions.py` — currency-aware `_format_price`
+  (`$` / `£` / `€`, GBX → £ via /100).
+- [x] `desktop/panels/orders.py` — 6-column rewrite, 200-row cap,
+  coloured `Status` column (FILLED / PENDING / CANCELLED / REJECTED).
+- [x] `desktop/app.py` — `get_order_history(limit=200)`;
+  `state.research_findings` populated via
+  `history_manager.get_research_findings`.
+- [x] `desktop/panels/watchlist.py` — removed Verdict / Signal /
+  AI Rec / Consensus columns and the dead `compute_verdict` helper;
+  7 columns now (Ticker, Live Px, Day %, Prob, Conf, Sentiment,
+  Strategy).
+- [x] `core/database.py` — schema migration: `sentiment_score REAL`
+  and `sentiment_label TEXT` on `scraper_items`; included in
+  `save_scraper_items` / `get_scraper_items`.
+- [x] `core/scrapers/_sentiment.py` — VADER-based `score_text` +
+  `score_item`, thresholds ±0.1 → bullish / bearish / neutral.
+- [x] `core/scrapers/runner.py` — scores every item before save.
+- [x] `core/agent/tools/news_tools.py` — `_row_to_public` returns
+  `sentiment_score` + `sentiment_label` to the agent.
+- [x] `desktop/panels/news.py` — full rewrite: WATCHLIST SENTIMENT,
+  AGENT RESEARCH (role / ticker-or-MKT / confidence / type /
+  relative time / headline, colour-coded), MARKET NEWS with a
+  per-item VADER badge.
+- [x] `core/agent/prompts_research.py` — rule #5 allows findings for
+  unknown tickers and `ticker=null` market-wide signals, capped at
+  60 % confidence.
+- [x] `core/agent/research_roles.py` — new `market_scanner` deep
+  role (Sonnet tier, 600 s cadence, `default_tickers=False`).
+- [x] `core/scrapers/youtube_transcripts.py` +
+  `_transcript_summariser.py` — new transcript scraper: @markets
+  channel recent uploads + 24/7 live-stream rolling window,
+  Haiku-summarised with a regex-extractive fallback.
+- [x] `core/scrapers/__init__.py` — `YouTubeTranscriptsScraper`
+  registered in `SCRAPERS`.
+- [x] `requirements.txt` — `vaderSentiment>=3.3.2`,
+  `youtube-transcript-api>=0.6.2`.
+
 ### Up Next
 
-- [ ] (none currently — Phase 8 closed out the post-Phase-7 backlog)
+- [ ] (none currently — Phase 9 closed out this round of UX + model
+  upgrades)
 
 (Crypto + polymarket restore is deferred indefinitely; dormant code
 stays bundled in the installer but is not exposed to the agent.)

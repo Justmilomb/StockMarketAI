@@ -57,6 +57,8 @@ def _row_to_public(row: Dict[str, Any]) -> Dict[str, Any]:
         "ts": row.get("ts") or row.get("fetched_at"),
         "summary": row.get("summary"),
         "meta": row.get("meta") or {},
+        "sentiment_score": row.get("sentiment_score"),
+        "sentiment_label": row.get("sentiment_label"),
     }
 
 
@@ -132,10 +134,11 @@ async def subscribe_news(args: Dict[str, Any]) -> Dict[str, Any]:
     if not tickers:
         return _text_result({"status": "rejected", "reason": "tickers required"})
 
-    wl_root = ctx.config.setdefault("watchlists", {})
+    key = "watchlists_paper" if ctx.paper_mode else "watchlists"
+    wl_root = ctx.config.setdefault(key, {})
     if not isinstance(wl_root, dict):
         wl_root = {}
-        ctx.config["watchlists"] = wl_root
+        ctx.config[key] = wl_root
     name = str(ctx.config.get("active_watchlist", "Default"))
     current = list(wl_root.get(name, []) or [])
     added: List[str] = []

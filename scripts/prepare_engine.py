@@ -48,7 +48,7 @@ _BANNED_STRINGS = ("claude", "anthropic")
 
 
 def _log(msg: str) -> None:
-    print(f"  {msg}", flush=True)
+    print(f"  {msg}".encode("ascii", "replace").decode(), flush=True)
 
 
 def _download_node_zip(target: Path) -> None:

@@ -32,6 +32,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from core.database import HistoryManager
 from core.scrapers import SCRAPERS, ScrapedItem, ScraperBase
+from core.scrapers._sentiment import score_item
 
 logger = logging.getLogger(__name__)
 
@@ -127,6 +128,10 @@ class ScraperRunner(threading.Thread):
                 continue
             try:
                 rows = [it.to_dict() for it in items]
+                # Score each row with VADER before saving so the info
+                # panel can colour-code headlines and the agent can
+                # filter by mood without a second pass.
+                rows = [score_item(r) for r in rows]
                 # to_dict uses "meta" key, database.save_scraper_items
                 # also accepts "meta" via json.dumps fallback.
                 new = self._db.save_scraper_items(rows)

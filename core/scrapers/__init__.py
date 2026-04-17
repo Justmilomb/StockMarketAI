@@ -21,6 +21,8 @@ from core.scrapers.stocktwits import StockTwitsScraper
 from core.scrapers.x_via_gnews import XViaGoogleNewsScraper
 from core.scrapers.yahoo_finance import YahooFinanceScraper
 from core.scrapers.youtube import YouTubeScraper
+from core.scrapers.youtube_live_vision import YouTubeLiveVisionScraper
+from core.scrapers.youtube_transcripts import YouTubeTranscriptsScraper
 
 #: Every scraper wired into the tool bus. The background worker iterates
 #: this list; tools read the cached items the worker writes to sqlite.
@@ -31,6 +33,8 @@ SCRAPERS: list[ScraperBase] = [
     BloombergScraper(),
     MarketWatchScraper(),
     YouTubeScraper(),
+    YouTubeTranscriptsScraper(),
+    YouTubeLiveVisionScraper(),
     StockTwitsScraper(),
     RedditScraper(),
     XViaGoogleNewsScraper(),
@@ -49,4 +53,6 @@ __all__ = [
     "XViaGoogleNewsScraper",
     "YahooFinanceScraper",
     "YouTubeScraper",
+    "YouTubeLiveVisionScraper",
+    "YouTubeTranscriptsScraper",
 ]

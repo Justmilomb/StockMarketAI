@@ -79,6 +79,7 @@ Kill is soft-stop + 3 second `wait()` + `terminate()` — all handled by
 | Cap | Default | Source |
 |-----|---------|--------|
 | `cadence_seconds` floor | 30 | `CADENCE_FLOOR_SECONDS` in runner |
+| `cadence_seconds` default | 45 | `config.agent.cadence_seconds` — aggressive for day/swing trading |
 | `max_tool_calls_per_iter` | 40 | `config.agent.max_tool_calls_per_iter` |
 | `max_iter_seconds` | 360 | `config.agent.max_iter_seconds` |
 | Paper mode lock | `true` | `config.agent.paper_mode` → forces `broker.type="log"` |
@@ -94,9 +95,27 @@ forced config is what the per-iteration `broker_service` and
 `AgentContext` see. Live trading only kicks in when the user
 explicitly flips paper mode off **and** configures a real broker.
 
+## Model + effort
+
+The supervisor runs Claude Opus 4.7 at `effort="max"`. The SDK's
+`ClaudeAgentOptions.effort` field takes `low | medium | high | max`
+(SDK ≥ 0.1.59) and is populated from `model_router.supervisor_effort`.
+No separate grader agent — the supervisor assesses its own iteration
+output and writes the journal summary.
+
+Chat and research workers get their own effort accessors:
+
+- `chat_worker_effort(config, tier)` — `high` for the decision tier,
+  `medium` for the info tier.
+- `research_effort(config, role)` — `high` for deep (Opus) roles,
+  `medium` for medium (Sonnet) roles, `low` for quick (Haiku) roles.
+
+Config lives under the `ai` block (plain-string model IDs + `effort_*`
+keys). See `docs/ARCHITECTURE.md` "Model routing + effort".
+
 ## Dependencies
 
-- `claude-agent-sdk==0.1.58` (pinned in `requirements.txt`)
+- `claude-agent-sdk>=0.1.59` (pinned in `requirements.txt`)
 - `PySide6.QtCore` (`QThread`, `Signal`)
 - `core/agent/mcp_server.py` — `build_mcp_server()` factory + `allowed_tool_names()`
 - `core/agent/context.py` — per-iteration context

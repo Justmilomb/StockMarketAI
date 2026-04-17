@@ -106,6 +106,7 @@ class AgentRunner(QThread):
         self._trade_count: int = 0
         self._watchlist_add_count: int = 0
         self._last_action_desc: str = ""
+        self._agent_requested_wait_minutes: int = 0
 
         # Lifetime iteration counter (increments each iteration).
         self._iter_count: int = 0
@@ -160,6 +161,7 @@ class AgentRunner(QThread):
 
     async def _main_loop(self) -> None:
         while not self._stop_requested:
+            self._agent_requested_wait_minutes = 0
             try:
                 await self._run_one_iteration()
             except asyncio.CancelledError:
@@ -171,7 +173,9 @@ class AgentRunner(QThread):
 
             if self._stop_requested:
                 break
-            await self._sleep_with_interrupt(self._compute_wait_seconds())
+            await self._sleep_with_interrupt(
+                self._compute_wait_seconds(self._agent_requested_wait_minutes),
+            )
 
     # ── iteration plumbing ───────────────────────────────────────────
 
@@ -181,7 +185,15 @@ class AgentRunner(QThread):
         # see paper_mode=True, regardless of what's on disk.
         return self._pool._load_config()
 
-    def _compute_wait_seconds(self) -> float:
+    def _compute_wait_seconds(self, agent_requested_minutes: int = 0) -> float:
+        """Compute sleep duration, respecting the agent's end_iteration request.
+
+        If the agent called end_iteration(next_check_in_minutes=N), that
+        value is used (converted to seconds and clamped to the cadence
+        floor). Otherwise falls back to the configured cadence_seconds.
+        """
+        if agent_requested_minutes > 0:
+            return float(max(CADENCE_FLOOR_SECONDS, agent_requested_minutes * 60))
         try:
             cfg = self._load_config()
             cadence = int(cfg.get("agent", {}).get("cadence_seconds", 90))
@@ -243,7 +255,7 @@ class AgentRunner(QThread):
             allowed_tool_names,
             build_mcp_server,
         )
-        from core.agent.model_router import supervisor_model
+        from core.agent.model_router import supervisor_effort, supervisor_model
         from core.agent.paths import (
             cli_path_for_sdk,
             prepare_env_for_bundled_engine,
@@ -275,17 +287,19 @@ class AgentRunner(QThread):
         self._watchlist_add_count = 0
         self._last_action_desc = ""
         self._iter_count += 1
+        transcript_lines: list[str] = []
         prompt_text = self._build_iteration_prompt()
 
         # The supervisor is the autonomous trade decider — always the
         # heaviest tier. Chat workers get the lighter tier for
         # info-retrieval questions via model_router.chat_worker_model.
         model_id = supervisor_model(effective_config)
+        effort = supervisor_effort(effective_config)
 
         self.iteration_started.emit(iteration_id)
         self.log_line.emit(
             f"[runner] iteration {iteration_id} "
-            f"(paper={paper_mode}, model={model_id}, no caps)",
+            f"(paper={paper_mode}, model={model_id}, effort={effort}, no caps)",
         )
 
         mcp_server = build_mcp_server()
@@ -330,6 +344,7 @@ class AgentRunner(QThread):
             allowed_tools=allowed_tool_names(),
             permission_mode="bypassPermissions",
             model=model_id,
+            effort=effort,  # type: ignore[arg-type]
             cwd=str(self._config_path.parent),
             cli_path=resolved_cli,
             stderr=_on_stderr,
@@ -350,6 +365,7 @@ class AgentRunner(QThread):
                         if isinstance(block, TextBlock):
                             self.text_chunk.emit(block.text)
                             self.log_line.emit(f"[ai] {block.text}")
+                            transcript_lines.append(f"[thought] {block.text}")
                         elif isinstance(block, ToolUseBlock):
                             self._tool_call_count += 1
                             tool_name = block.name or ""
@@ -372,6 +388,9 @@ class AgentRunner(QThread):
                                 json.dumps(block.input, default=str), 160,
                             )
                             self.log_line.emit(f"[tool] {block.name}({args_preview})")
+                            transcript_lines.append(
+                                f"[tool] {short_name}({args_preview})"
+                            )
                 elif isinstance(message, UserMessage):
                     content = message.content
                     if isinstance(content, list):
@@ -386,6 +405,9 @@ class AgentRunner(QThread):
                                 tag = "err" if block.is_error else "ok"
                                 self.log_line.emit(
                                     f"[result:{tag}] {self._truncate(preview, 200)}",
+                                )
+                                transcript_lines.append(
+                                    f"[result:{tag}] {self._truncate(preview, 400)}"
                                 )
                 elif isinstance(message, ResultMessage):
                     if message.is_error:
@@ -407,10 +429,13 @@ class AgentRunner(QThread):
                 detail += " | stderr: " + " ".join(stderr_lines[-5:])
             self.error_occurred.emit(f"query failed: {detail}")
         finally:
-            # Pull the summary the agent wrote via end_iteration, if any.
+            # Pull the summary + requested sleep the agent wrote via
+            # end_iteration, if any — must happen before clear_agent_context.
             try:
                 from core.agent.context import get_agent_context
-                summary = get_agent_context().end_summary or ""
+                ctx = get_agent_context()
+                summary = ctx.end_summary or ""
+                self._agent_requested_wait_minutes = ctx.next_wait_minutes
             except Exception:
                 summary = ""
             self._write_last_iteration_summary(
@@ -423,11 +448,70 @@ class AgentRunner(QThread):
                 f"({self._tool_call_count} tool calls, "
                 f"{time.monotonic() - start:.1f}s)",
             )
+            try:
+                await self._run_assessor(
+                    iteration_id=iteration_id,
+                    transcript_lines=transcript_lines,
+                    summary=summary,
+                    config=effective_config,
+                )
+            except Exception as e:
+                logger.warning("assessor stage failed: %s", e)
             clear_agent_context()
             try:
                 os.unlink(prompt_file.name)
             except Exception:
                 pass
+
+    async def _run_assessor(
+        self,
+        iteration_id: str,
+        transcript_lines: List[str],
+        summary: str,
+        config: Dict[str, Any],
+    ) -> None:
+        """Grade the just-finished iteration and write the review to the journal.
+
+        Purely advisory — never blocks the next iteration. A disabled
+        assessor (empty ``ai.model_assessor``) short-circuits in
+        :func:`core.agent.assessor.run_assessor`.
+        """
+        if not transcript_lines and not summary:
+            return
+
+        from core.agent.assessor import run_assessor
+
+        transcript = "\n".join(transcript_lines)
+        if summary:
+            transcript += f"\n\n[end_iteration summary]\n{summary}"
+
+        review = await run_assessor(transcript, config)
+        if review is None:
+            return
+
+        colour = {"good": "ok", "mediocre": "warn", "bad": "err"}.get(review.grade, "warn")
+        self.log_line.emit(
+            f"[rev:{colour}] {review.grade.upper()} — {review.one_line}",
+        )
+        for c in review.concerns:
+            self.log_line.emit(f"[rev] concern: {c}")
+        for f in review.follow_ups:
+            self.log_line.emit(f"[rev] follow-up: {f}")
+
+        try:
+            with sqlite3.connect(self._db_path) as conn:
+                conn.execute(
+                    "INSERT INTO agent_journal (iteration_id, kind, payload, tags) "
+                    "VALUES (?, ?, ?, ?)",
+                    (
+                        iteration_id,
+                        "assessor_review",
+                        review.to_json(),
+                        review.grade,
+                    ),
+                )
+        except Exception as e:
+            logger.warning("failed to persist assessor review: %s", e)
 
     def _write_last_iteration_summary(
         self,

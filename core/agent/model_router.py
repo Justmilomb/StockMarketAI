@@ -26,7 +26,6 @@ a trade through the medium tier.
 """
 from __future__ import annotations
 
-import base64
 import re
 from typing import Any, Dict
 
@@ -81,27 +80,17 @@ _INFO_RE: re.Pattern[str] = re.compile(
 )
 
 
-def _decode_model(val: str) -> str:
-    """Decode a base64-encoded model ID, or pass through if already plain."""
-    if not val:
-        return val
-    try:
-        return base64.b64decode(val).decode()
-    except Exception:
-        return val
-
-
 def _ai_cfg(config: Dict[str, Any]) -> Dict[str, Any]:
     cfg = config or {}
     return cfg.get("ai") or {}
 
 
 def _model(cfg: Dict[str, Any], *keys: str) -> str:
-    """Read the first non-empty model key and decode it."""
+    """Read the first non-empty model key as a plain string."""
     for key in keys:
         val = cfg.get(key)
         if val:
-            return _decode_model(str(val))
+            return str(val)
     return ""
 
 
@@ -166,3 +155,57 @@ def research_worker_model(config: Dict[str, Any], role: Any) -> str:
     if tier == "medium":
         return _sonnet_model(config)
     return _haiku_model(config)
+
+
+#: Valid effort levels accepted by the Claude Agent SDK. Anything else
+#: gets coerced back to the closest valid value so a typo in config.json
+#: doesn't crash the SDK on session start.
+_VALID_EFFORT: tuple[str, ...] = ("low", "medium", "high", "max")
+
+
+def _coerce_effort(val: Any, fallback: str) -> str:
+    text = str(val or "").strip().lower()
+    return text if text in _VALID_EFFORT else fallback
+
+
+def supervisor_effort(config: Dict[str, Any]) -> str:
+    """Effort level for the supervisor — always our top tier."""
+    return _coerce_effort(_ai_cfg(config).get("effort_supervisor"), "max")
+
+
+def decision_effort(config: Dict[str, Any]) -> str:
+    """Effort for a chat worker on a trade/decision request."""
+    return _coerce_effort(_ai_cfg(config).get("effort_decision"), "high")
+
+
+def info_effort(config: Dict[str, Any]) -> str:
+    """Effort for a chat worker on an info-only request."""
+    return _coerce_effort(_ai_cfg(config).get("effort_info"), "medium")
+
+
+def chat_worker_effort(config: Dict[str, Any], tier: str) -> str:
+    """Map the chat-worker tier label to an effort level."""
+    if tier == "decision":
+        return decision_effort(config)
+    return info_effort(config)
+
+
+def assessor_model(config: Dict[str, Any]) -> str:
+    """Model for the post-iteration assessor (defaults to Sonnet tier)."""
+    return _model(_ai_cfg(config), "model_assessor", "model_medium", "model")
+
+
+def assessor_effort(config: Dict[str, Any]) -> str:
+    """Effort level for the post-iteration assessor."""
+    return _coerce_effort(_ai_cfg(config).get("effort_assessor"), "medium")
+
+
+def research_effort(config: Dict[str, Any], role: Any) -> str:
+    """Effort level for a research worker based on role tier."""
+    tier = getattr(role, "model_tier", "simple")
+    cfg = _ai_cfg(config)
+    if tier == "complex":
+        return _coerce_effort(cfg.get("effort_research_deep"), "high")
+    if tier == "medium":
+        return _coerce_effort(cfg.get("effort_research_quick"), "medium")
+    return _coerce_effort(cfg.get("effort_research_quick"), "low")

@@ -139,6 +139,7 @@ class _Order:
     def to_dict(self) -> Dict[str, Any]:
         return {
             "order_id": self.order_id,
+            "id": self.order_id,
             "ticker": self.ticker,
             "side": self.side,
             "quantity": self.quantity,
@@ -148,6 +149,7 @@ class _Order:
             "reserved_cash": self.reserved_cash,
             "created_at": self.created_at,
             "queue_reason": self.queue_reason,
+            "status": "PENDING",
         }
 
     @classmethod

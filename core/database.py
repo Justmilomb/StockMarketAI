@@ -218,6 +218,8 @@ class HistoryManager:
                     ts TEXT,
                     summary TEXT,
                     meta_json TEXT,
+                    sentiment_score REAL,
+                    sentiment_label TEXT,
                     UNIQUE(source, url, title)
                 );
                 CREATE INDEX IF NOT EXISTS idx_sc_fetched ON scraper_items(fetched_at);
@@ -297,6 +299,16 @@ class HistoryManager:
             if not self._column_exists(conn, "prediction_log", "asset_class"):
                 conn.execute(
                     "ALTER TABLE prediction_log ADD COLUMN asset_class TEXT DEFAULT 'stocks'"
+                )
+            # Per-item sentiment scoring on scraped news/social items — added
+            # alongside the VADER-based scoring step in the scraper runner.
+            if not self._column_exists(conn, "scraper_items", "sentiment_score"):
+                conn.execute(
+                    "ALTER TABLE scraper_items ADD COLUMN sentiment_score REAL"
+                )
+            if not self._column_exists(conn, "scraper_items", "sentiment_label"):
+                conn.execute(
+                    "ALTER TABLE scraper_items ADD COLUMN sentiment_label TEXT"
                 )
 
     # ── Serialisation helpers ──────────────────────────────────────────
@@ -746,14 +758,17 @@ class HistoryManager:
                 it.get("ts"),
                 it.get("summary", ""),
                 meta_json,
+                it.get("sentiment_score"),
+                it.get("sentiment_label"),
             ))
 
         with sqlite3.connect(self.db_path) as conn:
             before = conn.execute("SELECT COUNT(*) FROM scraper_items").fetchone()[0]
             conn.executemany(
                 "INSERT OR IGNORE INTO scraper_items "
-                "(source, kind, ticker, title, url, ts, summary, meta_json) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                "(source, kind, ticker, title, url, ts, summary, meta_json, "
+                "sentiment_score, sentiment_label) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 rows,
             )
             after = conn.execute("SELECT COUNT(*) FROM scraper_items").fetchone()[0]
@@ -797,7 +812,8 @@ class HistoryManager:
 
         sql = (
             "SELECT id, fetched_at, source, kind, ticker, title, url, ts, "
-            "summary, meta_json FROM scraper_items "
+            "summary, meta_json, sentiment_score, sentiment_label "
+            "FROM scraper_items "
             f"WHERE {' AND '.join(where)} "
             "ORDER BY COALESCE(ts, fetched_at) DESC LIMIT ?"
         )
@@ -1009,6 +1025,35 @@ class HistoryManager:
                 "SELECT status, COUNT(*) FROM research_tasks GROUP BY status",
             ).fetchall()
         return {row[0]: row[1] for row in rows}
+
+    def clear_agent_history(self) -> Dict[str, int]:
+        """Wipe every table the agent reads as memory.
+
+        Used by the "Clear all chats & history" action in live mode and
+        by the paper-mode teardown path. Leaves scraper_items alone —
+        those are market data, not agent state.
+
+        Returns a dict of ``{table: rows_deleted}`` for logging.
+        """
+        tables = (
+            "chat_history",
+            "agent_memory",
+            "agent_journal",
+            "research_findings",
+            "research_tasks",
+            "research_goals",
+            "ai_memory",
+        )
+        deleted: Dict[str, int] = {}
+        with sqlite3.connect(self.db_path) as conn:
+            for name in tables:
+                try:
+                    cur = conn.execute(f"DELETE FROM {name}")
+                    deleted[name] = cur.rowcount or 0
+                except sqlite3.OperationalError:
+                    # Table doesn't exist on this DB — skip quietly.
+                    deleted[name] = 0
+        return deleted
 
     def purge_old_research_data(self, keep_days: int = 30) -> None:
         """Delete old findings and terminal tasks beyond the retention window.

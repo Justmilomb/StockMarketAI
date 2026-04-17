@@ -111,7 +111,10 @@
       "Bash(C:/Users/milo/.local/bin/claude.exe *)",
       "Bash(C:/Users/milo/AppData/Roaming/Python/Python314/site-packages/claude_agent_sdk/_bundled/claude.exe *)",
       "Bash(e:/Coding/StockMarketAI/.venv/Scripts/python.exe *)",
-      "Bash(pip index *)"
+      "Bash(pip index *)",
+      "Bash(cmd.exe /c \"dir /s /b \\\\\"C:\\\\Users\\\\milo\\\\AppData\\\\Local\\\\Programs\\\\blank\\\\\" 2>nul\")",
+      "Bash(cmd.exe *)",
+      "Bash(powershell *)"
     ]
   }
 }

@@ -120,7 +120,7 @@ class ResearchWorker(QThread):
             allowed_tool_names,
             build_mcp_server,
         )
-        from core.agent.model_router import research_worker_model
+        from core.agent.model_router import research_effort, research_worker_model
         from core.agent.paths import (
             cli_path_for_sdk,
             prepare_env_for_bundled_engine,
@@ -155,11 +155,12 @@ class ResearchWorker(QThread):
         ctx.stats["research_task_id"] = task_id
 
         model_id = research_worker_model(effective_config, self._role)
+        effort = research_effort(effective_config, self._role)
 
         self.log_line.emit(
             f"[research:{self._worker_id}] iteration {iteration_id} "
             f"(role={role_id}, task={task_id}, "
-            f"paper={self._paper_mode}, model={model_id})",
+            f"paper={self._paper_mode}, model={model_id}, effort={effort})",
         )
 
         mcp_server = build_mcp_server()
@@ -225,6 +226,7 @@ class ResearchWorker(QThread):
             allowed_tools=allowed_tool_names(),
             permission_mode="bypassPermissions",
             model=model_id,
+            effort=effort,  # type: ignore[arg-type]
             cwd=str(self._config_path.parent),
             cli_path=cli_path_for_sdk(),
         )

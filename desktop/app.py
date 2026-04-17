@@ -81,7 +81,6 @@ class MainWindow(QMainWindow):
 
         # Services
         from broker_service import BrokerService
-        from news_agent import NewsAgent
 
         if forced_paper_mode:
             # Paper window gets its own isolated broker that always uses
@@ -95,15 +94,24 @@ class MainWindow(QMainWindow):
             self.broker_service = BrokerService(config=paper_cfg)
             paper_broker_cfg = self.config.get("paper_broker") or {}
             # Always start fresh — delete any previous paper state so
-            # every paper session opens at £100.
+            # every paper session opens at £100. The audit log gets the
+            # same treatment so old orders don't ghost-show in the
+            # Orders panel after a reopen.
             state_path = Path(paper_broker_cfg.get("state_path", "data/paper_state.json"))
-            if state_path.exists():
-                state_path.unlink()
+            audit_path = Path(paper_broker_cfg.get("audit_path", "logs/paper_orders.jsonl"))
+            for _p in (state_path, audit_path):
+                if _p.exists():
+                    try:
+                        _p.unlink()
+                    except Exception:
+                        logging.getLogger(__name__).debug(
+                            "paper-open: could not delete %s", _p,
+                        )
             self.broker_service.register_broker(
                 "stocks",
                 PaperBroker(
                     state_path=state_path,
-                    audit_path=Path(paper_broker_cfg.get("audit_path", "logs/paper_orders.jsonl")),
+                    audit_path=audit_path,
                     starting_cash=float(paper_broker_cfg.get("starting_cash", 100.0)),
                     currency=str(paper_broker_cfg.get("currency", "GBP") or "GBP"),
                 ),
@@ -113,24 +121,34 @@ class MainWindow(QMainWindow):
         else:
             self.broker_service = BrokerService(self.config)
 
+        # Legacy ML/news AI pipeline is retired — the agent loop now
+        # owns all LLM work and the scraper runner owns news ingestion.
+        # ``_ai_client`` / ``news_agent`` are kept as always-None
+        # placeholders so the rest of the file's defensive ``if self.X``
+        # branches short-circuit cleanly; populating them is a follow-up
+        # once scraper-sourced VADER sentiment feeds ``state.news_sentiment``.
         self._ai_client: Optional[Any] = None
-        self.news_agent: Optional[NewsAgent] = None
+        self.news_agent: Optional[Any] = None
         self.history_manager: Optional[Any] = None
 
         try:
-            from ai_client import AIClient, AIConfig
-            ai_cfg_raw = self.config.get("ai", {})
-            ccfg = AIConfig(
-                model=ai_cfg_raw.get("model", ""),
-                model_complex=ai_cfg_raw.get("model_complex", ""),
-                model_medium=ai_cfg_raw.get("model_medium", ""),
-                model_simple=ai_cfg_raw.get("model_simple", ""),
-            )
-            self._ai_client = AIClient(ccfg)
-
             from database import HistoryManager
             from desktop.paths import db_path as _user_db_path
             _base_db = _user_db_path()
+            # Paper windows are ephemeral — any survivors of a previous
+            # close (Windows file locks sometimes prevent closeEvent from
+            # deleting the DB) get wiped NOW, before HistoryManager opens
+            # the file. This guarantees a blank slate at open time.
+            if self._forced_paper_mode:
+                for _name in ("paper_history.db", "paper_chat_history.db"):
+                    _leftover = _base_db.parent / _name
+                    try:
+                        if _leftover.exists():
+                            _leftover.unlink()
+                    except Exception:
+                        logging.getLogger(__name__).debug(
+                            "paper-open: could not delete %s", _leftover,
+                        )
             _hist_db = (
                 _base_db.parent / "paper_chat_history.db"
                 if self._forced_paper_mode
@@ -138,17 +156,8 @@ class MainWindow(QMainWindow):
             )
             self.history_manager = HistoryManager(db_path=str(_hist_db))
             self.state.history_manager = self.history_manager
-
-            news_interval = self.config.get("news", {}).get(
-                "refresh_interval_minutes", 5,
-            )
-            news_ai = AIClient(ccfg)
-            self.news_agent = NewsAgent(
-                news_ai, refresh_interval_minutes=news_interval,
-                config=self.config,
-            )
         except Exception as e:
-            logging.getLogger(__name__).warning("Could not init AI/news: %s", e)
+            logging.getLogger(__name__).warning("Could not init HistoryManager: %s", e)
 
         self.state.broker_is_live = self.broker_service.is_live
 
@@ -172,6 +181,11 @@ class MainWindow(QMainWindow):
         # Buffer accumulates text_chunk blocks across one iteration; flushed
         # to chat at iteration end so the user sees the full agent message.
         self._agent_text_buffer: List[str] = []
+
+        # Persistent log file — every agent log line is appended here so
+        # the user can review what the agent did across sessions.
+        self._agent_log_file: Optional[Any] = None
+        self._open_agent_log_file()
 
         # Phase 5 scraper runner — refreshes the news/social cache in
         # the background. Started after _build_ui so the watchlist
@@ -233,6 +247,9 @@ class MainWindow(QMainWindow):
             # can never share state.
             agent_menu.addAction(
                 "Open Paper Trading Window", self._open_paper_window,
+            )
+            agent_menu.addAction(
+                "Clear All Chats && History", self._on_clear_history,
             )
 
         mode_str = "AUTO" if self.state.mode == "full_auto_limited" else "ADVISOR"
@@ -771,22 +788,32 @@ class MainWindow(QMainWindow):
             errors.append(f"Orders: {e}")
 
         try:
-            history = self.broker_service.get_order_history(limit=20)
+            # Pull the full recent history so the orders panel can surface
+            # filled + cancelled + rejected orders the agent has placed,
+            # not just the last 20. The panel applies its own cap.
+            history = self.broker_service.get_order_history(limit=200)
             history_orders = history.get("items", [])
         except Exception:
             history_orders = []
 
+        # Paper broker uses "order_id"; Trading212 uses "id". Check both
+        # so a queued paper order doesn't render twice (once as pending,
+        # once as its QUEUED audit entry).
+        def _oid(o: dict) -> str:
+            return str(o.get("id") or o.get("order_id") or "")
+
         seen_ids: set[str] = set()
         merged: list[dict] = []
         for o in pending:
-            oid = o.get("id", "")
+            oid = _oid(o)
             if oid:
                 seen_ids.add(oid)
             merged.append(o)
         for o in history_orders:
-            oid = o.get("id", "")
-            if oid and oid not in seen_ids:
-                merged.append(o)
+            oid = _oid(o)
+            if oid and oid in seen_ids:
+                continue
+            merged.append(o)
         result["recent_orders"] = merged
 
         live_data: Dict[str, Any] = {}
@@ -880,6 +907,13 @@ class MainWindow(QMainWindow):
         self.chart_panel.refresh_view(self.state)
         self.agent_log_panel.refresh_view(self.state)
 
+        try:
+            wl_key = self._watchlist_config_key()
+            active = self.state.active_watchlist or "Default"
+            wl_root = self.config.get(wl_key, {}) or {}
+            self.state.active_watchlist_tickers = list(wl_root.get(active, []) or [])
+        except Exception:
+            self.state.active_watchlist_tickers = []
         self.watchlist_panel.refresh_view(self.state)
         self.positions_panel.refresh_view(self.state)
         self.exchanges_panel.refresh_view(self.state)
@@ -893,6 +927,29 @@ class MainWindow(QMainWindow):
                 )
             except Exception:
                 self.state.market_news = []
+            # Surface the latest research swarm findings so the agent's
+            # per-iteration work is visible in the Information panel —
+            # otherwise the swarm feels invisible to the user.
+            try:
+                self.state.research_findings = self.history_manager.get_research_findings(
+                    since_minutes=360, limit=20,
+                )
+            except Exception:
+                self.state.research_findings = []
+        # Feed the swarm status into state so the news panel can show
+        # "running (N workers)" vs "offline" when findings are empty.
+        try:
+            if self.agent_pool is not None and self.agent_pool.swarm_running():
+                status = self.agent_pool.swarm.get_status() if self.agent_pool.swarm else {}
+                self.state.swarm_status = {
+                    "running": True,
+                    "active_workers": status.get("active_workers", 0),
+                    "total_tasks_run": status.get("total_tasks_run", 0),
+                }
+            else:
+                self.state.swarm_status = {"running": False}
+        except Exception:
+            self.state.swarm_status = {"running": False}
         self.news_panel.refresh_view(self.state)
 
         self._update_header()
@@ -1125,6 +1182,69 @@ class MainWindow(QMainWindow):
                 "Reset skipped — not a paper broker.", 3000,
             )
 
+    def _on_clear_history(self) -> None:
+        """Wipe every agent-visible memory table and reset in-memory state.
+
+        Live-mode only. Paper windows already discard their DB on close.
+        Clears chat/memory/journal/research tables, empties the active
+        watchlist (user's expectation of "true blank slate"), and
+        refreshes every panel so the wipe is immediately visible.
+        """
+        from PySide6.QtWidgets import QMessageBox
+        if self.history_manager is None:
+            return
+        reply = QMessageBox.question(
+            self,
+            "Clear All Chats & History",
+            "Wipe every chat message, agent memory entry, research "
+            "finding, journal line, AND the active watchlist?\n\n"
+            "This gives the AI a true blank slate. Broker settings and "
+            "config are kept.\n\nThis cannot be undone.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            counts = self.history_manager.clear_agent_history()
+        except Exception as exc:
+            logging.getLogger(__name__).exception("clear_agent_history failed")
+            self.statusBar().showMessage(f"Clear failed: {exc}", 5000)
+            return
+
+        # Empty the active watchlist for the current mode so the agent
+        # has nothing carried over. We preserve the watchlist NAME so the
+        # user keeps their setup — just the tickers go.
+        try:
+            wl_key = self._watchlist_config_key()
+            active = self.config.get("active_watchlist") or "Default"
+            wl_root = self.config.setdefault(wl_key, {})
+            if isinstance(wl_root, dict):
+                wl_root[active] = []
+            self._save_config()
+        except Exception:
+            logging.getLogger(__name__).exception("clear watchlist failed")
+
+        self.state.chat_history.clear()
+        self.state.research_findings = []
+        self.state.agent_journal_tail = []
+        self.state.last_summary = ""
+        self.state.news_sentiment = {}
+        self.chat_panel.refresh_view(self.state)
+        self.news_panel.refresh_view(self.state)
+        self.agent_log_panel.refresh_view(self.state)
+        # Watchlist panel reads the config directly, so a full refresh
+        # picks up the empty tickers list.
+        try:
+            self._refresh_watchlist_panel()
+        except Exception:
+            pass
+
+        total = sum(counts.values())
+        self.statusBar().showMessage(
+            f"Cleared {total} rows + watchlist — AI has a blank slate.", 5000,
+        )
+
     def _watchlist_config_key(self) -> str:
         """Return the config key for the currently active mode's watchlists."""
         return "watchlists_paper" if self.state.agent_paper_mode else "watchlists"
@@ -1209,6 +1329,30 @@ class MainWindow(QMainWindow):
         self.agent_pool.set_watchlist_provider(self._get_active_tickers)
         self.agent_pool.start_swarm()
 
+    # ── Persistent agent log ────────────────────────────────────────────
+
+    def _open_agent_log_file(self) -> None:
+        """Open (or create) the persistent agent log file in the data dir."""
+        try:
+            from desktop.paths import user_data_dir
+            log_dir = user_data_dir() / "logs"
+            log_dir.mkdir(parents=True, exist_ok=True)
+            log_path = log_dir / "agent.log"
+            self._agent_log_file = open(  # noqa: SIM115
+                log_path, "a", encoding="utf-8",
+            )
+            from datetime import datetime
+            self._agent_log_file.write(
+                f"\n{'=' * 60}\n"
+                f"Session started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+                f"{'=' * 60}\n",
+            )
+            self._agent_log_file.flush()
+            logger.info("Agent log file: %s", log_path)
+        except Exception:
+            logger.exception("Could not open agent log file")
+            self._agent_log_file = None
+
     # ── Agent signal slots — run on the GUI thread ───────────────────
 
     @Slot(bool)
@@ -1228,6 +1372,15 @@ class MainWindow(QMainWindow):
         if len(tail) > 1000:
             del tail[: len(tail) - 1000]
         self.agent_log_panel.append_line(line)
+        # Persist every log line to disk.
+        if self._agent_log_file is not None:
+            try:
+                from datetime import datetime
+                ts = datetime.now().strftime("%H:%M:%S")
+                self._agent_log_file.write(f"[{ts}] {line}\n")
+                self._agent_log_file.flush()
+            except Exception:
+                pass
 
     @Slot(str)
     def _on_agent_text_chunk(self, chunk: str) -> None:
@@ -1241,13 +1394,13 @@ class MainWindow(QMainWindow):
 
     @Slot(str, str)
     def _on_agent_iteration_finished(self, iteration_id: str, summary: str) -> None:
-        # Prefer the full agent text accumulated during streaming; fall back
-        # to the end_iteration summary if the buffer is empty.
-        full_text = "".join(self._agent_text_buffer).strip()
+        # Show the concise end_iteration summary in chat, not the full
+        # stream of every thought the agent had (which is unreadable).
+        # The full detail is already in the agent log panel.
         self._agent_text_buffer.clear()
-        message = full_text or summary
+        message = summary
         if message:
-            self.state.last_summary = summary or full_text
+            self.state.last_summary = summary
             self._add_chat_response(message)
         self._refresh_all_panels()
 
@@ -1779,4 +1932,45 @@ class MainWindow(QMainWindow):
             except Exception:
                 logger.exception("closeEvent: update_service.stop failed")
 
+        # Close the persistent agent log file.
+        if self._agent_log_file is not None:
+            try:
+                self._agent_log_file.close()
+            except Exception:
+                pass
+
+        # Paper windows are ephemeral — once the user closes, the AI's
+        # memory for that session should vanish. We can't promise the
+        # OS has released the file handles yet (sqlite connections are
+        # per-call so they're closed already; the paper broker JSON is
+        # separate), so we best-effort delete the two paper DB files.
+        if self._forced_paper_mode:
+            self._wipe_paper_state()
+
         super().closeEvent(event)
+
+    def _wipe_paper_state(self) -> None:
+        """Delete the paper-mode DB files so nothing survives the close.
+
+        The paper window uses two separate sqlite files:
+        ``paper_history.db`` (agent pool) and ``paper_chat_history.db``
+        (chat + history manager). Both are safe to delete — live mode
+        uses the default DB and is untouched.
+        """
+        try:
+            from desktop.paths import db_path as _user_db_path
+        except Exception:
+            return
+        base = _user_db_path().parent
+        for name in ("paper_history.db", "paper_chat_history.db"):
+            target = base / name
+            try:
+                if target.exists():
+                    target.unlink()
+            except Exception:
+                # Windows may hold the file while Qt is still tearing
+                # down — not fatal. The next paper window will
+                # overwrite whatever survives on first write.
+                logging.getLogger(__name__).debug(
+                    "closeEvent: could not delete %s (will be overwritten)", target,
+                )

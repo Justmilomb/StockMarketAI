@@ -190,6 +190,23 @@ _DEEP_ROLES: List[ResearchRole] = [
         focus="Chart patterns, support/resistance, volume analysis, breakout candidates.",
         default_tickers=True,
     ),
+    ResearchRole(
+        role_id="market_scanner",
+        tier="deep",
+        model_tier="medium",
+        cadence_seconds=600,
+        focus=(
+            "Broad-market discovery. Find tickers with fresh catalysts that are NOT "
+            "already on the watchlist: breakouts, catalyst-driven small-caps, sector "
+            "rotations, unusual volume spikes. Use get_market_buzz, get_news with "
+            "empty tickers, and social-buzz tools. Submit findings with the "
+            "discovered ticker and a concise catalyst in headline. For pure "
+            "market-wide signals with no single ticker, submit with ticker=null. "
+            "Cap confidence at 60 percent — the supervisor corroborates before "
+            "adding to the watchlist."
+        ),
+        default_tickers=False,
+    ),
 ]
 
 # ── Module-level exports ───────────────────────────────────────────────────────

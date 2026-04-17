@@ -1,0 +1,52 @@
+/* blank design tokens — shared across landing, coming-soon, admin.
+   Terminal-dark, sharp borders (no rounded corners), mono for numbers. */
+
+:root {
+    /* Surfaces */
+    --bg-0: #000000;            /* page */
+    --bg-1: #050505;            /* panel */
+    --bg-2: #0a0a0a;            /* panel raised */
+    --bg-3: #141414;            /* hover / active */
+
+    /* Foreground */
+    --fg-0: #ffffff;
+    --fg-1: rgba(255, 255, 255, 0.60);
+    --fg-2: rgba(255, 255, 255, 0.32);
+    --fg-3: rgba(255, 255, 255, 0.14);
+
+    /* Accents — inherit the legacy hero green, add amber + red */
+    --accent:       #00ff87;
+    --accent-soft:  rgba(0, 255, 135, 0.55);
+    --accent-dim:   rgba(0, 255, 135, 0.08);
+    --warn:         #ffb020;
+    --alert:        #ff3b3b;
+
+    /* Borders */
+    --border-0: rgba(255, 255, 255, 0.08);
+    --border-1: rgba(255, 255, 255, 0.16);
+
+    /* Type */
+    --font-sans: 'Outfit', 'Inter', system-ui, -apple-system, sans-serif;
+    --font-mono: 'JetBrains Mono', 'IBM Plex Mono', ui-monospace, SFMono-Regular,
+                 Menlo, Consolas, monospace;
+
+    /* Scale (fluid-ish) */
+    --step-0: 0.875rem;   /* 14px */
+    --step-1: 1rem;       /* 16px */
+    --step-2: 1.25rem;    /* 20px */
+    --step-3: 1.75rem;    /* 28px */
+    --step-4: 2.75rem;    /* 44px */
+    --step-5: clamp(2.5rem, 5vw + 1rem, 4.5rem);
+
+    /* Motion */
+    --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+    --dur-fast: 140ms;
+    --dur-med:  280ms;
+    --dur-slow: 520ms;
+}
+
+/* Sharp corners everywhere. Any component that needs rounding can
+   explicitly override, but default is terminal aesthetic. */
+:where(*, *::before, *::after) {
+    border-radius: 0 !important;
+}

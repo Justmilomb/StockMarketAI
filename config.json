@@ -33,7 +33,7 @@
   "capital": 10,
   "agent": {
     "enabled": true,
-    "cadence_seconds": 90,
+    "cadence_seconds": 45,
     "paper_mode": false,
     "daily_max_drawdown_pct": 3.0,
     "max_position_pct": 20.0,
@@ -48,10 +48,17 @@
     "currency": "GBP"
   },
   "ai": {
-    "model": "Y2xhdWRlLXNvbm5ldC00LTIwMjUwNTE0",
-    "model_complex": "Y2xhdWRlLW9wdXMtNC02",
-    "model_medium": "Y2xhdWRlLXNvbm5ldC00LTIwMjUwNTE0",
-    "model_simple": "Y2xhdWRlLWhhaWt1LTQtNS0yMDI1MTAwMQ=="
+    "model": "claude-opus-4-7",
+    "model_complex": "claude-opus-4-7",
+    "model_medium": "claude-sonnet-4-6",
+    "model_simple": "claude-haiku-4-5-20251001",
+    "model_assessor": "claude-sonnet-4-6",
+    "effort_supervisor": "max",
+    "effort_decision": "high",
+    "effort_info": "medium",
+    "effort_research_deep": "high",
+    "effort_research_quick": "medium",
+    "effort_assessor": "medium"
   },
   "news": {
     "refresh_interval_minutes": 5,
@@ -59,6 +66,12 @@
     "yahoo_scrape_enabled": true,
     "finviz_enabled": true,
     "reddit_enabled": true
+  },
+  "scrapers": {
+    "youtube_live_vision": {
+      "enabled": true,
+      "max_calls_per_day": 500
+    }
   },
   "swarm": {
     "enabled": true,

@@ -263,7 +263,32 @@ async def place_order(args: Dict[str, Any]) -> Dict[str, Any]:
          "limit_price": limit_price, "reason": reason, "broker_response": resp},
         tags=["trade"],
     )
-    return _text_result({"status": "submitted", "broker_response": resp, "reason": reason})
+
+    # Auto-add the ticker to the active watchlist on a successful BUY.
+    # A position that isn't tracked on the watchlist falls out of the
+    # research swarm and the information panel — which is exactly what
+    # broke for the user on the first live iteration (HOOD bought but
+    # never watched). Never let a watchlist-add failure block the trade.
+    watchlist_add: Dict[str, Any] | None = None
+    if side_raw == "buy":
+        try:
+            from core.agent.tools.watchlist_tools import add_to_watchlist_sync
+            watchlist_add = add_to_watchlist_sync(
+                ticker,
+                reason=f"auto-added after BUY: {reason}" if reason else "auto-added after BUY",
+                tool_tag="place_order",
+            )
+        except Exception as e:
+            watchlist_add = {"status": "error", "reason": str(e)}
+
+    result: Dict[str, Any] = {
+        "status": "submitted",
+        "broker_response": resp,
+        "reason": reason,
+    }
+    if watchlist_add is not None:
+        result["watchlist_add"] = watchlist_add
+    return _text_result(result)
 
 
 @tool(
