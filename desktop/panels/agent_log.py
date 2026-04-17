@@ -15,6 +15,7 @@ which owns the runner. The panel just:
 """
 from __future__ import annotations
 
+import html
 from typing import Any
 
 from PySide6.QtCore import Signal
@@ -22,10 +23,20 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QLabel,
-    QPlainTextEdit,
     QPushButton,
+    QTextEdit,
     QVBoxLayout,
 )
+
+
+# Assessor grade tags emitted by core/agent/runner.py as the leading
+# token of a log line. Mapped to the terminal palette so the reviewer
+# verdict stands out from ordinary [thought]/[tool]/[result] lines.
+_REV_COLOURS = {
+    "[rev:ok]": "#00ff87",
+    "[rev:warn]": "#ffb020",
+    "[rev:err]": "#ff3b3b",
+}
 
 
 class AgentLogPanel(QGroupBox):
@@ -79,21 +90,34 @@ class AgentLogPanel(QGroupBox):
 
         layout.addLayout(control_row)
 
-        self._log_view = QPlainTextEdit()
+        self._log_view = QTextEdit()
         self._log_view.setReadOnly(True)
         self._log_view.setStyleSheet(
             "background-color: #000000; color: #00ff00; "
             "font-family: Consolas, monospace; font-size: 11px; "
             "border: 1px solid #333333;",
         )
-        self._log_view.setMaximumBlockCount(1000)
+        self._log_view.document().setMaximumBlockCount(1000)
         layout.addWidget(self._log_view, 1)
 
         self.refresh_view(state)
 
+    def _append_styled(self, line: str) -> None:
+        """Append one log line as HTML, colouring [rev:*] grade tags."""
+        text = str(line)
+        colour = "#00ff00"
+        for tag, hex_colour in _REV_COLOURS.items():
+            if text.startswith(tag):
+                colour = hex_colour
+                break
+        escaped = html.escape(text)
+        self._log_view.append(
+            f'<span style="color:{colour};white-space:pre-wrap;">{escaped}</span>'
+        )
+
     def append_line(self, line: str) -> None:
         """Append a single log line without re-rendering the whole tail."""
-        self._log_view.appendPlainText(line)
+        self._append_styled(line)
         sb = self._log_view.verticalScrollBar()
         sb.setValue(sb.maximum())
 
@@ -133,7 +157,9 @@ class AgentLogPanel(QGroupBox):
 
         tail = getattr(state, "agent_journal_tail", None) or []
         if tail:
-            self._log_view.setPlainText("\n".join(str(line) for line in tail))
+            self._log_view.clear()
+            for line in tail:
+                self._append_styled(line)
             sb = self._log_view.verticalScrollBar()
             sb.setValue(sb.maximum())
         elif not self._log_view.toPlainText():

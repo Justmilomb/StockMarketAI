@@ -1,0 +1,132 @@
+/* landing.css — additions for index.html only.
+   Under-the-hood cards + FAQ accordion. Reuses theme tokens where
+   possible; falls back to the inline :root set (--bg, --text…). */
+
+.uth {
+    padding: 120px 40px;
+    background: #030303;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.uth-inner {
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+.uth-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 1px;
+    margin-top: 48px;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.uth-card {
+    background: #050505;
+    padding: 32px 28px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    transition: background 220ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.uth-card:hover {
+    background: #0a0a0a;
+}
+
+.uth-kicker {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 10px;
+    letter-spacing: 0.28em;
+    text-transform: uppercase;
+    color: #00ff87;
+    opacity: 0.85;
+}
+
+.uth-title {
+    font-size: 18px;
+    font-weight: 400;
+    color: #ffffff;
+    letter-spacing: -0.01em;
+    margin: 0;
+}
+
+.uth-body {
+    font-size: 14px;
+    line-height: 1.7;
+    color: rgba(255, 255, 255, 0.55);
+    margin: 0;
+}
+
+/* ---------- FAQ ---------- */
+
+.faq {
+    padding: 120px 40px;
+    background: #000000;
+}
+
+.faq-inner {
+    max-width: 860px;
+    margin: 0 auto;
+}
+
+.faq-list {
+    margin-top: 48px;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.faq-list details {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    padding: 22px 0;
+}
+
+.faq-list summary {
+    cursor: pointer;
+    list-style: none;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 20px;
+    font-size: 16px;
+    font-weight: 300;
+    color: #ffffff;
+    letter-spacing: -0.005em;
+    padding: 4px 0;
+}
+
+.faq-list summary::-webkit-details-marker {
+    display: none;
+}
+
+.faq-list summary::after {
+    content: '+';
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 20px;
+    color: #00ff87;
+    font-weight: 300;
+    transition: transform 220ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.faq-list details[open] summary::after {
+    content: '\2212';
+    transform: rotate(0deg);
+}
+
+.faq-list details[open] summary {
+    color: #00ff87;
+}
+
+.faq-list details p {
+    margin: 14px 0 4px;
+    font-size: 14px;
+    line-height: 1.75;
+    color: rgba(255, 255, 255, 0.6);
+    max-width: 68ch;
+}
+
+@media (max-width: 720px) {
+    .uth, .faq { padding: 80px 24px; }
+    .uth-grid { margin-top: 32px; }
+}

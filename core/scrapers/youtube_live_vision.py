@@ -119,17 +119,38 @@ class YouTubeLiveVisionScraper(ScraperBase):
             return None
         return info.get("url") if isinstance(info, dict) else None
 
+    def _resolve_ffmpeg(self) -> Optional[str]:
+        """Return an absolute path to ffmpeg or ``None``.
+
+        Prefers the cached/downloaded binary managed by
+        ``desktop.paths.ensure_ffmpeg`` (controlled by config knob
+        ``scrapers.youtube_live_vision.auto_download_ffmpeg``). Falls
+        back to ``shutil.which`` if the desktop helper isn't importable
+        (e.g. when the scraper runs outside the desktop app).
+        """
+        try:
+            from desktop.paths import ensure_ffmpeg  # local import: optional dep
+            auto = bool(getattr(self, "_auto_download_ffmpeg", True))
+            p = ensure_ffmpeg(auto_download=auto)
+            if p is not None:
+                return str(p)
+        except Exception as e:
+            logger.debug("ensure_ffmpeg unavailable: %s", e)
+        sys_bin = shutil.which("ffmpeg")
+        return sys_bin
+
     def _sample_frames(self, hls_url: str, tmpdir: Path) -> List[Path]:
         """Use ffmpeg to grab N JPEG frames spaced out over ~20s of stream."""
-        if shutil.which("ffmpeg") is None:
-            self._disabled_reason = "ffmpeg not on PATH"
+        ffmpeg_bin = self._resolve_ffmpeg()
+        if ffmpeg_bin is None:
+            self._disabled_reason = "ffmpeg not available"
             return []
 
         pattern = str(tmpdir / "frame_%02d.jpg")
         # -vf fps=1/(duration/N) yields roughly N frames across the window.
         window = max(self._sample_frames * 6, 15)  # seconds of stream to read
         cmd = [
-            "ffmpeg", "-y", "-nostdin", "-hide_banner", "-loglevel", "error",
+            ffmpeg_bin, "-y", "-nostdin", "-hide_banner", "-loglevel", "error",
             "-t", str(window),
             "-i", hls_url,
             "-vf", f"fps=1/{max(1, window // self._sample_frames)}",
@@ -156,6 +177,7 @@ class YouTubeLiveVisionScraper(ScraperBase):
         cfg = self._load_cfg()
         if not self._enabled(cfg):
             return []
+        self._auto_download_ffmpeg = bool(cfg.get("auto_download_ffmpeg", True))
         if self._disabled_reason is not None:
             # One-shot disable — logged once in the first failing call.
             return []

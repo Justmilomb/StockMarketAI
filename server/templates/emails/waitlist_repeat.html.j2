@@ -1,0 +1,11 @@
+{% extends "_layout.html.j2" %}
+{% block content %}
+<div style="font-family:'JetBrains Mono',monospace;color:#00ff87;font-size:11px;letter-spacing:0.25em;text-transform:uppercase;margin-bottom:8px;">already on the list</div>
+<h1 style="font-size:28px;font-weight:200;margin:0 0 16px;">you're signed up, {{ name|e }}.</h1>
+<p style="color:rgba(255,255,255,0.75);font-size:15px;line-height:1.6;margin:0 0 20px;">
+We already have your email on the blank waitlist &mdash; nothing else to do. We'll email you the moment launch goes live.
+</p>
+<p style="color:rgba(255,255,255,0.55);font-size:14px;line-height:1.7;margin:0;">
+Current launch date: <span style="color:#00ff87;font-family:'JetBrains Mono',monospace;">{{ launch_date|e }}</span>. If that slips we'll tell you before anyone else.
+</p>
+{% endblock %}

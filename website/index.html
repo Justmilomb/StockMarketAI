@@ -14,6 +14,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@200;300;400;700&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/assets/css/theme.css">
     <link rel="stylesheet" href="/assets/css/base.css">
+    <link rel="stylesheet" href="/assets/css/landing.css">
     <style>
         *, *::before, *::after {
             margin: 0;
@@ -1117,6 +1118,106 @@
                         <div class="line"><span class="ok">[ok]</span> works on any windows pc</div>
                     </div>
                 </div>
+            </div>
+        </div>
+    </section>
+
+    <section id="under-the-hood" class="uth">
+        <div class="uth-inner">
+            <div class="section-label">under the hood</div>
+            <h2 class="section-title">what's actually running</h2>
+            <p class="section-sub">
+                no magic, no buzzwords. four pieces working together on a 45-second loop.
+            </p>
+            <div class="uth-grid">
+                <div class="uth-card">
+                    <div class="uth-kicker">01 · scrapers</div>
+                    <h3 class="uth-title">the scraper fleet</h3>
+                    <p class="uth-body">
+                        eleven feeds pulling headlines, tweets, reddit threads and live
+                        finance-tv captions in parallel. every item gets a sentiment score
+                        before it hits the cache.
+                    </p>
+                </div>
+                <div class="uth-card">
+                    <div class="uth-kicker">02 · brain</div>
+                    <h3 class="uth-title">claude makes the call</h3>
+                    <p class="uth-body">
+                        claude opus 4.7 reads the feed, checks your positions, and decides
+                        whether to buy, sell or wait. every decision is logged with its
+                        reasoning so you can read back exactly what it saw.
+                    </p>
+                </div>
+                <div class="uth-card">
+                    <div class="uth-kicker">03 · broker</div>
+                    <h3 class="uth-title">paper or live</h3>
+                    <p class="uth-body">
+                        paper mode starts you on &pound;100 in a sandbox &mdash; no money at
+                        risk. flip to live and the same loop routes orders through your
+                        trading 212 account. you pick when to switch.
+                    </p>
+                </div>
+                <div class="uth-card">
+                    <div class="uth-kicker">04 · journal</div>
+                    <h3 class="uth-title">everything is written down</h3>
+                    <p class="uth-body">
+                        every iteration writes to a local sqlite journal: prompts, tool
+                        calls, findings, the assessor's grade. you can open the app weeks
+                        later and see why it bought nvda on a tuesday.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section id="faq" class="faq">
+        <div class="faq-inner">
+            <div class="section-label">faq</div>
+            <h2 class="section-title">common questions</h2>
+            <div class="faq-list">
+                <details>
+                    <summary>what do i need to run it?</summary>
+                    <p>a windows 10 or 11 pc, a trading 212 account (free to open), and
+                    a claude subscription. no api keys to manage.</p>
+                </details>
+                <details>
+                    <summary>which broker does it support?</summary>
+                    <p>trading 212 only for now. it's commission-free in the uk and eu
+                    and has a clean api. more brokers are on the roadmap.</p>
+                </details>
+                <details>
+                    <summary>do i need a claude api key?</summary>
+                    <p>no. blank uses your existing claude subscription through the
+                    claude code cli &mdash; no separate billing, no api key to paste.</p>
+                </details>
+                <details>
+                    <summary>where does my data go?</summary>
+                    <p>your journal, positions and config all live on your pc in a local
+                    sqlite file. the only thing that leaves your machine is the prompt
+                    sent to claude and the order sent to your broker.</p>
+                </details>
+                <details>
+                    <summary>can i bring my own api key?</summary>
+                    <p>not at launch. the desktop app is wired to the claude subscription
+                    flow. if enough people ask for byo-key it'll get added.</p>
+                </details>
+                <details>
+                    <summary>does it have to run 24/7?</summary>
+                    <p>no. it only works while the app is open. close it and the loop
+                    stops; open it again and it picks up where it left off.</p>
+                </details>
+                <details>
+                    <summary>what happens if claude is down or i lose internet?</summary>
+                    <p>the loop skips the iteration and waits 45 seconds to try again.
+                    no trades are placed on stale data. existing positions stay exactly
+                    as they were.</p>
+                </details>
+                <details>
+                    <summary>how do i see what it did overnight?</summary>
+                    <p>open the information panel and the trade log &mdash; every
+                    decision, every tool call and every order is there with timestamps
+                    and the reasoning claude used.</p>
+                </details>
             </div>
         </div>
     </section>

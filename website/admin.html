@@ -667,6 +667,7 @@
                 <button class="tab" data-tab="config">config</button>
                 <button class="tab" data-tab="releases">releases</button>
                 <button class="tab" data-tab="system">system</button>
+                <button class="tab" data-tab="emails">emails</button>
             </nav>
 
             <!-- overview — populated by JS -->
@@ -767,6 +768,40 @@
             <div class="section" data-section="system">
                 <p class="section-title">live logs</p>
                 <div class="log-viewer" id="log-viewer"></div>
+            </div>
+
+            <!-- emails — populated by JS -->
+            <div class="section" data-section="emails">
+                <p class="section-title">email library</p>
+                <div id="email-tab" style="display:grid;grid-template-columns:220px 1fr 1fr;gap:1px;background:var(--border);border:1px solid var(--border);min-height:520px;">
+                    <div id="email-list" style="background:#050505;padding:12px 0;overflow-y:auto;max-height:640px;"></div>
+                    <div style="background:#050505;padding:20px;overflow-y:auto;max-height:640px;">
+                        <p style="font-size:0.625rem;color:var(--text-dim);letter-spacing:0.2em;text-transform:uppercase;margin-bottom:12px;">variables</p>
+                        <div id="email-form"></div>
+                        <div style="margin-top:20px;border-top:1px solid var(--border);padding-top:16px;">
+                            <p style="font-size:0.625rem;color:var(--text-dim);letter-spacing:0.2em;text-transform:uppercase;margin-bottom:10px;">audience</p>
+                            <label style="display:block;margin-bottom:6px;font-size:0.75rem;color:var(--text);cursor:pointer;">
+                                <input type="radio" name="email-audience" value="single" checked> single recipient
+                            </label>
+                            <label style="display:block;margin-bottom:6px;font-size:0.75rem;color:var(--text);cursor:pointer;">
+                                <input type="radio" name="email-audience" value="all_licensed"> all licensed users
+                            </label>
+                            <label style="display:block;margin-bottom:10px;font-size:0.75rem;color:var(--text);cursor:pointer;">
+                                <input type="radio" name="email-audience" value="all_waitlist"> all waitlist
+                            </label>
+                            <input id="email-single" type="email" placeholder="recipient@example.com"
+                                style="background:#000;color:var(--text);border:1px solid var(--border);padding:0.5rem 0.75rem;font-family:'Outfit',sans-serif;font-size:0.75rem;width:100%;outline:none;">
+                            <button id="email-send" style="margin-top:12px;width:100%;background:var(--glow-dim);color:var(--glow);border:1px solid rgba(0,255,135,0.25);padding:0.6rem;font-family:'Outfit',sans-serif;font-size:0.75rem;cursor:pointer;letter-spacing:0.08em;">send</button>
+                            <p id="email-status" style="margin-top:10px;font-size:0.6875rem;color:var(--text-dim);min-height:1em;"></p>
+                        </div>
+                    </div>
+                    <div style="background:#050505;padding:16px;overflow:hidden;display:flex;flex-direction:column;">
+                        <p style="font-size:0.625rem;color:var(--text-dim);letter-spacing:0.2em;text-transform:uppercase;margin-bottom:6px;">subject</p>
+                        <div id="email-subject" style="font-family:'JetBrains Mono',monospace;font-size:0.8125rem;color:var(--text);padding:8px 10px;background:#000;border:1px solid var(--border);margin-bottom:12px;min-height:1.4em;"></div>
+                        <p style="font-size:0.625rem;color:var(--text-dim);letter-spacing:0.2em;text-transform:uppercase;margin-bottom:6px;">preview</p>
+                        <iframe id="email-preview" style="flex:1;width:100%;border:1px solid var(--border);background:#000;min-height:420px;"></iframe>
+                    </div>
+                </div>
             </div>
         </div><!-- /dashboard -->
     </div>
@@ -1233,6 +1268,7 @@
                 if (target === 'config') loadConfig();
                 if (target === 'releases') loadReleases();
                 if (target === 'system') loadLogs();
+                if (target === 'emails') loadEmailTemplates();
             });
         });
 
@@ -1285,6 +1321,137 @@
             if (!current || current.startsWith(URL_TEMPLATE_PREFIX)) {
                 urlInput.value = version ? URL_TEMPLATE_PREFIX + version + '/BlankSetup.exe' : '';
             }
+        });
+
+        /* ---------- email templates tab ---------- */
+        let EMAIL_TEMPLATES = [];
+        let EMAIL_CURRENT = null;
+        let EMAIL_PREVIEW_TIMER = null;
+
+        async function loadEmailTemplates() {
+            const res = await api('/api/admin/email-templates');
+            EMAIL_TEMPLATES = (res && res.templates) || [];
+            const list = document.getElementById('email-list');
+            while (list.firstChild) list.removeChild(list.firstChild);
+            EMAIL_TEMPLATES.forEach(t => {
+                const row = document.createElement('div');
+                row.className = 'email-row';
+                row.dataset.id = t.id;
+                row.style.cssText = 'padding:10px 16px;font-size:0.75rem;color:var(--text);cursor:pointer;border-bottom:1px solid var(--border);letter-spacing:0.02em;border-left:2px solid transparent;';
+                const labelEl = document.createElement('div');
+                labelEl.style.cssText = 'color:var(--text);font-size:0.75rem;';
+                labelEl.textContent = t.label;
+                const idEl = document.createElement('div');
+                idEl.style.cssText = "color:var(--text-dim);font-size:0.625rem;font-family:'JetBrains Mono',monospace;margin-top:2px;";
+                idEl.textContent = t.id;
+                row.appendChild(labelEl);
+                row.appendChild(idEl);
+                row.addEventListener('click', () => selectEmailTemplate(t.id));
+                list.appendChild(row);
+            });
+            if (EMAIL_TEMPLATES.length) selectEmailTemplate(EMAIL_TEMPLATES[0].id);
+        }
+
+        function selectEmailTemplate(id) {
+            const spec = EMAIL_TEMPLATES.find(t => t.id === id);
+            if (!spec) return;
+            EMAIL_CURRENT = spec;
+            document.querySelectorAll('#email-list .email-row').forEach(r => {
+                r.style.background = r.dataset.id === id ? '#0a0a0a' : 'transparent';
+                r.style.borderLeft = r.dataset.id === id ? '2px solid var(--glow)' : '2px solid transparent';
+            });
+            const form = document.getElementById('email-form');
+            while (form.firstChild) form.removeChild(form.firstChild);
+            (spec.required_vars || []).forEach(v => {
+                const wrap = document.createElement('div');
+                wrap.style.cssText = 'margin-bottom:10px;';
+                const label = document.createElement('label');
+                label.style.cssText = "display:block;font-size:0.6875rem;color:var(--text-dim);margin-bottom:4px;font-family:'JetBrains Mono',monospace;";
+                label.textContent = v;
+                const isList = /^(tips|highlights|features)$/.test(v);
+                const isLong = /(body|intro|summary|reason)/.test(v);
+                const input = document.createElement(isList || isLong ? 'textarea' : 'input');
+                if (!isList && !isLong) input.type = 'text';
+                input.dataset.var = v;
+                input.dataset.kind = isList ? 'list' : 'scalar';
+                input.placeholder = isList ? 'one item per line' : v;
+                input.style.cssText = "background:#000;color:var(--text);border:1px solid var(--border);padding:0.5rem 0.75rem;font-family:'Outfit',sans-serif;font-size:0.75rem;width:100%;outline:none;" + (isList || isLong ? 'min-height:70px;resize:vertical;' : '');
+                input.addEventListener('input', scheduleEmailPreview);
+                wrap.appendChild(label);
+                wrap.appendChild(input);
+                form.appendChild(wrap);
+            });
+            scheduleEmailPreview();
+        }
+
+        function collectEmailVars() {
+            const vars = {};
+            document.querySelectorAll('#email-form [data-var]').forEach(el => {
+                const name = el.dataset.var;
+                const raw = el.value;
+                if (el.dataset.kind === 'list') {
+                    vars[name] = raw.split('\n').map(s => s.trim()).filter(Boolean);
+                } else {
+                    vars[name] = raw;
+                }
+            });
+            return vars;
+        }
+
+        function scheduleEmailPreview() {
+            if (EMAIL_PREVIEW_TIMER) clearTimeout(EMAIL_PREVIEW_TIMER);
+            EMAIL_PREVIEW_TIMER = setTimeout(renderEmailPreview, 220);
+        }
+
+        async function renderEmailPreview() {
+            if (!EMAIL_CURRENT) return;
+            const body = { template_id: EMAIL_CURRENT.id, vars: collectEmailVars() };
+            try {
+                const res = await api('/api/admin/email-templates/preview', {
+                    method: 'POST',
+                    body: JSON.stringify(body),
+                });
+                const subj = document.getElementById('email-subject');
+                const frame = document.getElementById('email-preview');
+                if (res && res.error) {
+                    subj.textContent = '— ' + res.error;
+                    frame.srcdoc = '';
+                    return;
+                }
+                subj.textContent = res.subject || '';
+                frame.srcdoc = res.html || '';
+            } catch (e) {
+                document.getElementById('email-subject').textContent = '— error';
+            }
+        }
+
+        document.getElementById('email-send').addEventListener('click', async () => {
+            if (!EMAIL_CURRENT) return;
+            const audience = document.querySelector('input[name="email-audience"]:checked').value;
+            const single = document.getElementById('email-single').value.trim();
+            if (audience === 'single' && !single) {
+                document.getElementById('email-status').textContent = 'enter a recipient email';
+                return;
+            }
+            const recipients = audience === 'single' ? [single] : [audience];
+            const label = EMAIL_CURRENT.label;
+            const confirmMsg = audience === 'single'
+                ? 'Send "' + label + '" to ' + single + '?'
+                : 'Send "' + label + '" to ' + audience.replace('_', ' ') + '?';
+            if (!confirm(confirmMsg)) return;
+            document.getElementById('email-status').textContent = 'sending…';
+            const res = await api('/api/admin/email-templates/send', {
+                method: 'POST',
+                body: JSON.stringify({
+                    template_id: EMAIL_CURRENT.id,
+                    vars: collectEmailVars(),
+                    recipients: recipients,
+                }),
+            });
+            const sent = (res && res.sent) || 0;
+            const errs = (res && res.errors) || [];
+            document.getElementById('email-status').textContent =
+                'sent ' + sent + ', errors ' + errs.length + (errs.length ? ' — ' + errs[0] : '');
         });
     </script>
 </body>

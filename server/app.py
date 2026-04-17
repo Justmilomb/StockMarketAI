@@ -1550,9 +1550,41 @@ def admin_email_templates_send(
     if not body.recipients:
         raise HTTPException(status_code=400, detail="no recipients")
 
+    # Expand audience sentinels ("all_licensed" / "all_waitlist") into
+    # real email addresses by querying the DB. Anything else is taken
+    # verbatim, so individual emails still work.
+    addresses: list[str] = []
+    for entry in body.recipients:
+        if entry == "all_licensed":
+            with get_db() as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT email FROM licenses WHERE status = 'active' AND email IS NOT NULL"
+                )
+                addresses.extend(row[0] for row in cur.fetchall() if row[0])
+        elif entry == "all_waitlist":
+            with get_db() as conn:
+                cur = conn.cursor()
+                cur.execute("SELECT email FROM waitlist WHERE email IS NOT NULL")
+                addresses.extend(row[0] for row in cur.fetchall() if row[0])
+        else:
+            addresses.append(entry)
+
+    # De-duplicate while preserving order.
+    seen: set[str] = set()
+    recipients: list[str] = []
+    for addr in addresses:
+        key = addr.strip().lower()
+        if key and key not in seen:
+            seen.add(key)
+            recipients.append(addr.strip())
+
+    if not recipients:
+        return {"sent": [], "errors": [{"recipient": "-", "error": "no recipients resolved"}]}
+
     sent: list[str] = []
     errors: list[Dict[str, str]] = []
-    for addr in body.recipients:
+    for addr in recipients:
         try:
             subject, html, text = render(
                 body.template_id, dict(body.vars), recipient=addr,

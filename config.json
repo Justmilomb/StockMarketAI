@@ -70,7 +70,8 @@
   "scrapers": {
     "youtube_live_vision": {
       "enabled": true,
-      "max_calls_per_day": 500
+      "max_calls_per_day": 500,
+      "auto_download_ffmpeg": true
     }
   },
   "swarm": {

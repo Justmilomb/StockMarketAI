@@ -81,6 +81,66 @@ TEMPLATES: List[TemplateSpec] = [
         subject="blank is live",
         required_vars=["name", "download_url"],
     ),
+    TemplateSpec(
+        id="waitlist_repeat",
+        label="Waitlist — already signed up",
+        subject="You're already on the blank waitlist",
+        required_vars=["name", "launch_date"],
+    ),
+    TemplateSpec(
+        id="incident_notice",
+        label="Incident notice (unscheduled)",
+        subject="blank — incident notice",
+        required_vars=["summary", "status_url"],
+    ),
+    TemplateSpec(
+        id="license_expiring",
+        label="Licence expiring (7-day reminder)",
+        subject="Your blank licence expires soon",
+        required_vars=["name", "license_key", "expires_at", "renew_url"],
+    ),
+    TemplateSpec(
+        id="license_renewed",
+        label="Licence renewed — thanks",
+        subject="Your blank licence is renewed",
+        required_vars=["name", "license_key", "next_renewal"],
+    ),
+    TemplateSpec(
+        id="license_revoked",
+        label="Licence revoked (admin action)",
+        subject="Your blank licence has been revoked",
+        required_vars=["name", "reason", "contact_url"],
+    ),
+    TemplateSpec(
+        id="first_time_tips",
+        label="Day-one onboarding tips",
+        subject="Getting the most out of blank",
+        required_vars=["name", "tips"],
+    ),
+    TemplateSpec(
+        id="feature_spotlight",
+        label="Feature spotlight — what's new",
+        subject="What's new in blank {{ version }}",
+        required_vars=["version", "headline", "intro", "features"],
+    ),
+    TemplateSpec(
+        id="holiday_check_in",
+        label="Markets-closed weekly summary",
+        subject="blank — the week in review",
+        required_vars=["name", "period_start", "period_end", "highlights"],
+    ),
+    TemplateSpec(
+        id="feedback_request",
+        label="Feedback request (14 days in)",
+        subject="How's blank treating you?",
+        required_vars=["name", "form_url"],
+    ),
+    TemplateSpec(
+        id="account_action_required",
+        label="Generic — action required",
+        subject="blank — action required",
+        required_vars=["name", "headline", "body", "cta_label", "cta_url"],
+    ),
 ]
 
 

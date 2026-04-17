@@ -94,6 +94,139 @@ def db_path() -> Path:
     return data_dir / DB_FILENAME
 
 
+# ─── ffmpeg first-run download ───────────────────────────────────────────
+
+FFMPEG_BIN_SUBDIR = "bin"
+FFMPEG_EXE_NAME = "ffmpeg.exe" if sys.platform.startswith("win") else "ffmpeg"
+_FFMPEG_URL = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
+
+
+def ffmpeg_path() -> Path:
+    """Canonical cache location for the bundled ffmpeg binary.
+
+    ``<user_data>/bin/ffmpeg.exe``. The file may or may not exist —
+    use :func:`ensure_ffmpeg` to both download and return the path.
+    """
+    return user_data_dir() / FFMPEG_BIN_SUBDIR / FFMPEG_EXE_NAME
+
+
+def _ffmpeg_usable(path: Path) -> bool:
+    """Return True if the binary at ``path`` runs ``ffmpeg -version``."""
+    if not path.exists():
+        return False
+    try:
+        import subprocess
+        r = subprocess.run(
+            [str(path), "-version"],
+            capture_output=True, timeout=5,
+        )
+        return r.returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def ensure_ffmpeg(auto_download: bool = True) -> Optional[Path]:
+    """Return a path to a working ffmpeg binary, downloading on miss.
+
+    Resolution order:
+
+    1. System ffmpeg on ``PATH`` — if present, use it (no download).
+    2. Cached binary at :func:`ffmpeg_path` — if present and runs, use it.
+    3. If ``auto_download`` is True, fetch the gyan.dev essentials build,
+       extract ``ffmpeg.exe`` into the cache dir, and return that path.
+    4. Otherwise return ``None``; the caller should disable features
+       that need video decoding.
+
+    The download runs under a tiny file lock so two scraper cycles
+    racing on the same fresh install don't both try to unpack the zip.
+    """
+    # 1. System PATH.
+    system = shutil.which("ffmpeg")
+    if system:
+        return Path(system)
+
+    target = ffmpeg_path()
+    if _ffmpeg_usable(target):
+        return target
+
+    if not auto_download:
+        return None
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = target.parent / ".ffmpeg.lock"
+
+    # File-lock: create exclusively; if that fails another worker is
+    # downloading — wait briefly for the target to appear.
+    try:
+        fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        os.close(fd)
+    except FileExistsError:
+        import time
+        for _ in range(120):  # up to ~2 minutes
+            if _ffmpeg_usable(target):
+                return target
+            time.sleep(1.0)
+        return target if _ffmpeg_usable(target) else None
+
+    try:
+        return _download_ffmpeg(target)
+    finally:
+        try:
+            os.remove(str(lock_path))
+        except OSError:
+            pass
+
+
+def _download_ffmpeg(target: Path) -> Optional[Path]:
+    """Fetch the gyan.dev essentials zip and extract ffmpeg.exe to ``target``."""
+    import tempfile
+    import zipfile
+    try:
+        import requests
+    except ImportError:
+        logger.warning("requests not available; cannot download ffmpeg")
+        return None
+
+    logger.info("Downloading ffmpeg from %s", _FFMPEG_URL)
+    try:
+        with requests.get(_FFMPEG_URL, stream=True, timeout=60) as r:
+            r.raise_for_status()
+            with tempfile.NamedTemporaryFile(
+                suffix=".zip", delete=False,
+            ) as tmp:
+                for chunk in r.iter_content(chunk_size=1 << 20):
+                    if chunk:
+                        tmp.write(chunk)
+                tmp_path = tmp.name
+    except Exception as e:
+        logger.warning("ffmpeg download failed: %s", e)
+        return None
+
+    try:
+        with zipfile.ZipFile(tmp_path) as z:
+            member = next(
+                (n for n in z.namelist() if n.endswith("/bin/" + FFMPEG_EXE_NAME)),
+                None,
+            )
+            if not member:
+                logger.warning("ffmpeg.exe not found in zip")
+                return None
+            with z.open(member) as src, open(target, "wb") as dst:
+                shutil.copyfileobj(src, dst)
+        if not sys.platform.startswith("win"):
+            os.chmod(target, 0o755)
+        logger.info("ffmpeg cached at %s", target)
+        return target if _ffmpeg_usable(target) else None
+    except Exception as e:
+        logger.warning("ffmpeg extract failed: %s", e)
+        return None
+    finally:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+
+
 # ─── Migration ───────────────────────────────────────────────────────────
 
 @dataclass

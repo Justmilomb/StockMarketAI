@@ -1,0 +1,13 @@
+{% extends "_layout.html.j2" %}
+{% block content %}
+<div style="font-family:'JetBrains Mono',monospace;color:#ff3b3b;font-size:11px;letter-spacing:0.25em;text-transform:uppercase;margin-bottom:8px;">licence revoked</div>
+<h1 style="font-size:26px;font-weight:200;margin:0 0 16px;">we've disabled your licence, {{ name|e }}.</h1>
+<p style="color:rgba(255,255,255,0.75);font-size:15px;line-height:1.6;margin:0 0 16px;">
+Your blank licence has been revoked. The desktop app will stop placing trades the next time it checks in with the server.
+</p>
+<div style="font-family:'JetBrains Mono',monospace;color:rgba(255,255,255,0.4);font-size:11px;margin:20px 0 6px;letter-spacing:0.2em;text-transform:uppercase;">reason</div>
+<div style="color:#ffffff;font-size:14px;background:#0a0a0a;border:1px solid rgba(255,255,255,0.12);padding:14px 16px;line-height:1.6;">{{ reason|e }}</div>
+<p style="margin:24px 0 0;">
+<a href="{{ contact_url|e }}" style="display:inline-block;background:transparent;color:#ffffff;text-decoration:none;font-family:'JetBrains Mono',monospace;font-size:13px;letter-spacing:0.06em;text-transform:uppercase;padding:12px 24px;border:1px solid rgba(255,255,255,0.3);">Get in touch</a>
+</p>
+{% endblock %}
