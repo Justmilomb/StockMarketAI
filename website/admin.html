@@ -71,7 +71,12 @@
             inset: 0;
             z-index: 1;
             pointer-events: none;
-            background: radial-gradient(600px circle at var(--mx,50%) var(--my,50%), rgba(255,255,255,0.03), transparent 70%);
+            background: radial-gradient(
+                900px circle at var(--mx, 50%) var(--my, 50%),
+                rgba(0, 255, 135, 0.04),
+                rgba(0, 255, 135, 0.01) 45%,
+                transparent 65%
+            );
         }
 
         /* layout */
@@ -626,15 +631,114 @@
             to { opacity: 1; transform: translateY(0); }
         }
 
+        /* ── responsive ────────────────────────────────────────── */
+
+        /* tablet landscape — email panel: list sidebar + stacked right cols */
+        @media (max-width: 1000px) {
+            #email-tab {
+                grid-template-columns: 200px 1fr !important;
+            }
+            #email-tab > div:nth-child(3) {
+                grid-column: 1 / -1;
+            }
+        }
+
+        /* tablet portrait */
+        @media (max-width: 760px) {
+            .shell { padding: 1.5rem 1.25rem 3rem; }
+
+            /* horizontal-scroll tab bar — no wrapping */
+            .tabs {
+                flex-wrap: nowrap;
+                overflow-x: auto;
+                scrollbar-width: none;
+                -webkit-overflow-scrolling: touch;
+                padding-bottom: 2px;
+                gap: 0.125rem;
+            }
+            .tabs::-webkit-scrollbar { display: none; }
+            .tab {
+                white-space: nowrap;
+                flex-shrink: 0;
+                min-height: 2.5rem;
+                display: inline-flex;
+                align-items: center;
+            }
+
+            /* email panel — full single-column stack */
+            #email-tab {
+                grid-template-columns: 1fr !important;
+                min-height: 0 !important;
+            }
+            #email-list {
+                max-height: 200px !important;
+                border-bottom: 1px solid var(--border);
+            }
+            #email-preview { min-height: 280px !important; }
+
+            /* log entries — stack message below time+level */
+            .log-entry { flex-wrap: wrap; gap: 0.25rem; }
+            .log-time { min-width: unset; }
+            .log-level { min-width: unset; }
+            .log-msg { flex-basis: 100%; overflow-wrap: break-word; word-break: break-word; }
+        }
+
+        /* mobile */
+        @media (max-width: 600px) {
+            .shell { padding: 1.25rem 1rem 3rem; }
+
+            header { flex-wrap: wrap; gap: 0.5rem; padding-bottom: 1.25rem; margin-bottom: 1.25rem; }
+            .logo { font-size: 1rem; }
+            .status { font-size: 0.6875rem; }
+
+            /* 2-col stat cards */
+            .stats { grid-template-columns: repeat(2, 1fr); }
+            .stat { padding: 1rem; }
+            .stat-value { font-size: 1.5rem; }
+            .stat-label { margin-bottom: 0.5rem; }
+            .stat-change { font-size: 0.625rem; }
+
+            /* tables — tighter cells */
+            td, th { padding: 0.5625rem 0.75rem; font-size: 0.6875rem; white-space: nowrap; }
+
+            /* release form — stack the bottom inline row */
+            .form-row-inline { flex-direction: column; align-items: flex-start; gap: 0.75rem; }
+            #btn-publish { width: 100%; padding: 0.75rem; text-align: center; }
+
+            .release-form { padding: 1rem; }
+
+            /* auth input — override hardcoded 280px */
+            #auth-input { width: min(280px, 88vw) !important; }
+
+            /* modal inner box — override hardcoded 360px */
+            #modal-overlay > div { width: min(360px, 92vw) !important; padding: 1.5rem 1.25rem !important; }
+
+            /* chart */
+            .chart-labels span { font-size: 0.45rem; }
+            .bar-chart { gap: 2px; }
+
+            /* email send row */
+            #email-tick-btn { font-size: 0.625rem; padding: 0.4rem 0.7rem; }
+
+            /* log entries tighter */
+            .log-entry { padding: 0.5rem 1rem; }
+            .log-time { font-size: 0.5625rem; }
+        }
+
+        /* small mobile — single column stats, hide license key */
+        @media (max-width: 400px) {
+            .stats { grid-template-columns: 1fr; }
+            .stat-value { font-size: 1.875rem; }
+
+            /* hide the raw license key column — too wide at tiny sizes */
+            .table-wrap table th:nth-child(3),
+            .table-wrap table td:nth-child(3) { display: none; }
+        }
+
+        /* reduced motion */
         @media (prefers-reduced-motion: reduce) {
             body::before { animation: none; }
             header, .tabs, .section { opacity: 1; animation: none; }
-        }
-
-        @media (max-width: 480px) {
-            .shell { padding: 1.25rem 1rem 3rem; }
-            .tabs { flex-wrap: wrap; }
-            .stat-value { font-size: 1.5rem; }
         }
     </style>
 </head>
@@ -858,13 +962,23 @@
             return node;
         }
 
-        // spotlight
+        // spotlight (mouse + touch)
         const spot = document.querySelector('.spotlight');
         let mx = 0.5, my = 0.5, cx = 0.5, cy = 0.5;
         document.addEventListener('mousemove', e => {
             mx = e.clientX / window.innerWidth;
             my = e.clientY / window.innerHeight;
         });
+        document.addEventListener('touchmove', e => {
+            const t = e.touches[0];
+            mx = t.clientX / window.innerWidth;
+            my = t.clientY / window.innerHeight;
+        }, { passive: true });
+        document.addEventListener('touchstart', e => {
+            const t = e.touches[0];
+            mx = t.clientX / window.innerWidth;
+            my = t.clientY / window.innerHeight;
+        }, { passive: true });
         (function tick() {
             cx += (mx - cx) * 0.08;
             cy += (my - cy) * 0.08;
