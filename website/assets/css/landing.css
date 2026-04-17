@@ -94,6 +94,8 @@
     color: #ffffff;
     letter-spacing: -0.005em;
     padding: 4px 0;
+    min-height: 44px;
+    -webkit-tap-highlight-color: transparent;
 }
 
 .faq-list summary::-webkit-details-marker {
@@ -154,5 +156,9 @@
 @media (max-width: 420px) {
     .uth-grid { grid-template-columns: 1fr; }
     .uth, .faq { padding: 48px 1rem; }
-    .faq-list summary { font-size: 14px; }
+    /* hide long body text — kicker + title is enough to scan */
+    .uth-body { display: none; }
+    .uth-title { font-size: 1rem; }
+    .faq-list summary { font-size: 14px; min-height: 44px; }
+    .faq-list details p { font-size: 13px; }
 }

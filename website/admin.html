@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>blank — admin</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -685,7 +685,10 @@
 
         /* mobile */
         @media (max-width: 600px) {
-            .shell { padding: 1.25rem 1rem 3rem; }
+            .shell { padding: calc(1.25rem + env(safe-area-inset-top, 0px)) 1rem calc(3rem + env(safe-area-inset-bottom, 0px)) 1rem; }
+
+            /* prevent iOS auto-zoom on input focus */
+            input, select, textarea { font-size: 1rem !important; }
 
             header { flex-wrap: wrap; gap: 0.5rem; padding-bottom: 1.25rem; margin-bottom: 1.25rem; }
             .logo { font-size: 1rem; }

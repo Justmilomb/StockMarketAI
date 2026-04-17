@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>blank — autonomous AI trading terminal</title>
     <meta name="description" content="blank is an autonomous AI trading terminal for Windows. Runs on a 45-second loop, pulls signals from news and social, and trades your Trading 212 account — paper or live.">
     <meta property="og:title" content="blank — autonomous AI trading terminal">
@@ -56,6 +56,9 @@
             overflow-x: hidden;
             cursor: crosshair;
         }
+
+        a, button { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+        @media (hover: none) { body { cursor: auto; } }
 
         /* animated grain overlay */
         body::before {
@@ -123,7 +126,7 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: 0.875rem 1.5rem;
+            padding: calc(0.875rem + env(safe-area-inset-top, 0px)) 1.5rem 0.875rem;
             font-family: var(--mono);
             font-size: 0.625rem;
             letter-spacing: 0.12em;
@@ -829,7 +832,7 @@
         footer {
             position: relative;
             z-index: 10;
-            padding: 2.5rem 2rem;
+            padding: 2.5rem 2rem calc(2.5rem + env(safe-area-inset-bottom, 0px));
             text-align: center;
             opacity: 0;
             animation: fadeUp 1s var(--ease-out) 1.4s forwards;
@@ -882,20 +885,20 @@
         @media (max-width: 600px) {
             .status-bar {
                 font-size: 0.5625rem;
-                padding: 0.625rem 0.875rem;
+                padding: calc(0.625rem + env(safe-area-inset-top, 0px)) 0.875rem 0.625rem;
             }
             .status-bar .left,
             .status-bar .right { gap: 0.875rem; }
             .status-bar .hide-mobile { display: none; }
 
             main {
-                padding: 5.5rem 1.25rem 2.5rem;
-                min-height: 100svh;
+                padding: calc(5rem + env(safe-area-inset-top, 0px)) 1.25rem calc(2.5rem + env(safe-area-inset-bottom, 0px));
                 min-height: 100vh;
+                min-height: 100dvh;
             }
 
             .tagline {
-                font-size: clamp(0.875rem, 3.8vw, 1rem);
+                font-size: clamp(0.9375rem, 4vw, 1.0625rem);
                 margin-bottom: 2rem;
             }
 
@@ -912,8 +915,8 @@
             .signup-form input[type="email"] {
                 border: 1px solid var(--panel-border-strong);
                 padding: 0.9375rem 1rem;
-                font-size: 0.875rem;
-                min-height: 3rem;
+                font-size: 1rem;
+                min-height: 3.25rem;
                 transition: border-color 0.3s ease;
             }
 
@@ -926,13 +929,13 @@
 
             .signup-form button {
                 width: 100%;
-                padding: 0.9375rem 1.5rem;
-                font-size: 0.75rem;
-                min-height: 3rem;
+                padding: 1rem 1.5rem;
+                font-size: 0.8125rem;
+                min-height: 3.25rem;
                 letter-spacing: 0.1em;
             }
 
-            .scroll-hint { bottom: 1.25rem; }
+            .scroll-hint { display: none; }
 
             .preview { padding: 4rem 1rem 2.5rem; }
             .section-sub { margin-bottom: 2.5rem; }
@@ -959,11 +962,24 @@
             footer { padding: 2rem 1.25rem; }
         }
 
+        /* mid-size phone — tighten text density */
+        @media (max-width: 480px) {
+            .tagline { font-size: 0.9375rem; }
+            .section-title { font-size: clamp(1.375rem, 5.5vw, 1.75rem); }
+            .section-sub { font-size: 0.875rem; margin-bottom: 2rem; }
+            .panel h3 { font-size: 0.9375rem; }
+            .panel p { font-size: 0.75rem; line-height: 1.55; }
+        }
+
         /* small mobile */
         @media (max-width: 420px) {
             .title { letter-spacing: -0.05em; }
 
-            main { padding: 5rem 1rem 2rem; }
+            main { padding: calc(4.5rem + env(safe-area-inset-top, 0px)) 1rem calc(2rem + env(safe-area-inset-bottom, 0px)); }
+
+            /* hide panel body text — title + mock is enough to scan */
+            .panel p { display: none; }
+            .panel h3 { margin-bottom: 0.875rem; }
 
             .mock-stream .ts { display: none; }
             .mock-stream .row { gap: 0.375rem; }
@@ -980,6 +996,8 @@
             .panel { padding: 0.875rem 1rem 1.125rem; }
 
             .changelog-inner { max-width: 100%; }
+            .releases { gap: 2rem; }
+            .release-notes li { font-size: 0.8125rem; }
         }
 
         /* reduced motion */
