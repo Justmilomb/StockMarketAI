@@ -7,7 +7,7 @@
     <meta name="description" content="terms of service and end user licence agreement for blank by certified random.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@200;300;400;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;700&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
     <style>
         *, *::before, *::after {
             margin: 0;
@@ -18,8 +18,8 @@
         :root {
             --bg: #000000;
             --text: #ffffff;
-            --text-mid: rgba(255, 255, 255, 0.55);
-            --text-dim: rgba(255, 255, 255, 0.25);
+            --text-mid: rgba(255, 255, 255, 0.6);
+            --text-dim: rgba(255, 255, 255, 0.32);
             --glow: #00ff87;
             --rule: rgba(255, 255, 255, 0.08);
         }
@@ -62,14 +62,14 @@
             letter-spacing: 0.1em;
             text-transform: lowercase;
             margin-bottom: 3rem;
-            transition: color 0.2s ease;
+            transition: color 140ms cubic-bezier(0.16, 1, 0.3, 1);
         }
 
         .back:hover { color: var(--glow); }
 
         h1 {
             font-size: 2.25rem;
-            font-weight: 200;
+            font-weight: 300;
             letter-spacing: 0.02em;
             margin-bottom: 0.5rem;
         }

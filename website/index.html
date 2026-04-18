@@ -11,7 +11,7 @@
     <meta name="twitter:card" content="summary_large_image">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@200;300;400;700&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;700&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/assets/css/theme.css">
     <link rel="stylesheet" href="/assets/css/base.css">
     <link rel="stylesheet" href="/assets/css/landing.css">
@@ -28,9 +28,9 @@
             --panel-border: rgba(255, 255, 255, 0.08);
             --panel-border-strong: rgba(255, 255, 255, 0.16);
             --text: #ffffff;
-            --text-mid: rgba(255, 255, 255, 0.5);
-            --text-dim: rgba(255, 255, 255, 0.28);
-            --text-faint: rgba(255, 255, 255, 0.12);
+            --text-mid: rgba(255, 255, 255, 0.6);
+            --text-dim: rgba(255, 255, 255, 0.32);
+            --text-faint: rgba(255, 255, 255, 0.14);
             --glow: #00ff87;
             --glow-soft: rgba(0, 255, 135, 0.55);
             --glow-dim: rgba(0, 255, 135, 0.08);
@@ -130,9 +130,7 @@
             color: var(--text-dim);
             text-transform: uppercase;
             border-bottom: 1px solid var(--panel-border);
-            background: rgba(0, 0, 0, 0.65);
-            backdrop-filter: blur(6px);
-            -webkit-backdrop-filter: blur(6px);
+            background: rgba(0, 0, 0, 0.88);
             opacity: 0;
             animation: fadeUp 0.8s var(--ease-out) 0.1s forwards;
         }
@@ -248,7 +246,7 @@
             font-size: 1rem;
             letter-spacing: 0.04em;
             padding: 0.875rem 1rem;
-            transition: border-color 0.3s ease;
+            transition: border-color 140ms var(--ease-out);
             width: 100%;
         }
 
@@ -295,7 +293,7 @@
             text-transform: uppercase;
             padding: 0.9375rem 1.5rem;
             cursor: pointer;
-            transition: opacity 0.2s ease;
+            transition: opacity 140ms var(--ease-out);
             width: 100%;
             margin-top: 0.25rem;
         }
@@ -313,7 +311,7 @@
         }
 
         .signup-note.ok { color: var(--glow); }
-        .signup-note.err { color: #ff5a5a; }
+        .signup-note.err { color: var(--red); }
 
         .risk-note {
             font-family: var(--mono);
@@ -363,7 +361,7 @@
             text-transform: uppercase;
             opacity: 0;
             animation: fadeUp 1s var(--ease-out) 1.2s forwards;
-            transition: color 0.4s var(--ease-out);
+            transition: color 280ms var(--ease-out);
         }
 
         .scroll-hint:hover { color: var(--glow); }
@@ -445,7 +443,7 @@
             transition:
                 opacity 0.9s var(--ease-out),
                 transform 0.9s var(--ease-out),
-                border-color 0.4s var(--ease-out);
+                border-color 280ms var(--ease-out);
             overflow: hidden;
         }
 
@@ -888,7 +886,7 @@
             color: var(--text-dim);
             text-decoration: none;
             margin: 0 0.5rem;
-            transition: color 0.2s ease;
+            transition: color 140ms var(--ease-out);
         }
 
         .footer-links a:hover { color: var(--glow); }

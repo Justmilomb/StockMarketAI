@@ -6,7 +6,7 @@
     <title>blank — admin</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@200;300;400;500;700&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;700&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/assets/css/theme.css">
     <link rel="stylesheet" href="/assets/css/base.css">
     <style>
@@ -15,16 +15,16 @@
         :root {
             --bg: #000000;
             --surface: #0a0a0a;
-            --border: rgba(255,255,255,0.06);
-            --border-hover: rgba(255,255,255,0.12);
+            --border: rgba(255,255,255,0.08);
+            --border-hover: rgba(255,255,255,0.16);
             --text: #ffffff;
-            --text-mid: rgba(255,255,255,0.5);
-            --text-dim: rgba(255,255,255,0.2);
+            --text-mid: rgba(255,255,255,0.6);
+            --text-dim: rgba(255,255,255,0.32);
             --glow: #00ff87;
             --glow-dim: rgba(0,255,135,0.08);
             --glow-mid: rgba(0,255,135,0.15);
-            --red: #ff4d4d;
-            --amber: #ffaa00;
+            --red: #ff3b3b;
+            --amber: #ffb020;
             --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
         }
 
@@ -155,9 +155,8 @@
             background: none;
             border: 1px solid transparent;
             padding: 0.5rem 1rem;
-            border-radius: 2px;
             cursor: pointer;
-            transition: all 0.3s ease;
+            transition: color 140ms var(--ease-out), background 140ms var(--ease-out), border-color 140ms var(--ease-out);
         }
 
         .tab:hover { color: var(--text-mid); border-color: var(--border); }
@@ -194,10 +193,10 @@
         .stat {
             background: var(--surface);
             padding: 1.5rem;
-            transition: background 0.3s ease;
+            transition: background 140ms var(--ease-out);
         }
 
-        .stat:hover { background: #0f0f0f; }
+        .stat:hover { background: #141414; }
 
         .stat-label {
             font-size: 0.6875rem;
@@ -262,9 +261,9 @@
         .bar {
             flex: 1;
             background: rgba(0,255,135,0.15);
-            border-top: 2px solid var(--glow);
+            border-top: 1px solid var(--glow);
             min-width: 0;
-            transition: all 0.3s ease;
+            transition: background 140ms var(--ease-out);
             position: relative;
         }
 
@@ -338,7 +337,6 @@
             font-weight: 400;
             letter-spacing: 0.06em;
             padding: 0.2rem 0.6rem;
-            border-radius: 2px;
         }
 
         .badge.active { color: var(--glow); background: var(--glow-dim); }
@@ -363,10 +361,10 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
-            transition: background 0.3s ease;
+            transition: background 140ms var(--ease-out);
         }
 
-        .config-item:hover { background: #0f0f0f; }
+        .config-item:hover { background: #141414; }
 
         .config-key {
             font-size: 0.8125rem;
@@ -396,7 +394,7 @@
             width: 120px;
             text-align: right;
             outline: none;
-            transition: border-color 0.3s ease;
+            transition: border-color 140ms var(--ease-out);
         }
 
         .config-input:focus { border-color: var(--glow); }
@@ -417,11 +415,10 @@
         .toggle {
             width: 36px;
             height: 20px;
-            border-radius: 10px;
             background: rgba(255,255,255,0.1);
             position: relative;
             cursor: pointer;
-            transition: background 0.3s ease;
+            transition: background 140ms var(--ease-out);
         }
 
         .toggle.on { background: var(--glow-mid); }
@@ -433,15 +430,13 @@
             left: 3px;
             width: 14px;
             height: 14px;
-            border-radius: 50%;
             background: var(--text-dim);
-            transition: all 0.3s var(--ease-out);
+            transition: all 140ms var(--ease-out);
         }
 
         .toggle.on::after {
             left: 19px;
             background: var(--glow);
-            box-shadow: 0 0 8px rgba(0,255,135,0.3);
         }
 
         /* logs */
@@ -456,7 +451,7 @@
 
         .log-viewer::-webkit-scrollbar { width: 4px; }
         .log-viewer::-webkit-scrollbar-track { background: transparent; }
-        .log-viewer::-webkit-scrollbar-thumb { background: var(--border-hover); border-radius: 2px; }
+        .log-viewer::-webkit-scrollbar-thumb { background: var(--border-hover); }
 
         .log-entry {
             display: flex;
@@ -496,8 +491,7 @@
         .uptime-bar .day {
             flex: 1;
             height: 24px;
-            border-radius: 1px;
-            transition: all 0.3s ease;
+            transition: background 140ms var(--ease-out);
             position: relative;
         }
 
@@ -516,9 +510,8 @@
             font-size: 0.5625rem;
             color: var(--text-mid);
             white-space: nowrap;
-            background: #111;
+            background: #050505;
             padding: 2px 6px;
-            border-radius: 2px;
         }
 
         .uptime-label {
@@ -566,7 +559,7 @@
             font-size: 0.8125rem;
             font-weight: 300;
             outline: none;
-            transition: border-color 0.3s ease;
+            transition: border-color 140ms var(--ease-out);
         }
 
         .form-row input[type="text"]:focus,
@@ -608,7 +601,7 @@
             font-size: 0.75rem;
             letter-spacing: 0.06em;
             cursor: pointer;
-            transition: all 0.3s ease;
+            transition: background 140ms var(--ease-out);
         }
 
         #btn-publish:hover { background: rgba(0,255,135,0.15); }
@@ -618,7 +611,7 @@
             font-weight: 300;
             margin-top: 0.75rem;
             min-height: 1rem;
-            font-family: monospace;
+            font-family: 'JetBrains Mono', 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
             letter-spacing: 0.04em;
         }
 
