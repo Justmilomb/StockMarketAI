@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>blank — admin</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -685,10 +685,7 @@
 
         /* mobile */
         @media (max-width: 600px) {
-            .shell { padding: calc(1.25rem + env(safe-area-inset-top, 0px)) 1rem calc(3rem + env(safe-area-inset-bottom, 0px)) 1rem; }
-
-            /* prevent iOS auto-zoom on input focus */
-            input, select, textarea { font-size: 1rem !important; }
+            .shell { padding: 1.25rem 1rem 3rem; }
 
             header { flex-wrap: wrap; gap: 0.5rem; padding-bottom: 1.25rem; margin-bottom: 1.25rem; }
             .logo { font-size: 1rem; }
@@ -1613,25 +1610,6 @@
                 return;
             }
             const recipients = audience === 'single' ? [single] : [audience];
-
-            // Validate required vars — highlight blanks before confirming.
-            const blankInputs = [];
-            document.querySelectorAll('#email-form [data-var]').forEach(el => {
-                el.style.borderColor = '';
-                const isEmpty = el.dataset.kind === 'list'
-                    ? !el.value.trim()
-                    : !el.value.trim();
-                if (isEmpty) {
-                    el.style.borderColor = 'var(--red, #ff4444)';
-                    blankInputs.push(el.dataset.var);
-                }
-            });
-            if (blankInputs.length) {
-                document.getElementById('email-status').textContent =
-                    'fill in required fields: ' + blankInputs.join(', ');
-                return;
-            }
-
             const label = EMAIL_CURRENT.label;
             const confirmMsg = audience === 'single'
                 ? 'Send "' + label + '" to ' + single + '?'

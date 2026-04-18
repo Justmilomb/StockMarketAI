@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>blank — launching 01.07.2026</title>
     <meta name="description" content="blank is AI that trades the stock market for you. Download, open, let it run. Launching 1 July 2026.">
     <meta property="og:title" content="blank — launching 01.07.2026">
@@ -55,9 +55,6 @@
             overflow-x: hidden;
             cursor: crosshair;
         }
-
-        a, button { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
-        @media (hover: none) { body { cursor: auto; } }
 
         /* animated grain overlay (matches index.html) */
         body::before {
@@ -139,7 +136,7 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: calc(0.875rem + env(safe-area-inset-top, 0px)) 1.5rem 0.875rem;
+            padding: 0.875rem 1.5rem;
             font-family: var(--mono);
             font-size: 0.625rem;
             letter-spacing: 0.12em;
@@ -893,7 +890,7 @@
         footer {
             position: relative;
             z-index: 10;
-            padding: 2.5rem 2rem calc(2.5rem + env(safe-area-inset-bottom, 0px));
+            padding: 2.5rem 2rem;
             text-align: center;
             opacity: 0;
             animation: fadeUp 1s var(--ease-out) 1.4s forwards;
@@ -944,29 +941,29 @@
         @media (max-width: 600px) {
             .status-bar {
                 font-size: 0.5625rem;
-                padding: calc(0.625rem + env(safe-area-inset-top, 0px)) 0.875rem 0.625rem;
+                padding: 0.625rem 0.875rem;
             }
             .status-bar .left,
             .status-bar .right { gap: 0.875rem; }
             .status-bar .hide-mobile { display: none; }
 
             main {
-                padding: calc(5rem + env(safe-area-inset-top, 0px)) 1.25rem calc(2.5rem + env(safe-area-inset-bottom, 0px));
+                padding: 5.5rem 1.25rem 2.5rem;
+                min-height: 100svh;
                 min-height: 100vh;
-                min-height: 100dvh;
             }
 
             .tagline {
-                font-size: clamp(0.9375rem, 4vw, 1.0625rem);
-                margin-bottom: 2rem;
+                font-size: clamp(0.875rem, 3.8vw, 1rem);
+                margin-bottom: 2.5rem;
             }
 
             .countdown { gap: 0.5rem; }
-            .unit { min-width: 0; padding: 1rem 0.625rem 0.75rem; }
-            .unit .num { font-size: 2rem; }
+            .unit { min-width: 0; padding: 0.875rem 0.5rem 0.625rem; }
+            .unit .num { font-size: 1.75rem; }
             .unit .lab { font-size: 0.5rem; letter-spacing: 0.15em; }
 
-            .scroll-hint { display: none; }
+            .scroll-hint { bottom: 1.25rem; }
 
             .preview { padding: 4rem 1rem 2.5rem; }
             .section-sub { margin-bottom: 2.5rem; }
@@ -993,47 +990,27 @@
             .waitlist-form input[type="email"] {
                 border: 1px solid var(--panel-border-strong);
                 padding: 0.9375rem 1rem;
-                font-size: 1rem;
-                min-height: 3.25rem;
+                font-size: 0.875rem;
+                min-height: 3rem;
                 transition: border-color 0.3s ease;
             }
             .waitlist-form input[type="email"]:focus { border-color: var(--glow); }
             .waitlist-form:focus-within { border: none; }
             .waitlist-form button {
                 width: 100%;
-                padding: 1rem 1.5rem;
-                min-height: 3.25rem;
-                font-size: 0.8125rem;
+                padding: 0.9375rem 1.5rem;
+                min-height: 3rem;
             }
 
             footer { padding: 2rem 1.25rem; }
         }
 
-        /* mid-size phone — tighten text density */
-        @media (max-width: 480px) {
-            .tagline { font-size: 0.9375rem; }
-            .section-title { font-size: clamp(1.375rem, 5.5vw, 1.75rem); }
-            .section-sub { font-size: 0.875rem; margin-bottom: 2rem; }
-            .panel h3 { font-size: 0.9375rem; }
-            .panel p { font-size: 0.75rem; line-height: 1.55; }
-            .cta h4 { font-size: clamp(1.125rem, 4.5vw, 1.5rem); }
-            .cta p { font-size: 0.8125rem; }
-        }
-
         /* small mobile */
         @media (max-width: 420px) {
             .title { letter-spacing: -0.05em; }
-            main { padding: calc(4.5rem + env(safe-area-inset-top, 0px)) 1rem calc(2rem + env(safe-area-inset-bottom, 0px)); }
-
-            /* 2×2 countdown on the smallest screens */
-            .countdown { grid-template-columns: repeat(2, 1fr); }
+            main { padding: 5rem 1rem 2rem; }
             .countdown-label::before,
             .countdown-label::after { width: 1rem; }
-
-            /* hide panel body text — title + mock is enough to scan */
-            .panel p { display: none; }
-            .panel h3 { margin-bottom: 0.875rem; }
-
             .mock-stream .ts { display: none; }
             .mock-exchanges { grid-template-columns: repeat(2, 1fr); }
             .mock-news .item { grid-template-columns: auto 1fr; row-gap: 0.25rem; }

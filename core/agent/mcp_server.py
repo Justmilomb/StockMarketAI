@@ -31,8 +31,12 @@ from core.agent.tools.social_tools import SOCIAL_TOOLS
 from core.agent.tools.strategy_backtest_tools import STRATEGY_BACKTEST_TOOLS
 from core.agent.tools.watchlist_tools import WATCHLIST_TOOLS
 from core.agent.tools.research_tools import RESEARCH_TOOLS
-from core.agent.tools.grok_tools import GROK_TOOLS
 from core.agent.tools.forecast_tools import FORECAST_TOOLS
+
+# query_grok is disabled — it drives Playwright/Chromium which is blocked
+# on some client machines and crashes the app when invoked. Keep the
+# module on disk so tests and historical docs still import, but don't
+# register it with the agent.
 
 
 #: Every tool the agent sees this phase.
@@ -51,7 +55,6 @@ ALL_TOOLS: List[Any] = [
     *STRATEGY_BACKTEST_TOOLS,
     *PERFORMANCE_TOOLS,
     *RESEARCH_TOOLS,
-    *GROK_TOOLS,
     *FLOW_TOOLS,
     *FORECAST_TOOLS,
 ]

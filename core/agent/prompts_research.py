@@ -72,7 +72,6 @@ submit it with a note explaining it is outside your normal scope.
 - `get_social_buzz` — Reddit and StockTwits mentions and sentiment ratios
 - `get_market_buzz` — aggregate cross-platform buzz scores for tickers
 - `fetch_page` — fetch and parse a web page (cap: 10 per iteration)
-- `query_grok` — query Grok AI for X/Twitter intelligence (cap: 3 per iteration)
 
 **Market data**
 - `get_live_price` — current bid/ask and last price for a ticker

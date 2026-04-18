@@ -1,13 +1,13 @@
 {% extends "_layout.html.j2" %}
 {% block content %}
-<div style="font-family:'JetBrains Mono','Consolas','Courier New',monospace;color:#00ff87;font-size:11px;letter-spacing:0.25em;text-transform:uppercase;margin-bottom:8px;">licence renewed</div>
+<div style="font-family:'JetBrains Mono',monospace;color:#00ff87;font-size:11px;letter-spacing:0.25em;text-transform:uppercase;margin-bottom:8px;">licence renewed</div>
 <h1 style="font-size:26px;font-weight:200;margin:0 0 16px;">you're good to go, {{ name|e }}.</h1>
 <p style="color:rgba(255,255,255,0.75);font-size:15px;line-height:1.6;margin:0 0 12px;">
 Your blank licence is renewed. Nothing to do &mdash; the desktop app will pick it up next time it checks in.
 </p>
-<div style="font-family:'JetBrains Mono','Consolas','Courier New',monospace;color:rgba(255,255,255,0.4);font-size:11px;margin:20px 0 6px;letter-spacing:0.2em;text-transform:uppercase;">licence key</div>
-<div style="font-family:'JetBrains Mono','Consolas','Courier New',monospace;color:#ffffff;font-size:14px;background:#0a0a0a;border:1px solid rgba(255,255,255,0.12);padding:12px 16px;word-break:break-all;">{{ license_key|e }}</div>
+<div style="font-family:'JetBrains Mono',monospace;color:rgba(255,255,255,0.4);font-size:11px;margin:20px 0 6px;letter-spacing:0.2em;text-transform:uppercase;">licence key</div>
+<div style="font-family:'JetBrains Mono',monospace;color:#ffffff;font-size:14px;background:#0a0a0a;border:1px solid rgba(255,255,255,0.12);padding:12px 16px;word-break:break-all;">{{ license_key|e }}</div>
 <p style="color:rgba(255,255,255,0.55);font-size:13px;line-height:1.6;margin:20px 0 0;">
-Next renewal: <span style="color:#00ff87;font-family:'JetBrains Mono','Consolas','Courier New',monospace;">{{ next_renewal|e }}</span>.
+Next renewal: <span style="color:#00ff87;font-family:'JetBrains Mono',monospace;">{{ next_renewal|e }}</span>.
 </p>
 {% endblock %}
