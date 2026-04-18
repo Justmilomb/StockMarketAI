@@ -56,8 +56,8 @@ class RiskDisclosureDialog(BaseDialog):
             "blank is an autonomous AI trading tool. When connected to a"
             " live account it places real orders using your funds without"
             " asking for approval on each trade. Trading carries risk of"
-            " financial loss \u2014 only trade with money you can afford"
-            " to lose. Past performance does not guarantee future results."
+            " financial loss. Only trade with money you can afford to lose."
+            " Past performance does not guarantee future results."
         )
         text.setWordWrap(True)
         text.setStyleSheet(

@@ -40,7 +40,7 @@ class LicenseDialog(QDialog):
         )
         root.addWidget(wordmark)
 
-        kicker = QLabel("LICENSE REQUIRED")
+        kicker = QLabel("LICENCE REQUIRED")
         kicker.setAlignment(Qt.AlignCenter)
         kicker.setStyleSheet(
             f"color: {T.FG_2_HEX}; font-family: {T.FONT_MONO};"

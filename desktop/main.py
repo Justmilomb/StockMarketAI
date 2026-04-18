@@ -280,13 +280,14 @@ def launch(mode: str | None = None) -> None:
     cy = pixmap.height() // 2 + 32
     painter.drawLine(cx - 60, cy, cx + 60, cy)
 
+    from desktop import tokens as _T
     painter.setFont(QFont("Outfit", 11, QFont.Light))
-    painter.setPen(QColor("#808080"))
+    painter.setPen(QColor(_T.FG_1_HEX))
     subtitle_rect = pixmap.rect().adjusted(0, 80, 0, 80)
     painter.drawText(subtitle_rect, Qt.AlignCenter, "CERTIFIED RANDOM")
 
     painter.setFont(QFont("Outfit", 10, QFont.Thin))
-    painter.setPen(QColor("#333333"))
+    painter.setPen(QColor(_T.FG_2_HEX))
     painter.drawText(
         pixmap.rect().adjusted(0, 0, 0, -20),
         Qt.AlignBottom | Qt.AlignHCenter,
@@ -311,7 +312,9 @@ def launch(mode: str | None = None) -> None:
 
     splash.show()
     splash.showMessage(
-        "Initialising services...", Qt.AlignBottom | Qt.AlignHCenter, QColor("#888888"),
+        "Initialising services...",
+        Qt.AlignBottom | Qt.AlignHCenter,
+        QColor(_T.FG_1_HEX),
     )
     app.processEvents()
 

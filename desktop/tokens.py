@@ -48,8 +48,8 @@ BORDER_1_HEX = "#292929"
 
 # ── Typography ───────────────────────────────────────────────────────
 
-FONT_SANS = "'Outfit', 'Inter', 'Segoe UI', system-ui, sans-serif"
-FONT_MONO = "'JetBrains Mono', 'IBM Plex Mono', 'Consolas', 'Cascadia Mono', monospace"
+FONT_SANS = "'Outfit', 'Inter', system-ui, -apple-system, sans-serif"
+FONT_MONO = "'JetBrains Mono', 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
 
 FONT_SANS_FAMILY = "Outfit"   # for QFont()
 FONT_MONO_FAMILY = "JetBrains Mono"

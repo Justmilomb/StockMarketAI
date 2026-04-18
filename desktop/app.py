@@ -583,31 +583,33 @@ class MainWindow(QMainWindow):
             if not hasattr(self, "_maintenance_overlay") or self._maintenance_overlay is None:
                 from PySide6.QtWidgets import QVBoxLayout, QWidget
                 from PySide6.QtCore import Qt
+                from desktop import tokens as _T
 
                 overlay = QWidget(self)
                 overlay.setObjectName("maintenanceOverlay")
                 overlay.setStyleSheet(
-                    "#maintenanceOverlay { background: rgba(10,10,10,0.93); }"
+                    "#maintenanceOverlay { background: rgba(10, 10, 10, 0.93); }"
                 )
                 layout = QVBoxLayout(overlay)
                 layout.setAlignment(Qt.AlignCenter)
 
                 from PySide6.QtWidgets import QLabel
                 icon = QLabel("⚙")
-                icon.setStyleSheet("color: #ffd700; font-size: 48px;")
+                icon.setStyleSheet(f"color: {_T.WARN}; font-size: 48px;")
                 icon.setAlignment(Qt.AlignCenter)
 
                 title = QLabel("MAINTENANCE")
                 title.setStyleSheet(
-                    "color: #ffd700; font-size: 18px; font-weight: bold; "
-                    "letter-spacing: 0.2em; margin-top: 12px;"
+                    f"color: {_T.WARN}; font-size: 18px; font-weight: 700; "
+                    f"font-family: {_T.FONT_MONO}; letter-spacing: 0.2em;"
+                    f" margin-top: 12px;"
                 )
                 title.setAlignment(Qt.AlignCenter)
 
                 self._maintenance_msg_label = QLabel(message or "Back soon.")
                 self._maintenance_msg_label.setStyleSheet(
-                    "color: rgba(255,255,255,0.55); font-size: 13px; "
-                    "margin-top: 8px; max-width: 480px;"
+                    f"color: {_T.FG_1}; font-family: {_T.FONT_SANS};"
+                    f" font-size: 13px; margin-top: 8px; max-width: 480px;"
                 )
                 self._maintenance_msg_label.setAlignment(Qt.AlignCenter)
                 self._maintenance_msg_label.setWordWrap(True)
@@ -1544,7 +1546,7 @@ class MainWindow(QMainWindow):
         hi = highs.max()
         lo = lows.min()
         vol = volumes[-1]
-        color = "#00ff00" if change_pct >= 0 else "#ff0000"
+        color = T.ACCENT if change_pct >= 0 else T.ALERT
 
         self.chart_panel._info_label.setText(
             f"O: ${opens[-1]:.2f} | H: ${hi:.2f} | L: ${lo:.2f} | "

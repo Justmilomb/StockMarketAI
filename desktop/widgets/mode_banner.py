@@ -19,13 +19,15 @@ from typing import Optional
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QWidget
 
+from desktop import tokens as T
 
-# Paper: loud gold-on-black — impossible to miss.
-_PAPER_BG = "#ffd700"
-_PAPER_FG = "#000000"
-# Live: near-black strip with dim red text — present, but calm.
-_LIVE_BG = "#0a0a0a"
-_LIVE_FG = "#8a1c1c"
+
+# Paper: warn amber on black so it's impossible to miss.
+_PAPER_BG = T.WARN
+_PAPER_FG = T.BG_0
+# Live: near-black strip with dim alert text — present, but calm.
+_LIVE_BG = T.BG_2
+_LIVE_FG = "rgba(255, 59, 59, 0.55)"
 
 
 class ModeBanner(QFrame):
@@ -53,7 +55,7 @@ class ModeBanner(QFrame):
         """Update the banner's colour and label to reflect ``paper``."""
         if paper:
             bg, fg = _PAPER_BG, _PAPER_FG
-            text = "PAPER MODE — fake money — no real orders sent"
+            text = "PAPER MODE. Fake money. No real orders sent."
             tip = "Paper trading mode. No real orders are sent."
             weight = 700
             letter_spacing = 1.5
