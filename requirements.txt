@@ -58,3 +58,17 @@ yt-dlp>=2024.10.7
 # core/kronos/ from github.com/shiyu-coder/Kronos, MIT licensed).
 # einops is the only runtime dep not already pulled in by torch.
 einops>=0.8.0
+
+# Forecasting ensemble — Chronos-2 + TimesFM + TFT + XGBoost meta-learner.
+# All heavy deps are lazy-loaded so a missing package degrades one
+# forecaster rather than breaking the agent loop.
+xgboost>=2.0.0
+chronos-forecasting>=1.5.0
+timesfm>=1.2.0
+pytorch-forecasting>=1.0.0
+scikit-learn>=1.4.0
+
+# FinBERT + HuggingFace pipeline for financial sentiment. transformers
+# is also pulled in by chronos-forecasting but we pin it explicitly for
+# FinBERT which predates the chronos requirement.
+transformers>=4.40.0
