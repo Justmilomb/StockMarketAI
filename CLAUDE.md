@@ -89,7 +89,7 @@ desktop/main_desktop.py                (entry point)
 - `desktop/main.py` — shared app bootstrap (license, wizard, launch)
 - `core/agent/runner.py` — supervisor loop, assessor hook, cadence control
 - `config.json` — all runtime configuration (validated by `core/config_schema.py`)
-- `requirements.txt` / `requirements-desktop.txt` / `requirements-forecasting.txt` — dependency manifests (web / desktop / optional ML backends)
+- `requirements.txt` / `requirements-desktop.txt` — dependency manifests (lightweight web for Render / full desktop terminal)
 
 ---
 

@@ -1,11 +1,11 @@
-# Desktop terminal requirements (PySide6 app + Claude agent + ML ensemble).
+# Desktop terminal requirements (PySide6 app + Claude agent + full ML ensemble).
 #
 # Install:
 #   pip install -r requirements-desktop.txt
 #
-# For the optional forecasting backends (Chronos-2, TimesFM, TFT), also
-# run `pip install -r requirements-forecasting.txt` — those are github-only
-# or pull in a large torch stack, so we keep them separate.
+# This is the single requirements file for the desktop edition — every
+# forecasting backend, every ML dep, every UI dep is in here. Render's
+# license server uses `requirements.txt` (lightweight, web-only) instead.
 
 # Core data + HTTP.
 yfinance>=0.2.36
@@ -72,3 +72,10 @@ einops>=0.8.0
 xgboost>=2.0.0
 scikit-learn>=1.4.0
 transformers>=4.40.0
+
+# Forecasting backends — Chronos-2 + TimesFM + Temporal Fusion Transformer.
+# Desktop installs all of them; the ensemble needs every backend present.
+# `timesfm` has no versioned PyPI wheel, so install from Google's repo.
+chronos-forecasting>=1.5.0
+pytorch-forecasting>=1.0.0
+timesfm @ git+https://github.com/google-research/timesfm.git
