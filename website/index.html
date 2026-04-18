@@ -315,6 +315,15 @@
         .signup-note.ok { color: var(--glow); }
         .signup-note.err { color: #ff5a5a; }
 
+        .risk-note {
+            font-family: var(--mono);
+            font-size: 0.5625rem;
+            letter-spacing: 0.06em;
+            color: var(--text-faint);
+            text-align: center;
+            margin-top: 0.875rem;
+        }
+
         .download-btn {
             display: inline-block;
             margin-top: 1.25rem;
@@ -926,37 +935,16 @@
                 margin-bottom: 2rem;
             }
 
-            /* stack the signup form vertically */
             .signup-wrap { max-width: 100%; }
 
-            .signup-form {
-                flex-direction: column;
-                border: none;
-                gap: 0.5rem;
-                background: transparent;
-            }
-
-            .signup-form input[type="email"] {
-                border: 1px solid var(--panel-border-strong);
+            .signup-form input[type="email"],
+            .signup-form input[type="password"] {
                 padding: 0.9375rem 1rem;
-                font-size: 0.875rem;
                 min-height: 3rem;
-                transition: border-color 0.3s ease;
             }
-
-            .signup-form input[type="email"]:focus {
-                border-color: var(--glow);
-                outline: none;
-            }
-
-            .signup-form:focus-within { border: none; }
 
             .signup-form button {
-                width: 100%;
-                padding: 0.9375rem 1.5rem;
-                font-size: 0.75rem;
                 min-height: 3rem;
-                letter-spacing: 0.1em;
             }
 
             .scroll-hint { bottom: 1.25rem; }
@@ -1058,6 +1046,7 @@
                 <button type="submit" id="signup-btn"><span>create account</span></button>
             </form>
             <p class="signup-note" id="signup-note"></p>
+            <p class="risk-note">trading involves risk &middot; capital at risk</p>
         </div>
 
         <a class="scroll-hint" href="#preview" aria-label="scroll for feature preview">

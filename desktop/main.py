@@ -212,6 +212,14 @@ def launch(mode: str | None = None) -> None:
         wizard = SetupWizard()
         wizard.run()
 
+    # ── Risk disclosure (skipped if snoozed for 7 days) ─────────────
+    from desktop.dialogs.risk_disclosure import (
+        RiskDisclosureDialog,
+        should_show as _risk_should_show,
+    )
+    if _risk_should_show():
+        RiskDisclosureDialog().exec()
+
     # ── Remote config enforcement ────────────────────────────────────
     from PySide6.QtWidgets import QMessageBox
 
