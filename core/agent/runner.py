@@ -336,7 +336,7 @@ class AgentRunner(QThread):
             delete=False, encoding="utf-8",
         )
         try:
-            prompt_file.write(render_system_prompt(effective_config))
+            prompt_file.write(render_system_prompt(effective_config, personality=trader_personality))
             prompt_file.close()
             system_prompt_ref: Dict[str, str] = {
                 "type": "file",
