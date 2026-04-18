@@ -278,6 +278,25 @@
     "theme": "default",
     "max_daily_loss": 0.05
   },
+  "forecasting": {
+    "ensemble_enabled": true,
+    "kronos_enabled": true,
+    "chronos_enabled": true,
+    "timesfm_enabled": true,
+    "tft_enabled": false,
+    "meta_model_path": "models/meta_learner.json",
+    "default_horizon_minutes": 60
+  },
+  "nlp": {
+    "finbert_enabled": true,
+    "finbert_model_id": "ProsusAI/finbert",
+    "max_texts_per_call": 32
+  },
+  "execution": {
+    "default_strategy": "market",
+    "vwap_slices_per_hour": 4,
+    "twap_slices_per_hour": 6
+  },
   "active_asset_class": "stocks",
   "enabled_asset_classes": [
     "stocks"

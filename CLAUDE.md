@@ -89,7 +89,7 @@ desktop/main_desktop.py                (entry point)
 - `desktop/main.py` — shared app bootstrap (license, wizard, launch)
 - `core/agent/runner.py` — supervisor loop, assessor hook, cadence control
 - `config.json` — all runtime configuration (validated by `core/config_schema.py`)
-- `requirements.txt` — dependency manifest
+- `requirements.txt` / `requirements-desktop.txt` — dependency manifests (lightweight web for Render / full desktop terminal)
 
 ---
 
@@ -195,7 +195,78 @@ CONSTRAINTS:
 
 ---
 
-## Before You Finish
+## 9 — Dependency Management
+
+```
+requirements.txt          ← Render server deploy only (fastapi, uvicorn, pydantic, …)
+requirements-desktop.txt  ← full desktop terminal (ML, UI, agent loop, tests, build)
+```
+
+**Rules:**
+- Never add desktop/ML/test dependencies to `requirements.txt` — it is the Render server manifest
+- All desktop deps (including `pytest`, `pytest-mock`, `pyinstaller`) belong in `requirements-desktop.txt`
+- Add a comment explaining any dependency whose purpose isn't obvious from its name
+- Update dependencies intentionally — review changelogs before bumping major versions
+- Install for local dev: `pip install -r requirements-desktop.txt`
+- Render uses `requirements.txt` automatically via its build command
+
+---
+
+## 10 — Environment & Config
+
+```
+.env.example     ← committed: template with all required keys, no values
+.env             ← NOT committed: actual secrets (in .gitignore)
+config.json      ← committed: all runtime configuration (no secrets)
+```
+
+**Required environment variables** (see `.env.example`):
+- `T212_API_KEY` — Trading 212 live trading API key (not needed in paper mode)
+- `T212_SECRET_KEY` — Trading 212 secret
+
+**Rules:**
+- Secrets (API keys, broker credentials) come from environment variables — never from `config.json`
+- Runtime config (thresholds, model params, feature flags) lives in `config.json`
+- `config.json` is validated at startup by `core/config_schema.py` (Pydantic `AppConfig`) — bad config fails fast before anything starts
+- Never read `os.environ` directly in business logic; go through `AppConfig` fields
+- Broker operations always default to paper/log mode unless the config field is explicitly `true`
+
+---
+
+## 11 — Testing
+
+| Layer | What to test | Command |
+|-------|-------------|---------|
+| Unit | Feature calculations, strategy logic, risk maths | `pytest tests/ -v` |
+| Integration | Database reads/writes (SQLite), broker interface | `pytest tests/ -v` |
+| Smoke | Full startup + signal pipeline | `python scripts/agent_repl.py` |
+
+**Rules:**
+- Tests live in `tests/` and mirror the source module they cover
+- Mock only at system boundaries: yfinance HTTP calls, Trading 212 REST API, Claude CLI subprocess
+- Never mock `database.py` — use a temp SQLite file or in-memory DB
+- New code requires new tests unless it is pure wiring or UI glue
+- Run `pytest tests/ -v` before marking any task done
+
+### Smoke Test Checklist
+- [ ] App starts without errors: `python desktop/main_desktop.py`
+- [ ] Signal pipeline produces a buy/sell/hold recommendation for a valid ticker
+- [ ] Broker defaults to paper mode — no real orders placed
+- [ ] No error-level logs during normal startup and one full analysis cycle
+
+---
+
+## 12 — Error Handling
+
+- **Fail loudly at startup** for missing required env vars when live mode is enabled, or for corrupt `config.json`. Use `sys.exit(1)` with a clear message — never a logged warning that gets ignored.
+- **Broker operations:** errors from the Trading 212 API must never be silently dropped — raise with full context so the `AutoEngine` can back off correctly.
+- **Never swallow exceptions silently.** `except Exception: pass` is a bug. At minimum, log with context.
+- **Log at the right level:** `debug` for noise, `info` for expected events, `warning` for unexpected-but-handled, `error` for failures requiring attention.
+- **Include actionable detail in error messages.** `"API call failed"` is useless. `"T212 order rejected: insufficient margin for AAPL buy 100 shares at $185.20"` is actionable.
+
+---
+
+## 13 — Before You Finish (Session Write-Back)
 
 ### Minimum write-back (every session):
 1. `E:\Coding\Second Brain\StockMarketAI\SESSION_LOG.md` — add entry if anything important happened
@@ -222,3 +293,17 @@ If Notion MCP is unavailable, log pending updates to `E:\Coding\Second Brain\Sto
 ### If session is interrupted:
 Prioritise: SESSION_LOG > KNOWN_ISSUES > CONTEXT > everything else.
 Notion updates are non-critical — Obsidian is the source of truth.
+
+---
+
+## 14 — CI/CD
+
+CI runs on every push and pull request to `main`. See `.github/workflows/ci.yml`.
+
+**Pipeline:** checkout → setup Python 3.12 → install deps → run pytest
+
+**Rules:**
+- Main branch must always pass CI — never push broken code directly to `main`
+- All secrets (T212 keys, license server keys) go in repository secrets (GitHub → Settings → Secrets and variables → Actions), never in committed files
+- Tests that call external services (yfinance, Trading 212) must mock those calls — no real HTTP in CI
+- If CI is red, fix it before starting new work

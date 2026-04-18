@@ -158,6 +158,14 @@ desktop/
   `core/agent/runner.py`, `config.json`, `requirements.txt`
 - **Tool bus (one module per concern):** `core/agent/tools/*.py`
 - **Scrapers (one file per source):** `core/scrapers/*.py`
+- **Forecasters (one file per model):** `core/forecasting/*.py` +
+  `core/kronos_forecaster.py`. See [docs/systems/forecasting.md](systems/forecasting.md).
+- **NLP:** `core/nlp/finbert.py`. See [docs/systems/nlp.md](systems/nlp.md).
+- **Alt-data:** `core/alt_data/` (analyst revisions), `core/scrapers/sec_insider.py`,
+  `core/scrapers/options_flow.py`.
+- **Execution:** `core/execution/vwap.py` (TWAP/VWAP planner).
+- **RL / fine-tune seams:** `core/rl/finrl_scaffold.py`,
+  `core/finetune/terminal_finetune.py`.
 - **Panels (one file per panel):** `desktop/panels/*.py`
 
 ## Config surface

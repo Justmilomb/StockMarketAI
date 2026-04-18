@@ -204,10 +204,48 @@ tests** — 2026-04-14
 - [x] `requirements.txt` — `vaderSentiment>=3.3.2`,
   `youtube-transcript-api>=0.6.2`.
 
+**Rebuild Phase 10 — Prediction & profitability upgrade** — 2026-04-18
+- [x] `core/forecasting/` — Chronos-2, TimesFM, TFT wrappers + XGBoost
+  meta-learner + `run_ensemble` orchestrator. All forecasters are lazy
+  singletons and never raise — a missing dependency returns
+  `{"error": ...}` and the meta-learner drops that backend.
+- [x] `core/agent/tools/ensemble_tools.py` — `forecast_ensemble` MCP
+  tool blending Kronos + Chronos + TimesFM + TFT in one call, returns
+  `meta.prob_up` / `meta.direction` / `meta.expected_move_pct` and a
+  per-forecaster availability map.
+- [x] `core/nlp/finbert.py` + `core/agent/tools/sentiment_tools.py` —
+  FinBERT compound scoring and the `finbert_ticker_sentiment` tool
+  that compares model inference vs StockTwits bull/bear tags and
+  surfaces the `disagreement` gap.
+- [x] Regime-aware ATR stops in `core/risk_manager.py`
+  (`regime_atr_multiplier` → 2× / 3× / 4× by ATR/price ratio,
+  `regime_adjust=True` default in `assess_position`).
+- [x] `core/scrapers/sec_insider.py` — SEC Form 4 Atom feed parser
+  (regex, no new deps) + `core/scrapers/options_flow.py` — yfinance
+  option-chain heuristic (`vol/oi > 3.0` AND `vol >= 200`).
+- [x] `core/agent/tools/insider_tools.py` — `recent_insider_trades` and
+  `unusual_options_activity` tools with bullish/bearish/neutral bias.
+- [x] `core/alt_data/analyst_revisions.py` +
+  `analyst_revision_momentum` tool — recommendation velocity, EPS
+  revision slope, and analyst price-target snapshot.
+- [x] `core/execution/vwap.py` + `plan_vwap_twap` MCP tool — TWAP and
+  VWAP slice planners against the UTC 14:30–21:00 US session with a
+  U-shape intraday profile.
+- [x] `core/rl/finrl_scaffold.py` + `rl_portfolio_allocation` seam —
+  regime-aware equal-weight cold-start allocator with rebalance
+  cadence (bull 72 h / neutral 48 h / bear 24 h / crisis 6 h).
+- [x] `core/finetune/terminal_finetune.py` — paper-broker audit log
+  scanner emitting a training manifest, `should_retrain` gate
+  (20 new trades OR 7 days).
+- [x] `core/config_schema.py` + `config.json` — new `forecasting`,
+  `nlp`, `execution` sections.
+- [x] `docs/systems/forecasting.md` + `docs/systems/nlp.md` +
+  `docs/ARCHITECTURE.md` — owner map + payload docs updated.
+
 ### Up Next
 
-- [ ] (none currently — Phase 9 closed out this round of UX + model
-  upgrades)
+- [ ] (none currently — Phase 10 closes this round of prediction and
+  profitability upgrades)
 
 (Crypto + polymarket restore is deferred indefinitely; dormant code
 stays bundled in the installer but is not exposed to the agent.)
