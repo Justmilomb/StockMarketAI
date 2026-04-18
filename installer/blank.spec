@@ -38,6 +38,12 @@ _find_dll('xgboost', 'xgboost.dll')
 _find_dll('lightgbm', 'lib_lightgbm.dll')
 
 
+_font_datas = [
+    (str(p), 'desktop/assets/fonts')
+    for p in (Path(PROJECT_ROOT) / 'desktop' / 'assets' / 'fonts').glob('*')
+    if p.suffix.lower() in ('.ttf', '.otf')
+]
+
 a = Analysis(
     [str(Path(PROJECT_ROOT) / 'desktop' / 'main_desktop.py')],
     pathex=[PROJECT_ROOT, str(Path(PROJECT_ROOT) / 'core')],
@@ -45,6 +51,7 @@ a = Analysis(
     datas=[
         (str(Path(PROJECT_ROOT) / 'config.json'), '.'),
         (str(Path(PROJECT_ROOT) / 'desktop' / 'assets' / 'icon.ico'), 'desktop/assets'),
+        *_font_datas,
         (str(Path(importlib.import_module('xgboost').__file__).parent / 'VERSION'), 'xgboost'),
         (str(Path(importlib.import_module('lightgbm').__file__).parent / 'VERSION.txt'), 'lightgbm'),
     ],
@@ -77,8 +84,12 @@ a = Analysis(
         # schedule dialog are loaded lazily by app.py (`from desktop.panels...
         # import UpdateBanner` etc.) so we must pin them explicitly.
         'desktop.paths',
+        'desktop.fonts',
+        'desktop.onboarding',
+        'desktop.dialogs._base',
         'desktop.update_service',
         'desktop.panels.update_banner',
+        'desktop.panels.mandatory_update_overlay',
         'desktop.dialogs.schedule_update',
         'packaging', 'packaging.version', 'packaging.specifiers',
         # Agent runtime (Phase 4+)

@@ -1,16 +1,15 @@
-"""First-run setup wizard -- checks prerequisites and guides configuration."""
+"""First-run setup wizard — checks prerequisites and guides configuration."""
 from __future__ import annotations
 
-import os
 import subprocess
 import sys
 import webbrowser
 from pathlib import Path
-from typing import Optional
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -20,48 +19,23 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from desktop.design import (
-    APP_NAME_UPPER,
-    BASE_QSS,
-    BG,
-    BORDER,
-    BORDER_HOVER,
-    GLOW,
-    GLOW_BORDER,
-    RED,
-    SECONDARY_BTN_QSS,
-    SURFACE,
-    TEXT,
-    TEXT_DIM,
-    TEXT_MID,
-    FONT_FAMILY,
-)
+from desktop import tokens as T
+
 
 SETUP_MARKER = Path.home() / ".blank" / "setup_complete"
 
-# Subprocess flags -- hide console window on Windows
 _SUBPROCESS_FLAGS: dict = {}
 if sys.platform == "win32":
     _SUBPROCESS_FLAGS["creationflags"] = subprocess.CREATE_NO_WINDOW
 
 
 def _check_ai_engine() -> bool:
-    """Return True if an AI engine is available to the app.
-
-    Prefers the installer-bundled engine (``{app}/engine/``). Falls
-    back to checking system PATH so dev installs without a built
-    engine dir still pass the check. The wizard never asks the user
-    to install anything — if both are missing it's a corrupted
-    install, not a step the user can fix by typing.
-    """
     try:
-        from core.agent.paths import engine_available, bundled_engine_cmd
+        from core.agent.paths import engine_available
         if engine_available():
             return True
     except Exception:
         pass
-
-    # Dev fallback: try whatever engine is on PATH.
     try:
         subprocess.run(
             ["blank-ai", "--version"],
@@ -74,51 +48,82 @@ def _check_ai_engine() -> bool:
 
 
 def _check_env_file() -> bool:
-    """Return True if a .env file exists next to the running process."""
     return Path(".env").exists()
 
 
+def _section_kicker(text: str) -> QLabel:
+    lbl = QLabel(text.upper())
+    lbl.setStyleSheet(
+        f"color: {T.FG_2_HEX}; font-family: {T.FONT_MONO};"
+        f" font-size: 10px; letter-spacing: 3px;"
+    )
+    return lbl
+
+
+def _body_text(text: str) -> QLabel:
+    lbl = QLabel(text)
+    lbl.setWordWrap(True)
+    lbl.setStyleSheet(
+        f"color: {T.FG_1_HEX}; font-family: {T.FONT_SANS};"
+        f" font-size: 12px; line-height: 1.5;"
+    )
+    return lbl
+
+
+def _field_label(text: str) -> QLabel:
+    lbl = QLabel(text.upper())
+    lbl.setStyleSheet(
+        f"color: {T.FG_2_HEX}; font-family: {T.FONT_MONO};"
+        f" font-size: 10px; letter-spacing: 2px; padding-top: 4px;"
+    )
+    return lbl
+
+
 class SetupWizard(QDialog):
-    """Multi-page first-run setup wizard matching the blank website aesthetic."""
+    """First-run setup wizard on the terminal-dark palette."""
 
     def __init__(self, parent: object = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("blank")
-        self.setFixedSize(480, 520)
+        self.setFixedSize(560, 560)
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
-        self.setStyleSheet(BASE_QSS + f"""
-            QDialog {{ border: 1px solid {BORDER}; }}
-        """)
+        self.setStyleSheet(
+            f"QDialog {{ background: {T.BG_0};"
+            f" border: 1px solid {T.BORDER_1}; }}"
+        )
 
         self._engine_ok = False
         self._env_ok = False
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(32, 28, 32, 24)
+        root.setContentsMargins(40, 32, 40, 28)
         root.setSpacing(0)
 
-        # Title
-        title = QLabel(APP_NAME_UPPER)
+        kicker = QLabel("FIRST-RUN SETUP")
+        kicker.setAlignment(Qt.AlignCenter)
+        kicker.setStyleSheet(
+            f"color: {T.FG_2_HEX}; font-family: {T.FONT_MONO};"
+            f" font-size: 10px; letter-spacing: 4px;"
+        )
+        root.addWidget(kicker)
+        root.addSpacing(8)
+
+        title = QLabel("blank")
         title.setAlignment(Qt.AlignCenter)
-        title.setStyleSheet(f"""
-            color: {TEXT}; font-size: 36px; font-weight: 700;
-            font-family: {FONT_FAMILY}; letter-spacing: -1px;
-        """)
+        title.setStyleSheet(
+            f"color: {T.FG_0}; font-family: {T.FONT_SANS};"
+            f" font-size: 40px; font-weight: 500;"
+            f" letter-spacing: -0.03em;"
+        )
         root.addWidget(title)
-
-        root.addSpacing(4)
-
-        subtitle = QLabel("FIRST-RUN SETUP")
-        subtitle.setAlignment(Qt.AlignCenter)
-        subtitle.setStyleSheet(f"""
-            color: {TEXT_MID}; font-size: 11px; font-weight: 300;
-            font-family: {FONT_FAMILY}; letter-spacing: 3px;
-        """)
-        root.addWidget(subtitle)
-
         root.addSpacing(20)
 
-        # Stacked pages
+        rule = QFrame()
+        rule.setFixedHeight(1)
+        rule.setStyleSheet(f"background: {T.BORDER_0};")
+        root.addWidget(rule)
+        root.addSpacing(18)
+
         self._stack = QStackedWidget()
         root.addWidget(self._stack, 1)
 
@@ -127,317 +132,281 @@ class SetupWizard(QDialog):
         self._build_env_page()
         self._build_done_page()
 
-        # Run checks immediately
         self._run_checks()
 
-    # -- Helpers ----------------------------------------------------------
+    def _check_row(self, label_text: str) -> tuple[QWidget, QLabel]:
+        row = QFrame()
+        h = QHBoxLayout(row)
+        h.setContentsMargins(0, 0, 0, 0)
+        h.setSpacing(10)
+        state = QLabel("…")
+        state.setFixedWidth(36)
+        state.setStyleSheet(
+            f"color: {T.FG_2_HEX}; font-family: {T.FONT_MONO};"
+            f" font-size: 10px; letter-spacing: 2px;"
+        )
+        name = QLabel(label_text)
+        name.setStyleSheet(
+            f"color: {T.FG_0}; font-family: {T.FONT_SANS};"
+            f" font-size: 13px;"
+        )
+        h.addWidget(state)
+        h.addWidget(name, 1)
+        return row, state
 
-    def _check_label_style(self, ok: bool) -> str:
-        colour = GLOW if ok else RED
-        return f"""
-            color: {colour}; font-size: 13px; font-weight: 400;
-            font-family: {FONT_FAMILY}; letter-spacing: 1px;
-        """
-
-    def _section_header(self, text: str) -> QLabel:
-        lbl = QLabel(text)
-        lbl.setAlignment(Qt.AlignCenter)
-        lbl.setStyleSheet(f"""
-            color: {TEXT_MID}; font-size: 12px; font-weight: 300;
-            font-family: {FONT_FAMILY}; letter-spacing: 2px;
-        """)
-        return lbl
-
-    def _body_label(self, text: str) -> QLabel:
-        lbl = QLabel(text)
-        lbl.setWordWrap(True)
-        lbl.setStyleSheet(f"""
-            color: {TEXT_MID}; font-size: 12px; font-weight: 300;
-            font-family: {FONT_FAMILY}; line-height: 1.5;
-        """)
-        return lbl
-
-    def _dim_label(self, text: str) -> QLabel:
-        lbl = QLabel(text)
-        lbl.setStyleSheet(f"""
-            color: {TEXT_DIM}; font-size: 11px; font-weight: 300;
-            font-family: {FONT_FAMILY}; letter-spacing: 1px;
-        """)
-        return lbl
-
-    # -- Page builders ----------------------------------------------------
+    def _set_check_state(self, label: QLabel, ok: bool) -> None:
+        label.setText("OK" if ok else "MISSING")
+        colour = T.ACCENT_HEX if ok else T.ALERT
+        label.setStyleSheet(
+            f"color: {colour}; font-family: {T.FONT_MONO};"
+            f" font-size: 10px; letter-spacing: 2px; font-weight: 600;"
+        )
 
     def _build_check_page(self) -> None:
-        """Page 0: prerequisite checklist."""
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(8)
+        layout.setSpacing(10)
 
-        layout.addWidget(self._section_header("CHECKING PREREQUISITES"))
-        layout.addSpacing(12)
+        layout.addWidget(_section_kicker("CHECKING PREREQUISITES"))
+        layout.addSpacing(8)
 
-        self._lbl_engine = QLabel("[ -- ] AI engine")
-        self._lbl_engine.setStyleSheet(self._check_label_style(True))
-        layout.addWidget(self._lbl_engine)
+        engine_row, self._lbl_engine = self._check_row("AI engine")
+        layout.addWidget(engine_row)
 
-        self._lbl_feedparser = QLabel("[ -- ] feedparser (news)")
-        self._lbl_feedparser.setStyleSheet(self._check_label_style(True))
-        layout.addWidget(self._lbl_feedparser)
+        fp_row, self._lbl_feedparser = self._check_row("feedparser (news)")
+        layout.addWidget(fp_row)
 
         layout.addStretch()
 
         btn_row = QHBoxLayout()
+        btn_row.setSpacing(8)
+        btn_row.addStretch(1)
+
+        skip = QPushButton("SKIP")
+        skip.setProperty("variant", "ghost")
+        skip.setCursor(Qt.PointingHandCursor)
+        skip.clicked.connect(self._finish)
+        btn_row.addWidget(skip)
 
         recheck = QPushButton("RE-CHECK")
         recheck.setCursor(Qt.PointingHandCursor)
-        recheck.setStyleSheet(SECONDARY_BTN_QSS)
         recheck.clicked.connect(self._run_checks)
         btn_row.addWidget(recheck)
 
         cont = QPushButton("CONTINUE")
+        cont.setProperty("variant", "primary")
         cont.setCursor(Qt.PointingHandCursor)
         cont.clicked.connect(self._on_check_continue)
         btn_row.addWidget(cont)
 
         layout.addLayout(btn_row)
-
-        layout.addSpacing(4)
-
-        skip = QPushButton("SKIP SETUP")
-        skip.setCursor(Qt.PointingHandCursor)
-        skip.setStyleSheet(f"""
-            QPushButton {{
-                color: {TEXT_DIM}; border: none;
-                font-size: 11px; font-weight: 300;
-                font-family: {FONT_FAMILY}; letter-spacing: 1px;
-                padding: 4px;
-            }}
-            QPushButton:hover {{ color: {TEXT_MID}; }}
-        """)
-        skip.clicked.connect(self._finish)
-        layout.addWidget(skip)
-
         self._stack.addWidget(page)
 
     def _build_engine_page(self) -> None:
-        """Page 1: AI engine setup guidance."""
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(8)
+        layout.setSpacing(10)
 
-        layout.addWidget(self._section_header("AI ENGINE SETUP"))
+        layout.addWidget(_section_kicker("AI ENGINE SETUP"))
         layout.addSpacing(8)
 
-        info = self._body_label(
-            "blank uses a local AI engine to power signals,\n"
-            "news sentiment, and the chat assistant.\n\n"
-            "The AI engine ships with the installer -- it should\n"
-            "already be ready. If this check is failing, your\n"
-            "install may be corrupted.\n\n"
-            "Try clicking RE-CHECK once. If it still fails,\n"
-            "see help.blank.app/setup or reinstall blank.\n\n"
-            "You can SKIP to use blank without AI features\n"
-            "(charts and broker still work).",
-        )
-        layout.addWidget(info)
-
-        layout.addSpacing(8)
-
-        open_btn = QPushButton("OPEN HELP PAGE")
-        open_btn.setCursor(Qt.PointingHandCursor)
-        open_btn.clicked.connect(
-            lambda: webbrowser.open("https://help.blank.app/setup"),
-        )
-        layout.addWidget(open_btn)
+        layout.addWidget(_body_text(
+            "blank uses a local AI engine to power signals, news sentiment, "
+            "and the chat assistant. The engine ships with the installer. "
+            "If this check is failing, the install may be corrupted.\n\n"
+            "Try RE-CHECK. If it still fails, see help.blank.app/setup "
+            "or reinstall.\n\n"
+            "You can skip to use blank without AI features (charts and broker "
+            "still work)."
+        ))
 
         layout.addStretch()
 
         btn_row = QHBoxLayout()
+        btn_row.setSpacing(8)
 
-        recheck = QPushButton("RE-CHECK")
-        recheck.setCursor(Qt.PointingHandCursor)
-        recheck.setStyleSheet(SECONDARY_BTN_QSS)
-        recheck.clicked.connect(self._recheck_engine)
-        btn_row.addWidget(recheck)
+        open_btn = QPushButton("OPEN HELP")
+        open_btn.setProperty("variant", "ghost")
+        open_btn.setCursor(Qt.PointingHandCursor)
+        open_btn.clicked.connect(
+            lambda: webbrowser.open("https://help.blank.app/setup"),
+        )
+        btn_row.addWidget(open_btn)
 
-        skip = QPushButton("SKIP (DISABLE AI)")
+        btn_row.addStretch(1)
+
+        skip = QPushButton("SKIP (NO AI)")
+        skip.setProperty("variant", "ghost")
         skip.setCursor(Qt.PointingHandCursor)
-        skip.setStyleSheet(SECONDARY_BTN_QSS)
         skip.clicked.connect(self._on_engine_skip)
         btn_row.addWidget(skip)
 
-        layout.addLayout(btn_row)
+        recheck = QPushButton("RE-CHECK")
+        recheck.setCursor(Qt.PointingHandCursor)
+        recheck.clicked.connect(self._recheck_engine)
+        btn_row.addWidget(recheck)
 
+        layout.addLayout(btn_row)
         self._stack.addWidget(page)
 
     def _build_env_page(self) -> None:
-        """Page 2: broker API key entry (optional)."""
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(8)
+        layout.setSpacing(10)
 
-        layout.addWidget(self._section_header("BROKER API KEYS (OPTIONAL)"))
+        layout.addWidget(_section_kicker("BROKER KEYS (OPTIONAL)"))
         layout.addSpacing(8)
-
-        info = self._body_label(
-            "HOW TO GET YOUR TRADING 212 API KEY:\n\n"
-            "1. Open Trading 212 (app or web)\n"
-            "2. Go to Settings (gear icon)\n"
-            "3. Scroll to the 'API' section\n"
-            "4. Click 'Generate API Key'\n"
-            "5. Copy the key and paste below\n\n"
-            "Leave blank for paper mode (no real trades).\n"
-            "You can always add keys later.",
-        )
-        layout.addWidget(info)
-
-        layout.addSpacing(8)
-
-        layout.addWidget(self._dim_label("T212 API KEY"))
-        self._api_key_input = QLineEdit()
-        self._api_key_input.setPlaceholderText("paste key here")
-        layout.addWidget(self._api_key_input)
+        layout.addWidget(_body_text(
+            "To trade live on Trading 212, paste your API key and secret below. "
+            "Leave blank for paper mode — no real trades.\n\n"
+            "You can find your key in Trading 212 → Settings → API section."
+        ))
 
         layout.addSpacing(4)
+        layout.addWidget(_field_label("T212 API KEY"))
+        self._api_key_input = QLineEdit()
+        self._api_key_input.setPlaceholderText("paste key here")
+        self._api_key_input.setStyleSheet(self._input_style())
+        layout.addWidget(self._api_key_input)
 
-        layout.addWidget(self._dim_label("T212 SECRET KEY"))
+        layout.addWidget(_field_label("T212 SECRET"))
         self._secret_key_input = QLineEdit()
         self._secret_key_input.setPlaceholderText("paste secret here")
         self._secret_key_input.setEchoMode(QLineEdit.Password)
+        self._secret_key_input.setStyleSheet(self._input_style())
         layout.addWidget(self._secret_key_input)
 
         layout.addStretch()
 
         btn_row = QHBoxLayout()
+        btn_row.setSpacing(8)
+        btn_row.addStretch(1)
 
-        paper = QPushButton("USE PAPER MODE")
+        paper = QPushButton("USE PAPER")
+        paper.setProperty("variant", "ghost")
         paper.setCursor(Qt.PointingHandCursor)
-        paper.setStyleSheet(SECONDARY_BTN_QSS)
         paper.clicked.connect(self._go_done)
         btn_row.addWidget(paper)
 
         save = QPushButton("SAVE KEYS")
+        save.setProperty("variant", "primary")
         save.setCursor(Qt.PointingHandCursor)
         save.clicked.connect(self._save_env)
         btn_row.addWidget(save)
 
         layout.addLayout(btn_row)
-
         self._stack.addWidget(page)
 
+    @staticmethod
+    def _input_style() -> str:
+        return (
+            f"QLineEdit {{ background: transparent; color: {T.FG_0};"
+            f" border: none; border-bottom: 1px solid {T.BORDER_1};"
+            f" padding: 8px 2px; font-family: {T.FONT_SANS}; font-size: 13px; }}"
+            f"QLineEdit:focus {{ border-bottom-color: {T.ACCENT_HEX}; }}"
+        )
+
     def _build_done_page(self) -> None:
-        """Page 3: summary and launch."""
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(8)
+        layout.setSpacing(10)
 
-        done_lbl = QLabel("SETUP COMPLETE")
-        done_lbl.setAlignment(Qt.AlignCenter)
-        done_lbl.setStyleSheet(f"""
-            color: {GLOW}; font-size: 18px; font-weight: 400;
-            font-family: {FONT_FAMILY}; letter-spacing: 2px;
-        """)
-        layout.addWidget(done_lbl)
+        layout.addWidget(_section_kicker("READY"))
+        layout.addSpacing(6)
 
-        layout.addSpacing(16)
+        title = QLabel("Setup complete.")
+        title.setStyleSheet(
+            f"color: {T.FG_0}; font-family: {T.FONT_SANS};"
+            f" font-size: 22px; font-weight: 500;"
+            f" letter-spacing: -0.01em;"
+        )
+        layout.addWidget(title)
+
+        layout.addSpacing(8)
 
         self._summary = QLabel("")
         self._summary.setWordWrap(True)
-        self._summary.setAlignment(Qt.AlignCenter)
-        self._summary.setStyleSheet(f"""
-            color: {TEXT_MID}; font-size: 12px; font-weight: 300;
-            font-family: {FONT_FAMILY};
-        """)
+        self._summary.setStyleSheet(
+            f"color: {T.FG_1_HEX}; font-family: {T.FONT_SANS};"
+            f" font-size: 12px; line-height: 1.7;"
+        )
         layout.addWidget(self._summary)
 
         layout.addStretch()
 
-        launch = QPushButton("launch blank")
+        launch = QPushButton("LAUNCH BLANK")
+        launch.setProperty("variant", "primary")
         launch.setCursor(Qt.PointingHandCursor)
         launch.clicked.connect(self._finish)
         layout.addWidget(launch)
 
         self._stack.addWidget(page)
 
-    # -- Logic ------------------------------------------------------------
-
     def _run_checks(self) -> None:
-        """Run all prerequisite checks and update labels."""
         self._engine_ok = _check_ai_engine()
         self._env_ok = _check_env_file()
-
         try:
             import feedparser  # noqa: F401
             fp_ok = True
         except ImportError:
             fp_ok = False
-
-        self._lbl_engine.setText(f"[ {'OK' if self._engine_ok else 'MISSING'} ] AI engine")
-        self._lbl_engine.setStyleSheet(self._check_label_style(self._engine_ok))
-
-        self._lbl_feedparser.setText(f"[ {'OK' if fp_ok else 'MISSING'} ] feedparser (news)")
-        self._lbl_feedparser.setStyleSheet(self._check_label_style(fp_ok))
+        self._set_check_state(self._lbl_engine, self._engine_ok)
+        self._set_check_state(self._lbl_feedparser, fp_ok)
 
     def _on_check_continue(self) -> None:
-        """Navigate forward from the check page."""
-        if not self._engine_ok:
-            self._stack.setCurrentIndex(1)  # AI engine setup page
-        else:
-            self._stack.setCurrentIndex(2)  # Broker keys page
+        self._stack.setCurrentIndex(1 if not self._engine_ok else 2)
 
     def _recheck_engine(self) -> None:
-        """Re-check the AI engine from the engine page."""
         self._engine_ok = _check_ai_engine()
         if self._engine_ok:
-            self._stack.setCurrentIndex(2)  # Broker keys page
+            self._stack.setCurrentIndex(2)
 
     def _on_engine_skip(self) -> None:
-        """User chose to skip AI engine setup."""
-        self._stack.setCurrentIndex(2)  # Broker keys page
+        self._stack.setCurrentIndex(2)
 
     def _save_env(self) -> None:
-        """Write .env file with broker keys."""
         api_key = self._api_key_input.text().strip()
         secret_key = self._secret_key_input.text().strip()
-
         lines = []
         if api_key:
             lines.append(f"T212_API_KEY={api_key}")
         if secret_key:
             lines.append(f"T212_SECRET_KEY={secret_key}")
-
         if lines:
             Path(".env").write_text("\n".join(lines) + "\n", encoding="utf-8")
             self._env_ok = True
-
         self._go_done()
 
     def _go_done(self) -> None:
-        """Show the done page with summary."""
-        parts = []
-        parts.append(f"AI engine: {'READY' if self._engine_ok else 'SKIPPED (AI disabled)'}")
-        parts.append(f"Broker keys: {'CONFIGURED' if self._env_ok else 'PAPER MODE'}")
-        self._summary.setText("\n".join(parts))
+        engine_line = (
+            f"<span style='color:{T.ACCENT_HEX};'>READY</span>"
+            if self._engine_ok
+            else f"<span style='color:{T.WARN};'>SKIPPED</span>"
+        )
+        env_line = (
+            f"<span style='color:{T.ACCENT_HEX};'>CONFIGURED</span>"
+            if self._env_ok
+            else f"<span style='color:{T.FG_2_HEX};'>PAPER MODE</span>"
+        )
+        self._summary.setText(
+            f"AI engine &mdash; {engine_line}<br>"
+            f"Broker keys &mdash; {env_line}"
+        )
         self._stack.setCurrentIndex(3)
 
     def _finish(self) -> None:
-        """Mark setup as complete and close."""
         SETUP_MARKER.parent.mkdir(parents=True, exist_ok=True)
         SETUP_MARKER.write_text("1", encoding="utf-8")
         self.accept()
 
-    # -- Public API -------------------------------------------------------
-
     @staticmethod
     def should_show() -> bool:
-        """Return True if setup wizard has not been completed yet."""
         return not SETUP_MARKER.exists()
 
     def run(self) -> bool:
-        """Show the wizard. Returns True if completed, False if cancelled."""
         _show_modal = getattr(self, "exec")
         return _show_modal() == QDialog.Accepted

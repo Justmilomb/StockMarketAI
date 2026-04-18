@@ -1,53 +1,113 @@
 """Help dialog — keybinding reference (non-modal, stays on top)."""
 from __future__ import annotations
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QDialog, QPushButton, QTextEdit, QVBoxLayout
 
-HELP_TEXT = """
-<h3 style="color:#ffb000;">blank — keyboard shortcuts</h3>
-<table style="color:#ffd700; width:100%;">
-<tr><td style="color:#00ff00; width:60px;">?</td><td>Show this help</td></tr>
-<tr><td style="color:#00ff00;">Q</td><td>Quit</td></tr>
-<tr><td style="color:#00ff00;">R</td><td>Refresh data</td></tr>
-<tr><td style="color:#00ff00;">A</td><td>Toggle mode (Advisor / Auto)</td></tr>
-<tr><td style="color:#00ff00;">W</td><td>Cycle watchlist</td></tr>
-<tr><td style="color:#00ff00;">S</td><td>AI suggest ticker</td></tr>
-<tr><td style="color:#00ff00;">I</td><td>Generate AI insights</td></tr>
-<tr><td style="color:#00ff00;">N</td><td>Refresh news</td></tr>
-<tr><td style="color:#00ff00;">C</td><td>Focus chat input</td></tr>
-<tr><td style="color:#00ff00;">G</td><td>Show chart for selected ticker</td></tr>
-<tr><td style="color:#00ff00;">T</td><td>Open trade dialog</td></tr>
-<tr><td style="color:#00ff00;">=</td><td>Add ticker to watchlist</td></tr>
-<tr><td style="color:#00ff00;">-</td><td>Remove ticker from watchlist</td></tr>
-<tr><td style="color:#00ff00;">/</td><td>Search tickers</td></tr>
-<tr><td style="color:#00ff00;">D</td><td>AI recommendations</td></tr>
-<tr><td style="color:#00ff00;">O</td><td>AI optimise config</td></tr>
-<tr><td style="color:#00ff00;">H</td><td>Show account history</td></tr>
-<tr><td style="color:#00ff00;">P</td><td>Show investment pies</td></tr>
-<tr><td style="color:#00ff00;">E</td><td>Browse instruments</td></tr>
-<tr><td style="color:#00ff00;">L</td><td>Lock/unlock ticker (protect from auto-trade)</td></tr>
-<tr><td style="color:#00ff00;">B</td><td>About blank</td></tr>
-</table>
-"""
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QDialog, QFrame, QLabel, QPushButton, QVBoxLayout
+
+from desktop import tokens as T
+
+
+_SHORTCUTS: list[tuple[str, str]] = [
+    ("?", "Show this help"),
+    ("Q", "Quit"),
+    ("R", "Refresh data"),
+    ("A", "Toggle mode (Advisor / Auto)"),
+    ("W", "Cycle watchlist"),
+    ("S", "AI suggest ticker"),
+    ("I", "Generate AI insights"),
+    ("N", "Refresh news"),
+    ("C", "Focus chat input"),
+    ("G", "Show chart for selected ticker"),
+    ("T", "Open trade dialog"),
+    ("=", "Add ticker to watchlist"),
+    ("-", "Remove ticker from watchlist"),
+    ("/", "Search tickers"),
+    ("D", "AI recommendations"),
+    ("O", "AI optimise config"),
+    ("H", "Show account history"),
+    ("P", "Show investment pies"),
+    ("E", "Browse instruments"),
+    ("L", "Lock/unlock ticker"),
+    ("B", "About blank"),
+]
+
+
+def _build_html() -> str:
+    rows = "".join(
+        f'<tr>'
+        f'<td style="color:{T.ACCENT_HEX};font-family:{T.FONT_MONO};'
+        f'font-size:12px;padding:6px 16px 6px 0;'
+        f'letter-spacing:1px;width:60px;">{escape(key)}</td>'
+        f'<td style="color:{T.FG_1_HEX};font-family:{T.FONT_SANS};'
+        f'font-size:12px;padding:6px 0;">{escape(label)}</td>'
+        f'</tr>'
+        for key, label in _SHORTCUTS
+    )
+    return (
+        f'<table cellspacing="0" cellpadding="0" style="width:100%;">'
+        f'{rows}</table>'
+    )
+
+
+def escape(s: str) -> str:
+    return (
+        s.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    )
+
 
 class HelpDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Help")
-        self.setMinimumSize(500, 400)
-        # Non-modal: user can interact with the main window while help is open
+        self.setMinimumSize(520, 520)
         self.setWindowFlags(
             Qt.WindowType.Window
             | Qt.WindowType.WindowStaysOnTopHint
             | Qt.WindowType.WindowCloseButtonHint
         )
         self.setModal(False)
+        self.setStyleSheet(
+            f"QDialog {{ background: {T.BG_0};"
+            f" border: 1px solid {T.BORDER_1}; }}"
+        )
 
-        layout = QVBoxLayout(self)
-        text = QTextEdit()
-        text.setReadOnly(True)
-        text.setHtml(HELP_TEXT)
-        layout.addWidget(text)
-        btn = QPushButton("Close")
+        root = QVBoxLayout(self)
+        root.setContentsMargins(28, 22, 28, 22)
+        root.setSpacing(0)
+
+        kicker = QLabel("REFERENCE")
+        kicker.setStyleSheet(
+            f"color: {T.FG_2_HEX}; font-family: {T.FONT_MONO};"
+            f" font-size: 10px; letter-spacing: 3px;"
+        )
+        root.addWidget(kicker)
+
+        title = QLabel("Keyboard shortcuts")
+        title.setStyleSheet(
+            f"color: {T.FG_0}; font-family: {T.FONT_SANS};"
+            f" font-size: 22px; font-weight: 500;"
+            f" letter-spacing: -0.01em; padding: 4px 0 14px 0;"
+        )
+        root.addWidget(title)
+
+        rule = QFrame()
+        rule.setFixedHeight(1)
+        rule.setStyleSheet(f"background: {T.BORDER_0};")
+        root.addWidget(rule)
+
+        from PySide6.QtWidgets import QTextBrowser
+        text = QTextBrowser()
+        text.setHtml(_build_html())
+        text.setStyleSheet(
+            f"QTextBrowser {{ background: transparent; border: none;"
+            f" padding: 10px 0 0 0; color: {T.FG_1_HEX}; }}"
+        )
+        root.addWidget(text, 1)
+
+        btn = QPushButton("CLOSE")
+        btn.setProperty("variant", "ghost")
+        btn.setCursor(Qt.PointingHandCursor)
         btn.clicked.connect(self.close)
-        layout.addWidget(btn)
+        root.addWidget(btn, 0, Qt.AlignRight)

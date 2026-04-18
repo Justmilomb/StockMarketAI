@@ -160,6 +160,9 @@ def launch(mode: str | None = None) -> None:
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
 
+    from desktop.fonts import register_app_fonts
+    register_app_fonts()
+
     app.setStyleSheet(DARK_TERMINAL_QSS)
 
     # App icon — embedded in the EXE for frozen builds, loaded from file for dev
@@ -296,9 +299,15 @@ def launch(mode: str | None = None) -> None:
     app.processEvents()
 
     from desktop.app import MainWindow
-    from desktop.theme import MODE_OVERLAY_STOCKS
+    from desktop.dialogs.mode_selector import ModeSelector
 
-    app.setStyleSheet(DARK_TERMINAL_QSS + MODE_OVERLAY_STOCKS)
+    app.setStyleSheet(DARK_TERMINAL_QSS)
+
+    splash.hide()
+    picker = ModeSelector()
+    selected = picker.run()
+    if selected is None:
+        sys.exit(0)
 
     splash.show()
     splash.showMessage(
@@ -306,10 +315,18 @@ def launch(mode: str | None = None) -> None:
     )
     app.processEvents()
 
-    window = MainWindow(config_path=CONFIG_PATH)
+    window = MainWindow(config_path=CONFIG_PATH, forced_paper_mode=selected)
     window.showMaximized()
     splash.finish(window)
-    sys.exit(app.exec())
+
+    try:
+        from desktop.onboarding import maybe_start_tour
+        maybe_start_tour(window)
+    except Exception as exc:
+        logger.warning("Onboarding tour failed to start: %s", exc)
+
+    _run_loop = getattr(app, "exec")
+    sys.exit(_run_loop())
 
 
 def main() -> None:

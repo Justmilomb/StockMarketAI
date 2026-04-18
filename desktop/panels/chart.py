@@ -1,82 +1,165 @@
-"""Chart panel — candlestick + volume chart with pyqtgraph."""
+"""Chart panel — candlestick + volume chart with pyqtgraph.
+
+Rendered on the terminal-dark palette: white and green-accent hairlines,
+no gridlines, a tracked-out mono title strip, a dashed SMA overlay, and
+a thin crosshair that follows the mouse across both the price and
+volume panes. A "PAPER" watermark is painted over the chart in paper
+mode and is the *only* visual cue separating paper from live.
+"""
 from __future__ import annotations
 
 import logging
 from typing import Any
 
 import numpy as np
-from PySide6.QtWidgets import QGroupBox, QLabel, QVBoxLayout
+from PySide6.QtCore import Qt, QEvent
+from PySide6.QtGui import QFont, QPainter, QColor
+from PySide6.QtWidgets import QGroupBox, QLabel, QVBoxLayout, QWidget
+
+from desktop import tokens as T
 
 logger = logging.getLogger(__name__)
 
-# Fallback periods if the first one returns no data
 _PERIODS = ["1y", "6mo", "3mo", "1mo"]
 
 
 class ChartPanel(QGroupBox):
-    """OHLC candlestick chart with volume bars and 20-day SMA."""
+    """OHLC candlestick chart with volume bars, 20-day SMA, and crosshair."""
 
     def __init__(self, state: Any) -> None:
         super().__init__("CHART")
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(4, 16, 4, 4)
+        layout.setContentsMargins(4, 18, 4, 4)
+        layout.setSpacing(4)
 
-        self._title_label = QLabel("Select a ticker (G)")
-        self._title_label.setStyleSheet("color: #ff8c00; font-weight: bold;")
+        self._title_label = QLabel("SELECT A TICKER (G)")
+        self._title_label.setStyleSheet(
+            f"color: {T.FG_2_HEX}; font-family: {T.FONT_MONO};"
+            f" font-size: 10px; letter-spacing: 2px; padding: 2px 4px;"
+        )
         layout.addWidget(self._title_label)
 
         self._price_plot = None
         self._volume_plot = None
         self._has_pyqtgraph = False
+        self._price_vline = None
+        self._price_hline = None
+        self._volume_vline = None
+        self._paper_mode = bool(getattr(state, "agent_paper_mode", True))
+        self._chart_host = None
         self._info_label = QLabel("")
-        self._info_label.setStyleSheet("color: #888888; font-size: 11px;")
+        self._info_label.setStyleSheet(
+            f"color: {T.FG_2_HEX}; font-family: {T.FONT_MONO}; font-size: 10px;"
+            f" padding: 2px 4px;"
+        )
+        self._info_label.setTextFormat(Qt.RichText)
 
         try:
             import pyqtgraph as pg
 
-            pg.setConfigOptions(background="#000000", foreground="#ffd700", antialias=True)
+            pg.setConfigOptions(background=T.BG_0, foreground=T.FG_1_HEX, antialias=True)
 
-            # Price pane (candlestick + SMA)
+            axis_pen = pg.mkPen(T.BORDER_0_HEX, width=1)
+            axis_text = {"color": T.FG_2_HEX, "font-size": "9pt"}
+
             self._price_plot = pg.PlotWidget()
-            self._price_plot.showGrid(x=True, y=True, alpha=0.15)
-            self._price_plot.getAxis("bottom").setPen("#333333")
-            self._price_plot.getAxis("left").setPen("#333333")
-            self._price_plot.setLabel("left", "Price", color="#888888")
+            self._price_plot.showGrid(x=False, y=False)
+            self._price_plot.setMouseEnabled(x=True, y=False)
+            self._price_plot.setMenuEnabled(False)
+            self._price_plot.hideButtons()
+            for axis in ("bottom", "left"):
+                ax = self._price_plot.getAxis(axis)
+                ax.setPen(axis_pen)
+                ax.setTextPen(pg.mkPen(T.FG_2_HEX))
+                ax.setStyle(tickFont=QFont(T.FONT_MONO_FAMILY, 8))
+            self._price_plot.setLabel("left", "PRICE", **axis_text)
             layout.addWidget(self._price_plot, 4)
 
-            # Volume pane
             self._volume_plot = pg.PlotWidget()
-            self._volume_plot.showGrid(x=True, y=True, alpha=0.10)
-            self._volume_plot.getAxis("bottom").setPen("#333333")
-            self._volume_plot.getAxis("left").setPen("#333333")
-            self._volume_plot.setLabel("left", "Vol", color="#888888")
+            self._volume_plot.showGrid(x=False, y=False)
+            self._volume_plot.setMouseEnabled(x=True, y=False)
+            self._volume_plot.setMenuEnabled(False)
+            self._volume_plot.hideButtons()
+            for axis in ("bottom", "left"):
+                ax = self._volume_plot.getAxis(axis)
+                ax.setPen(axis_pen)
+                ax.setTextPen(pg.mkPen(T.FG_2_HEX))
+                ax.setStyle(tickFont=QFont(T.FONT_MONO_FAMILY, 8))
+            self._volume_plot.setLabel("left", "VOL", **axis_text)
             layout.addWidget(self._volume_plot, 1)
 
-            # Link X axes
             self._volume_plot.setXLink(self._price_plot)
 
+            cross_pen = pg.mkPen(color=T.FG_2_HEX, style=Qt.DashLine, width=1)
+            self._price_vline = pg.InfiniteLine(angle=90, movable=False, pen=cross_pen)
+            self._price_hline = pg.InfiniteLine(angle=0, movable=False, pen=cross_pen)
+            self._volume_vline = pg.InfiniteLine(angle=90, movable=False, pen=cross_pen)
+            self._price_plot.addItem(self._price_vline, ignoreBounds=True)
+            self._price_plot.addItem(self._price_hline, ignoreBounds=True)
+            self._volume_plot.addItem(self._volume_vline, ignoreBounds=True)
+            for ln in (self._price_vline, self._price_hline, self._volume_vline):
+                ln.setVisible(False)
+
+            self._price_plot.scene().sigMouseMoved.connect(self._on_price_mouse)
+            self._volume_plot.scene().sigMouseMoved.connect(self._on_volume_mouse)
+
+            self._chart_host = self._price_plot
             self._has_pyqtgraph = True
         except Exception as exc:
             logger.warning("pyqtgraph chart init failed: %s", exc)
             fallback = QLabel(f"Chart unavailable — {type(exc).__name__}: {exc}")
-            fallback.setStyleSheet("color: #ff5555;")
+            fallback.setStyleSheet(f"color: {T.ALERT}; font-size: 11px;")
             layout.addWidget(fallback, 1)
 
         layout.addWidget(self._info_label)
         self._current_ticker = ""
 
+        self._paper_watermark: _PaperWatermark | None = None
+        if self._price_plot is not None:
+            self._paper_watermark = _PaperWatermark(self._price_plot.viewport())
+            self._paper_watermark.setVisible(self._paper_mode)
+
+    def _on_price_mouse(self, pos: Any) -> None:
+        if not self._has_pyqtgraph or self._price_plot is None:
+            return
+        vb = self._price_plot.plotItem.vb
+        if not self._price_plot.plotItem.sceneBoundingRect().contains(pos):
+            for ln in (self._price_vline, self._price_hline, self._volume_vline):
+                if ln is not None:
+                    ln.setVisible(False)
+            return
+        p = vb.mapSceneToView(pos)
+        for ln in (self._price_vline, self._price_hline, self._volume_vline):
+            if ln is not None:
+                ln.setVisible(True)
+        self._price_vline.setPos(p.x())
+        self._price_hline.setPos(p.y())
+        self._volume_vline.setPos(p.x())
+
+    def _on_volume_mouse(self, pos: Any) -> None:
+        if not self._has_pyqtgraph or self._volume_plot is None:
+            return
+        vb = self._volume_plot.plotItem.vb
+        if not self._volume_plot.plotItem.sceneBoundingRect().contains(pos):
+            return
+        p = vb.mapSceneToView(pos)
+        for ln in (self._price_vline, self._volume_vline):
+            if ln is not None:
+                ln.setVisible(True)
+        self._price_vline.setPos(p.x())
+        self._volume_vline.setPos(p.x())
+
     def refresh_view(self, state: Any) -> None:
-        """Chart updates via load_chart() only."""
+        paper = bool(getattr(state, "agent_paper_mode", True))
+        if paper != self._paper_mode:
+            self._paper_mode = paper
+            if self._paper_watermark is not None:
+                self._paper_watermark.setVisible(paper)
 
     def load_chart(self, ticker: str) -> None:
-        """Fetch OHLCV data via yfinance and render candlestick chart.
-
-        Tries multiple periods as fallback. Handles yfinance MultiIndex
-        columns and NaN values gracefully.
-        """
         self._current_ticker = ticker
-        self._title_label.setText(f"CHART - {ticker}")
-        self._info_label.setText("Loading...")
+        self._title_label.setText(f"CHART · {ticker.upper()}")
+        self._info_label.setText("Loading…")
 
         try:
             import yfinance as yf
@@ -98,11 +181,9 @@ class ChartPanel(QGroupBox):
                 self._info_label.setText(f"No data for {ticker}")
                 return
 
-            # Handle yfinance MultiIndex columns (newer versions)
             if hasattr(data.columns, "nlevels") and data.columns.nlevels > 1:
                 data.columns = data.columns.droplevel(1)
 
-            # Extract arrays, drop NaN rows
             required = ["Open", "High", "Low", "Close", "Volume"]
             missing = [c for c in required if c not in data.columns]
             if missing:
@@ -128,13 +209,22 @@ class ChartPanel(QGroupBox):
             hi = highs.max()
             lo = lows.min()
             vol = volumes[-1]
-            color = "#00ff00" if change_pct >= 0 else "#ff0000"
+            chg_colour = T.ACCENT_HEX if change_pct >= 0 else T.ALERT
 
+            dim = T.FG_2_HEX
+            val = T.FG_1_HEX
             self._info_label.setText(
-                f"O: ${opens[-1]:.2f} | H: ${hi:.2f} | L: ${lo:.2f} | "
-                f"C: ${cur:.2f} | "
-                f'<span style="color:{color};">{change_pct:+.1f}%</span> | '
-                f"Vol: {vol:,.0f}"
+                f'<span style="color:{dim};">O</span> '
+                f'<span style="color:{val};">${opens[-1]:.2f}</span>  '
+                f'<span style="color:{dim};">H</span> '
+                f'<span style="color:{val};">${hi:.2f}</span>  '
+                f'<span style="color:{dim};">L</span> '
+                f'<span style="color:{val};">${lo:.2f}</span>  '
+                f'<span style="color:{dim};">C</span> '
+                f'<span style="color:{T.FG_0};">${cur:.2f}</span>  '
+                f'<span style="color:{chg_colour};">{change_pct:+.2f}%</span>  '
+                f'<span style="color:{dim};">VOL</span> '
+                f'<span style="color:{val};">{vol:,.0f}</span>'
             )
         except Exception as e:
             logger.warning("Chart load failed for %s: %s", ticker, e)
@@ -148,61 +238,55 @@ class ChartPanel(QGroupBox):
         closes: np.ndarray,
         volumes: np.ndarray,
     ) -> None:
-        """Render OHLC candlestick bars, SMA, and volume."""
         if not self._has_pyqtgraph:
             return
 
         import pyqtgraph as pg
 
-        self._price_plot.clear()
-        self._volume_plot.clear()
+        # Clear everything except the crosshair lines we manage ourselves.
+        for plot, lines in (
+            (self._price_plot, (self._price_vline, self._price_hline)),
+            (self._volume_plot, (self._volume_vline,)),
+        ):
+            plot.clear()
+            for ln in lines:
+                if ln is not None:
+                    plot.addItem(ln, ignoreBounds=True)
 
         n = len(closes)
         x = np.arange(n, dtype=np.float64)
         bar_width = 0.6
 
-        green = (0, 200, 0)
-        red = (200, 0, 0)
+        green_body = pg.mkBrush(0, 255, 135, 230)
+        green_edge = pg.mkPen(0, 255, 135)
+        red_body = pg.mkBrush(255, 59, 59, 230)
+        red_edge = pg.mkPen(255, 59, 59)
 
-        # ── Candlestick wicks (high-low lines) ──────────────────────
         for i in range(n):
-            colour = green if closes[i] >= opens[i] else red
-            pen = pg.mkPen(color=colour, width=1)
+            pen = green_edge if closes[i] >= opens[i] else red_edge
             self._price_plot.plot(
                 [float(i), float(i)],
                 [float(lows[i]), float(highs[i])],
                 pen=pen,
             )
 
-        # ── Candlestick bodies (bar items) ───────────────────────────
         green_mask = closes >= opens
         red_mask = ~green_mask
 
         if green_mask.any():
-            g_x = x[green_mask]
-            g_bottom = opens[green_mask]
-            g_height = closes[green_mask] - opens[green_mask]
-            g_height = np.maximum(g_height, 0.01)
-            green_bars = pg.BarGraphItem(
-                x=g_x, y=g_bottom, height=g_height, width=bar_width,
-                brush=pg.mkBrush(0, 180, 0, 200),
-                pen=pg.mkPen(0, 200, 0),
-            )
-            self._price_plot.addItem(green_bars)
+            self._price_plot.addItem(pg.BarGraphItem(
+                x=x[green_mask], y=opens[green_mask],
+                height=np.maximum(closes[green_mask] - opens[green_mask], 0.01),
+                width=bar_width, brush=green_body, pen=green_edge,
+            ))
 
         if red_mask.any():
-            r_x = x[red_mask]
-            r_bottom = closes[red_mask]
-            r_height = opens[red_mask] - closes[red_mask]
-            r_height = np.maximum(r_height, 0.01)
-            red_bars = pg.BarGraphItem(
-                x=r_x, y=r_bottom, height=r_height, width=bar_width,
-                brush=pg.mkBrush(180, 0, 0, 200),
-                pen=pg.mkPen(200, 0, 0),
-            )
-            self._price_plot.addItem(red_bars)
+            self._price_plot.addItem(pg.BarGraphItem(
+                x=x[red_mask], y=closes[red_mask],
+                height=np.maximum(opens[red_mask] - closes[red_mask], 0.01),
+                width=bar_width, brush=red_body, pen=red_edge,
+            ))
 
-        # ── 20-day SMA overlay ───────────────────────────────────────
         if n >= 20:
             import pandas as pd
 
@@ -211,29 +295,74 @@ class ChartPanel(QGroupBox):
             if valid.any():
                 self._price_plot.plot(
                     x[valid], sma[valid],
-                    pen=pg.mkPen(color="#ff8c00", width=2, style=pg.QtCore.Qt.DashLine),
+                    pen=pg.mkPen(
+                        color=T.FG_1_HEX, width=1,
+                        style=Qt.DashLine,
+                    ),
                     name="SMA 20",
                 )
 
-        # ── Volume bars ──────────────────────────────────────────────
         if self._volume_plot is not None and len(volumes) > 0:
-            vol_green_mask = closes >= opens
-            vol_colours = [
-                pg.mkBrush(0, 150, 0, 150) if vol_green_mask[i]
-                else pg.mkBrush(150, 0, 0, 150)
-                for i in range(n)
-            ]
-            for i in range(n):
-                bar = pg.BarGraphItem(
-                    x=[float(i)], height=[float(volumes[i])],
-                    width=bar_width, brush=vol_colours[i],
-                    pen=pg.mkPen(None),
-                )
-                self._volume_plot.addItem(bar)
+            vol_green = pg.mkBrush(0, 255, 135, 110)
+            vol_red = pg.mkBrush(255, 59, 59, 110)
+            v_green = np.where(green_mask)[0]
+            v_red = np.where(red_mask)[0]
+            if v_green.size:
+                self._volume_plot.addItem(pg.BarGraphItem(
+                    x=x[v_green], height=volumes[v_green],
+                    width=bar_width, brush=vol_green, pen=pg.mkPen(None),
+                ))
+            if v_red.size:
+                self._volume_plot.addItem(pg.BarGraphItem(
+                    x=x[v_red], height=volumes[v_red],
+                    width=bar_width, brush=vol_red, pen=pg.mkPen(None),
+                ))
 
-        # ── Auto-fit to visible data range (no blank space) ──────
         self._price_plot.setXRange(0, n - 1, padding=0.02)
         self._price_plot.setYRange(float(lows.min()), float(highs.max()), padding=0.05)
 
     def selected_ticker(self) -> str:
         return self._current_ticker
+
+
+class _PaperWatermark(QWidget):
+    """Diagonal 'PAPER MODE' overlay floated over the price plot.
+
+    The *only* visual difference between paper and live modes anywhere
+    in the app. Live mode hides this widget; paper mode paints the
+    word large, rotated 30°, at very low opacity so it's unmistakable
+    without being loud.
+    """
+
+    def __init__(self, parent: QWidget) -> None:
+        super().__init__(parent)
+        self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self.setAttribute(Qt.WA_NoSystemBackground, True)
+        self.setGeometry(parent.rect())
+        parent.installEventFilter(self)
+
+    def eventFilter(self, obj: Any, event: Any) -> bool:
+        if obj is self.parent() and event.type() == QEvent.Resize:
+            self.setGeometry(obj.rect())
+        return False
+
+    def paintEvent(self, event: Any) -> None:
+        if not self.isVisible():
+            return
+        rect = self.rect()
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        painter.setRenderHint(QPainter.TextAntialiasing, True)
+        font = QFont(T.FONT_MONO_FAMILY)
+        font.setPixelSize(max(48, int(rect.height() * 0.22)))
+        font.setWeight(QFont.Bold)
+        font.setLetterSpacing(QFont.AbsoluteSpacing, 8.0)
+        painter.setFont(font)
+        painter.setPen(QColor(255, 255, 255, 18))
+        painter.translate(rect.center())
+        painter.rotate(-30)
+        painter.drawText(
+            -rect.width(), -rect.height() // 2,
+            rect.width() * 2, rect.height(),
+            Qt.AlignCenter, "PAPER MODE",
+        )

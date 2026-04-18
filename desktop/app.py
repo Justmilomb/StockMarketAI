@@ -35,6 +35,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from desktop import tokens as T
 from desktop.state import init_state, load_config, resolve_config_path
 from desktop.panels.settings import SettingsPanel
 from desktop.panels.watchlist import WatchlistPanel
@@ -47,8 +48,6 @@ from desktop.panels.agent_log import AgentLogPanel
 from desktop.panels.exchanges import ExchangesPanel
 from desktop.panels.update_banner import UpdateBanner
 from desktop.panels.mandatory_update_overlay import MandatoryUpdateOverlay
-from desktop.widgets.mode_banner import ModeBanner
-from desktop.widgets.mode_watermark import ModeWatermark
 from desktop.dialogs.about import AboutDialog
 from desktop.dialogs.schedule_update import ScheduleUpdateDialog
 from desktop.update_service import UpdateService
@@ -167,10 +166,10 @@ class MainWindow(QMainWindow):
         # The pool is built eagerly (cheap), but the supervisor runner
         # inside it is only created lazily when Start Agent is clicked.
         self.agent_pool: Optional[AgentPool] = None
-        # Live windows are always live, paper windows are always paper —
-        # mode is window-scoped, not config-scoped. See _open_paper_window.
-        if not self._forced_paper_mode:
-            self.state.agent_paper_mode = False
+        # Paper vs live is fixed at window creation by the startup picker
+        # and wired through ``forced_paper_mode``. The flag lives on the
+        # state so every panel reads the same source of truth.
+        self.state.agent_paper_mode = bool(self._forced_paper_mode)
 
         # Chat worker bookkeeping — we track active worker IDs so we
         # can show "AI thinking (2)" when many workers are alive and
@@ -236,39 +235,30 @@ class MainWindow(QMainWindow):
         self._agent_kill_action.setEnabled(False)
         agent_menu.addSeparator()
         if self._forced_paper_mode:
-            # Paper window is permanently paper — show a disabled label
-            # so the user knows there's no toggle here.
-            paper_label = agent_menu.addAction("Paper Mode (locked)")
-            paper_label.setEnabled(False)
             agent_menu.addAction(
                 "Reset Paper Account", self._on_reset_paper_account,
             )
-        else:
-            # Live windows have no paper toggle — paper trading is only
-            # reachable via a dedicated paper window so the two modes
-            # can never share state.
-            agent_menu.addAction(
-                "Open Paper Trading Window", self._open_paper_window,
-            )
-            agent_menu.addAction(
-                "Clear All Chats && History", self._on_clear_history,
-            )
+        agent_menu.addAction(
+            "Clear All Chats && History", self._on_clear_history,
+        )
 
         mode_str = "AUTO" if self.state.mode == "full_auto_limited" else "ADVISOR"
         asset_str = self.state.active_asset_class.upper()
         self._header_label = QLabel(
             f" blank [{mode_str}] | {asset_str} | CERTIFIED RANDOM ",
         )
+        from desktop import tokens as _T
         self._header_label.setStyleSheet(
-            "color: #ff8c00; font-weight: bold; font-size: 11px; "
-            "background: transparent; padding: 2px 8px;",
+            f"color: {_T.FG_2_HEX}; font-family: {_T.FONT_MONO};"
+            f" font-size: 10px; letter-spacing: 2px;"
+            f" background: transparent; padding: 2px 10px;",
         )
         menu_bar.setCornerWidget(self._header_label, Qt.TopRightCorner)
 
-        # Central widget wraps the update banner + mode banner + chart
-        # panel. Mode banner is loud and pinned above the chart so
-        # paper/live is *unmissable*. UpdateBanner stays hidden unless
-        # the service pushes a manifest.
+        # Central widget wraps the update banner + chart panel. Paper vs
+        # live has no chrome impact anywhere in the window — the only
+        # visual tell is the PAPER watermark the ChartPanel paints over
+        # itself when ``state.agent_paper_mode`` is True.
         self.chart_panel = ChartPanel(self.state)
         central = QWidget()
         central_layout = QVBoxLayout(central)
@@ -279,23 +269,9 @@ class MainWindow(QMainWindow):
         # Not in the central layout — it's a detached top-level window
         # parented to MainWindow so it closes with the app.
         self.mandatory_overlay = MandatoryUpdateOverlay(self)
-        self.mode_banner = ModeBanner(self)
-        self.mode_banner.set_mode(self.state.agent_paper_mode)
-        # Mode banner is read-only — paper/live is window-scoped, so
-        # there is nothing to toggle from the banner.
         central_layout.addWidget(self.update_banner)
-        central_layout.addWidget(self.mode_banner)
         central_layout.addWidget(self.chart_panel, 1)
         self.setCentralWidget(central)
-
-        # Faint rotated watermark sits *over* the chart panel so the
-        # word PAPER / LIVE bleeds through even if the banner is
-        # hidden. Transparent to mouse events.
-        self.mode_watermark = ModeWatermark(self.chart_panel)
-        self.mode_watermark.set_mode(self.state.agent_paper_mode)
-        self.mode_watermark.resize(self.chart_panel.size())
-        self.mode_watermark.raise_()
-        self.mode_watermark.show()
 
         self.settings_panel = SettingsPanel(self.state)
         self.chat_panel = ChatPanel(self.state)
@@ -342,73 +318,40 @@ class MainWindow(QMainWindow):
         status = QStatusBar()
         self.setStatusBar(status)
         self._status_label = QLabel(
-            "  ? Help | B About | R Refresh | A Mode | C Chat | G Chart | Q Quit",
+            "  ? Help | B About | R Refresh | C Chat | G Chart | Q Quit",
+        )
+        self._status_label.setStyleSheet(
+            f"color: {T.FG_2_HEX}; font-family: {T.FONT_MONO};"
+            f" font-size: 10px; letter-spacing: 1px; padding: 0 4px;",
         )
         status.addPermanentWidget(self._status_label, 1)
 
-        # The legacy `_ai_client` flag is gone — the agent loop is the
-        # brain now and is always available once the app has booted. If
-        # the loop genuinely fails, the agent log panel and banners
-        # surface the error; this label no longer lies about it.
-        self._ai_status = QLabel("AI: ON")
-        self._ai_status.setStyleSheet(
-            "color: #00ff00; font-weight: bold; padding: 0 8px;",
+        status_pill = (
+            f"color: {T.FG_1_HEX}; font-family: {T.FONT_MONO};"
+            f" font-size: 10px; letter-spacing: 2px; padding: 0 10px;"
         )
+
+        self._ai_status = QLabel("AI ON")
+        self._ai_status.setStyleSheet(status_pill)
         status.addPermanentWidget(self._ai_status)
 
-        broker_live = getattr(self.broker_service, "is_live", False)
-        self._broker_status = QLabel("LIVE" if broker_live else "PAPER")
-        self._broker_status.setStyleSheet(
-            f"color: {'#00ff00' if broker_live else '#ffd700'}; font-weight: bold; padding: 0 8px;",
-        )
-        status.addPermanentWidget(self._broker_status)
-
-        self._server_status = QLabel("SRV: --")
-        self._server_status.setStyleSheet("color: #888888; font-weight: bold; padding: 0 8px;")
+        self._server_status = QLabel("SRV —")
+        self._server_status.setStyleSheet(status_pill)
         status.addPermanentWidget(self._server_status)
         self._check_server_connectivity()
 
-        # Propagate the initial paper/live tint across every dock +
-        # status bar + watermark. Idempotent — safe to re-call after
-        # any mode flip.
-        self._apply_mode_tint(self.state.agent_paper_mode)
-
     def _apply_mode_tint(self, paper: bool) -> None:
-        """Propagate the paper/live colour to banner, docks, status.
+        """Legacy mode-tint hook kept for back-compat.
 
-        Gold = PAPER, red = LIVE. The tint applies a thin top border
-        to every dock title so the entire chrome reads as "you are in
-        mode X" even if the user has closed the banner. Idempotent:
-        call it on every flip.
+        Paper vs live is **not** signalled in the dock chrome, status
+        bar, or banner anywhere in the window. The only visual tell is
+        the watermark painted over the chart panel, which reads its own
+        mode from ``state.agent_paper_mode``. This method exists only
+        because a handful of call sites still invoke it on mode flips;
+        they're all no-ops now.
         """
-        self.mode_banner.set_mode(paper)
-        self.mode_watermark.set_mode(paper)
-
-        stripe = "#ffd700" if paper else "#ff0000"
-        title_fg = "#ffd700" if paper else "#ff5555"
-        # Cache the stylesheet and push it to every dock we know
-        # about. Using QSS lets Qt handle the per-dock paint.
-        dock_qss = (
-            "QDockWidget::title {"
-            f" border-top: 2px solid {stripe};"
-            " background: #000000;"
-            f" color: {title_fg};"
-            " font-weight: bold;"
-            " padding: 4px 8px;"
-            " }"
-        )
-        if hasattr(self, "_all_docks"):
-            for dock in self._all_docks:
-                dock.setStyleSheet(dock_qss)
-
-        # Status-bar broker label picks up the mode colour too so the
-        # bottom chrome doesn't look like a second source of truth.
-        if hasattr(self, "_broker_status"):
-            color = "#ffd700" if paper else "#ff5555"
-            self._broker_status.setText("PAPER" if paper else "LIVE")
-            self._broker_status.setStyleSheet(
-                f"color: {color}; font-weight: bold; padding: 0 8px;",
-            )
+        if hasattr(self, "chart_panel"):
+            self.chart_panel.refresh_view(self.state)
 
     def _check_server_connectivity(self) -> None:
         """Ping the license server in the background and update status label."""
@@ -424,9 +367,11 @@ class MainWindow(QMainWindow):
                 return False
 
         def _on_result(ok: bool) -> None:
-            self._server_status.setText("SRV: OK" if ok else "SRV: OFF")
+            self._server_status.setText("SRV OK" if ok else "SRV OFF")
+            colour = T.ACCENT_HEX if ok else T.ALERT
             self._server_status.setStyleSheet(
-                f"color: {'#00ff00' if ok else '#ff0000'}; font-weight: bold; padding: 0 8px;",
+                f"color: {colour}; font-family: {T.FONT_MONO};"
+                f" font-size: 10px; letter-spacing: 2px; padding: 0 10px;",
             )
 
         self._run_background(_ping, _on_result)
@@ -978,9 +923,11 @@ class MainWindow(QMainWindow):
         self._header_label.setText(
             f"  blank [{mode_str}] | STOCKS | CERTIFIED RANDOM",
         )
+        from desktop import tokens as _T
         self._header_label.setStyleSheet(
-            "color: #ff8c00; font-weight: bold; font-size: 11px; "
-            "background: transparent; padding: 2px 8px;",
+            f"color: {_T.FG_2_HEX}; font-family: {_T.FONT_MONO};"
+            f" font-size: 10px; letter-spacing: 2px;"
+            f" background: transparent; padding: 2px 10px;",
         )
 
     def _switch_asset(self, asset_class: str) -> None:
@@ -1136,21 +1083,6 @@ class MainWindow(QMainWindow):
         self.state.agent_running = False
         self.agent_log_panel.refresh_view(self.state)
         self.statusBar().showMessage("Agent killed", 3000)
-
-    @Slot()
-    def _open_paper_window(self) -> None:
-        """Spawn the paper trading window as a completely separate instance.
-
-        The paper window is its own blank slate — separate agent, separate
-        broker, separate watchlist, always starting fresh at £100.
-        ``self._paper_window`` holds the reference so Qt does not
-        garbage-collect the window while the live window is still open.
-        """
-        self._paper_window = MainWindow(
-            config_path=self.config_path,
-            forced_paper_mode=True,
-        )
-        self._paper_window.showMaximized()
 
     @Slot()
     def _on_export_user_data(self) -> None:

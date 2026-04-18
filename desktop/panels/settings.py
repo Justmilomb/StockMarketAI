@@ -1,16 +1,17 @@
-"""Settings / status panel — account info + live agent cockpit.
+"""Settings / status panel — compact agent + account readout.
 
-Phase 6 rewrite: the old panel surfaced regime, strategy profile,
-and model-count — all dead data since Phase 3 killed the ML
-pipeline. The new panel is a compact agent + account readout:
+Renders a single column of key / value rows:
 
-* agent status (running / offline) and paper-vs-live mode
-* cadence (reads fresh from config each refresh)
+* agent status (running / offline)
+* cadence
 * seconds since last iteration
 * tool calls in the current/last iteration
 * account balance / invested / total / unrealised PnL
 
-Start/stop/kill buttons live on the AgentLogPanel — this one is a
+Mode (paper vs live) is deliberately **not** shown — the only paper-mode
+tell anywhere in the app is the watermark painted over the chart.
+
+Start / stop / kill buttons live on the AgentLogPanel. This one is a
 pure readout so docking it into the sidebar doesn't double up on
 control surface.
 """
@@ -19,7 +20,21 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from PySide6.QtWidgets import QGroupBox, QLabel, QVBoxLayout
+from PySide6.QtWidgets import QFrame, QGridLayout, QGroupBox, QLabel, QVBoxLayout
+
+from desktop import tokens as T
+
+
+_FIELDS: list[tuple[str, str]] = [
+    ("agent", "AGENT"),
+    ("cadence", "CADENCE"),
+    ("last_iter", "LAST ITER"),
+    ("tool_calls", "TOOL CALLS"),
+    ("balance", "BALANCE"),
+    ("invested", "INVESTED"),
+    ("total", "TOTAL"),
+    ("upnl", "UNREALISED"),
+]
 
 
 class SettingsPanel(QGroupBox):
@@ -27,99 +42,88 @@ class SettingsPanel(QGroupBox):
 
     def __init__(self, state: Any) -> None:
         super().__init__("STATUS")
-        self._labels: dict[str, QLabel] = {}
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(6, 16, 6, 6)
-        layout.setSpacing(2)
+        self._value_labels: dict[str, QLabel] = {}
 
-        fields: list[tuple[str, str]] = [
-            ("agent", "Agent"),
-            ("mode", "Mode"),
-            ("cadence", "Cadence"),
-            ("last_iter", "Last iter"),
-            ("tool_calls", "Tool calls"),
-            ("balance", "Balance"),
-            ("invested", "Invested"),
-            ("total", "Total"),
-            ("upnl", "Unrealised"),
-        ]
-        for key, label_text in fields:
-            lbl = QLabel(f"{label_text}: --")
-            lbl.setStyleSheet("font-size: 11px;")
-            layout.addWidget(lbl)
-            self._labels[key] = lbl
+        root = QVBoxLayout(self)
+        root.setContentsMargins(6, 18, 6, 6)
+        root.setSpacing(2)
 
-        layout.addStretch()
+        grid_host = QFrame()
+        grid = QGridLayout(grid_host)
+        grid.setContentsMargins(2, 2, 2, 2)
+        grid.setHorizontalSpacing(10)
+        grid.setVerticalSpacing(6)
+
+        for row, (key, label_text) in enumerate(_FIELDS):
+            label = QLabel(label_text)
+            label.setStyleSheet(
+                f"color: {T.FG_2_HEX}; font-family: {T.FONT_MONO};"
+                f" font-size: 10px; letter-spacing: 2px;"
+            )
+            value = QLabel("—")
+            value.setStyleSheet(self._value_style())
+            grid.addWidget(label, row, 0)
+            grid.addWidget(value, row, 1)
+            self._value_labels[key] = value
+
+        grid.setColumnStretch(1, 1)
+        root.addWidget(grid_host)
+        root.addStretch()
         self.refresh_view(state)
 
+    @staticmethod
+    def _value_style(color: str = T.FG_0, *, bold: bool = False) -> str:
+        weight = "600" if bold else "400"
+        return (
+            f"color: {color}; font-family: {T.FONT_MONO};"
+            f" font-size: 12px; font-weight: {weight};"
+        )
+
     def refresh_view(self, state: Any) -> None:
-        # Agent live/offline + colour.
         running = bool(getattr(state, "agent_running", False))
-        if running:
-            self._labels["agent"].setText("Agent: running")
-            self._labels["agent"].setStyleSheet(
-                "color: #00ff00; font-size: 11px; font-weight: bold;",
-            )
-        else:
-            self._labels["agent"].setText("Agent: offline")
-            self._labels["agent"].setStyleSheet(
-                "color: #ff8c00; font-size: 11px; font-weight: bold;",
-            )
+        agent_colour = T.ACCENT_HEX if running else T.FG_2_HEX
+        self._value_labels["agent"].setText("RUNNING" if running else "OFFLINE")
+        self._value_labels["agent"].setStyleSheet(
+            self._value_style(agent_colour, bold=True)
+        )
 
-        # Paper vs live mode.
-        paper = bool(getattr(state, "agent_paper_mode", True))
-        if paper:
-            self._labels["mode"].setText("Mode: PAPER")
-            self._labels["mode"].setStyleSheet(
-                "color: #ffd700; font-size: 11px; font-weight: bold;",
-            )
-        else:
-            self._labels["mode"].setText("Mode: LIVE")
-            self._labels["mode"].setStyleSheet(
-                "color: #ff0000; font-size: 11px; font-weight: bold;",
-            )
-
-        # Cadence — read from most recent agent section loaded at boot.
-        # The panel doesn't reach back into config.json every refresh;
-        # changes take effect on the next iteration via runner.
         cadence = _extract_cadence(state)
-        self._labels["cadence"].setText(f"Cadence: {cadence}s")
+        self._value_labels["cadence"].setText(f"{cadence}s")
+        self._value_labels["cadence"].setStyleSheet(self._value_style(T.FG_0))
 
-        # Seconds since last iteration.
         last_ts = getattr(state, "last_iteration_ts", None)
         if isinstance(last_ts, datetime):
-            delta = (datetime.now() - last_ts).total_seconds()
-            self._labels["last_iter"].setText(f"Last iter: {int(delta)}s ago")
+            delta = int((datetime.now() - last_ts).total_seconds())
+            self._value_labels["last_iter"].setText(f"{delta}s ago")
+            self._value_labels["last_iter"].setStyleSheet(self._value_style(T.FG_1_HEX))
         else:
-            self._labels["last_iter"].setText("Last iter: --")
+            self._value_labels["last_iter"].setText("—")
+            self._value_labels["last_iter"].setStyleSheet(self._value_style(T.FG_2_HEX))
 
-        # Tool calls in the current/last iteration.
         recent = getattr(state, "recent_tool_calls", None) or []
-        self._labels["tool_calls"].setText(f"Tool calls: {len(recent)}")
+        self._value_labels["tool_calls"].setText(str(len(recent)))
+        self._value_labels["tool_calls"].setStyleSheet(self._value_style(T.FG_0))
 
-        # Account.
         acct = getattr(state, "account_info", None) or {}
-        self._labels["balance"].setText(
-            f"Balance: {_fmt_money(acct.get('free', 0))}"
-        )
-        self._labels["invested"].setText(
-            f"Invested: {_fmt_money(acct.get('invested', 0))}"
-        )
-        self._labels["total"].setText(
-            f"Total: {_fmt_money(acct.get('total', 0))}"
-        )
+        for key in ("balance", "invested", "total"):
+            src_key = "free" if key == "balance" else key
+            self._value_labels[key].setText(_fmt_money(acct.get(src_key, 0)))
+            self._value_labels[key].setStyleSheet(self._value_style(T.FG_0))
+
         upnl = getattr(state, "unrealised_pnl", 0.0) or 0.0
-        colour = "#00ff00" if upnl >= 0 else "#ff0000"
-        self._labels["upnl"].setText(f"Unrealised: {_fmt_money(upnl)}")
-        self._labels["upnl"].setStyleSheet(f"color: {colour}; font-size: 11px;")
+        try:
+            upnl_f = float(upnl)
+        except (TypeError, ValueError):
+            upnl_f = 0.0
+        pnl_colour = (
+            T.ACCENT_HEX if upnl_f > 0 else T.ALERT if upnl_f < 0 else T.FG_2_HEX
+        )
+        sign = "+" if upnl_f > 0 else ""
+        self._value_labels["upnl"].setText(f"{sign}{_fmt_money(upnl_f)}")
+        self._value_labels["upnl"].setStyleSheet(self._value_style(pnl_colour, bold=True))
 
 
 def _extract_cadence(state: Any) -> int:
-    """Best-effort read of the agent cadence from wherever state stashes it.
-
-    The runner reads config.json fresh every iteration, so the state
-    field is only a UI readout. Falls back to 90s if unset.
-    """
     val = getattr(state, "agent_cadence_seconds", None)
     if isinstance(val, (int, float)) and val > 0:
         return int(val)

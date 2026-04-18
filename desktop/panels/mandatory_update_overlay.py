@@ -34,113 +34,103 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from desktop.design import (
-    BG,
-    BORDER,
-    FONT_FAMILY,
-    GLOW,
-    RED,
-    SURFACE,
-    TEXT,
-    TEXT_DIM,
-    TEXT_MID,
-)
+from desktop import tokens as T
 
 
 _OVERLAY_QSS = f"""
 QFrame#MandatoryUpdateOverlay {{
-    background: {SURFACE};
-    border: 2px solid {RED};
+    background: {T.BG_1};
+    border: 1px solid {T.ALERT};
     border-radius: 0;
 }}
 QFrame#MandatoryUpdateOverlay QLabel {{
     background: transparent;
-    color: {TEXT_MID};
-    font-family: {FONT_FAMILY};
+    color: {T.FG_1_HEX};
+    font-family: {T.FONT_SANS};
     font-size: 12px;
 }}
 QFrame#MandatoryUpdateOverlay QLabel#RequiredTag {{
-    color: {RED};
+    color: {T.ALERT};
+    font-family: {T.FONT_MONO};
     font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 2px;
+    font-weight: 500;
+    letter-spacing: 3px;
 }}
 QFrame#MandatoryUpdateOverlay QLabel#HeadlineLabel {{
-    color: {TEXT};
-    font-size: 14px;
-    font-weight: 700;
-    letter-spacing: 0.5px;
+    color: {T.FG_0};
+    font-family: {T.FONT_SANS};
+    font-size: 20px;
+    font-weight: 500;
+    letter-spacing: -0.01em;
 }}
 QFrame#MandatoryUpdateOverlay QLabel#SubLabel {{
-    color: {TEXT_DIM};
+    color: {T.FG_2_HEX};
+    font-family: {T.FONT_MONO};
     font-size: 10px;
-    font-weight: 300;
-    letter-spacing: 0.4px;
+    letter-spacing: 2px;
 }}
 QFrame#MandatoryUpdateOverlay QPushButton#InstallBtn {{
-    background: {RED};
-    color: {BG};
-    border: 1px solid {RED};
+    background: {T.ALERT};
+    color: {T.BG_0};
+    border: 1px solid {T.ALERT};
     border-radius: 0;
-    padding: 8px 18px;
-    font-family: {FONT_FAMILY};
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 1px;
+    padding: 9px 20px;
+    font-family: {T.FONT_MONO};
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 2px;
     min-height: 18px;
 }}
 QFrame#MandatoryUpdateOverlay QPushButton#InstallBtn:hover {{
-    background: {BG};
-    color: {RED};
+    background: {T.FG_0};
+    border-color: {T.FG_0};
 }}
 QFrame#MandatoryUpdateOverlay QPushButton#InstallBtn:disabled {{
     background: transparent;
-    color: {TEXT_DIM};
-    border-color: {BORDER};
+    color: {T.FG_2_HEX};
+    border-color: {T.BORDER_0};
 }}
 QFrame#MandatoryUpdateOverlay QPushButton#NotesToggle {{
     background: transparent;
-    color: {TEXT_MID};
-    border: 1px solid {BORDER};
+    color: {T.FG_1_HEX};
+    border: 1px solid {T.BORDER_1};
     border-radius: 0;
-    padding: 6px 14px;
-    font-family: {FONT_FAMILY};
+    padding: 7px 16px;
+    font-family: {T.FONT_MONO};
     font-size: 10px;
-    font-weight: 400;
-    letter-spacing: 0.8px;
+    font-weight: 500;
+    letter-spacing: 2px;
     min-height: 16px;
 }}
 QFrame#MandatoryUpdateOverlay QPushButton#NotesToggle:hover {{
-    color: {TEXT};
-    border-color: {TEXT_DIM};
+    color: {T.FG_0};
+    border-color: {T.FG_0};
 }}
 QFrame#MandatoryUpdateOverlay QTextEdit#NotesView {{
-    background: {BG};
-    color: {TEXT_MID};
-    border: 1px solid {BORDER};
+    background: {T.BG_0};
+    color: {T.FG_1_HEX};
+    border: 1px solid {T.BORDER_0};
     border-radius: 0;
-    font-family: {FONT_FAMILY};
-    font-size: 11px;
-    padding: 8px;
+    font-family: {T.FONT_SANS};
+    font-size: 12px;
+    padding: 10px;
+    selection-background-color: {T.ACCENT_DIM};
 }}
 QFrame#MandatoryUpdateOverlay QProgressBar {{
-    background: {BG};
-    border: 1px solid {BORDER};
+    background: {T.BG_0};
+    border: none;
     border-radius: 0;
     text-align: center;
-    color: {TEXT_DIM};
-    font-family: {FONT_FAMILY};
-    font-size: 10px;
-    max-height: 4px;
+    max-height: 2px;
 }}
 QFrame#MandatoryUpdateOverlay QProgressBar::chunk {{
-    background: {RED};
+    background: {T.ALERT};
 }}
 QFrame#MandatoryUpdateOverlay QLabel#GrabLabel {{
-    color: {TEXT_DIM};
+    color: {T.FG_2_HEX};
+    font-family: {T.FONT_MONO};
     font-size: 9px;
-    letter-spacing: 1px;
-    font-weight: 300;
+    letter-spacing: 2px;
 }}
 """
 
@@ -181,7 +171,7 @@ class MandatoryUpdateOverlay(QFrame):
         top.setSpacing(8)
         top.setContentsMargins(0, 0, 0, 0)
 
-        self._required_tag = QLabel("▲ UPDATE REQUIRED")
+        self._required_tag = QLabel("UPDATE REQUIRED")
         self._required_tag.setObjectName("RequiredTag")
         top.addWidget(self._required_tag, 0)
 
@@ -226,7 +216,7 @@ class MandatoryUpdateOverlay(QFrame):
 
         # Status line (downloading, error, installing) + progress bar.
         self._status_label = QLabel("")
-        self._status_label.setStyleSheet(f"color: {TEXT_DIM};")
+        self._status_label.setStyleSheet(f"color: {T.FG_2_HEX};")
         self._status_label.setVisible(False)
         outer.addWidget(self._status_label)
 
@@ -276,7 +266,7 @@ class MandatoryUpdateOverlay(QFrame):
         if not self.isVisible():
             return
         self._status_label.setText(f"downloading — {percent}%")
-        self._status_label.setStyleSheet(f"color: {TEXT_DIM};")
+        self._status_label.setStyleSheet(f"color: {T.FG_2_HEX};")
         self._status_label.setVisible(True)
         self._progress.setVisible(True)
         self._progress.setValue(max(0, min(100, percent)))
@@ -286,7 +276,7 @@ class MandatoryUpdateOverlay(QFrame):
         if not self.isVisible():
             return
         self._status_label.setText(f"error — {message}")
-        self._status_label.setStyleSheet(f"color: {RED};")
+        self._status_label.setStyleSheet(f"color: {T.ALERT};")
         self._status_label.setVisible(True)
         self._progress.setVisible(False)
         self._install_btn.setEnabled(True)
@@ -295,7 +285,7 @@ class MandatoryUpdateOverlay(QFrame):
         if not self.isVisible():
             return
         self._status_label.setText("launching installer — blank will restart shortly")
-        self._status_label.setStyleSheet(f"color: {GLOW};")
+        self._status_label.setStyleSheet(f"color: {T.ACCENT_HEX};")
         self._status_label.setVisible(True)
         self._progress.setVisible(False)
         self._install_btn.setEnabled(False)

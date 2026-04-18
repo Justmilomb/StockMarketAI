@@ -4,27 +4,10 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (
-    QDialog,
-    QHBoxLayout,
-    QLabel,
-    QPushButton,
-    QVBoxLayout,
-)
+from PySide6.QtWidgets import QLabel
 
-from desktop.design import (
-    AMBER,
-    BASE_QSS,
-    BG,
-    BORDER,
-    FONT_FAMILY,
-    GLOW,
-    SECONDARY_BTN_QSS,
-    TEXT,
-    TEXT_DIM,
-    TEXT_MID,
-)
+from desktop import tokens as T
+from desktop.dialogs._base import BaseDialog
 
 _SNOOZE_FILE = "risk_disclosure_snoozed_until.txt"
 _SNOOZE_DAYS = 7
@@ -39,7 +22,6 @@ def _snooze_path() -> Path:
 
 
 def should_show() -> bool:
-    """True if the risk disclosure should be shown on this launch."""
     p = _snooze_path()
     if not p.exists():
         return True
@@ -57,77 +39,40 @@ def _snooze() -> None:
     p.write_text(until.isoformat(), encoding="utf-8")
 
 
-class RiskDisclosureDialog(QDialog):
+class RiskDisclosureDialog(BaseDialog):
     """One-paragraph risk warning shown at startup."""
 
     def __init__(self, parent: object = None) -> None:
-        super().__init__(parent)
-        self.setWindowTitle("blank")
-        self.setFixedWidth(480)
-        self.setWindowFlags(
-            Qt.Dialog
-            | Qt.WindowTitleHint
-            | Qt.WindowCloseButtonHint
-            | Qt.MSWindowsFixedSizeDialogHint
+        super().__init__(
+            kicker="RISK DISCLOSURE",
+            title="Trading involves risk",
+            parent=parent,
         )
-        self.setStyleSheet(
-            BASE_QSS
-            + f"""
-            QDialog {{
-                border: 1px solid {BORDER};
-                background: {BG};
-            }}
-        """
+        self.setFixedSize(520, 360)
+
+        body = self.body_layout()
+
+        text = QLabel(
+            "blank is an autonomous AI trading tool. When connected to a"
+            " live account it places real orders using your funds without"
+            " asking for approval on each trade. Trading carries risk of"
+            " financial loss \u2014 only trade with money you can afford"
+            " to lose. Past performance does not guarantee future results."
         )
-
-        outer = QVBoxLayout(self)
-        outer.setContentsMargins(32, 28, 32, 24)
-        outer.setSpacing(0)
-
-        # amber label
-        tag = QLabel("RISK DISCLOSURE")
-        tag.setStyleSheet(
-            f"color: {AMBER}; font-size: 9px; font-weight: 400;"
-            f" font-family: {FONT_FAMILY}; letter-spacing: 3px;"
+        text.setWordWrap(True)
+        text.setStyleSheet(
+            f"color: {T.FG_1_HEX}; font-family: {T.FONT_SANS};"
+            f" font-size: 13px; line-height: 1.6;"
         )
-        outer.addWidget(tag)
-        outer.addSpacing(14)
+        body.addWidget(text)
+        body.addStretch(1)
 
-        # body text
-        body = QLabel(
-            "blank is an autonomous AI trading tool. when connected to a live "
-            "account, it places real orders using your funds without asking for "
-            "approval on each trade. trading involves risk of financial loss — "
-            "only trade with money you can afford to lose. past performance does "
-            "not guarantee future results."
+        self.add_footer_button(
+            "SILENCE FOR 7 DAYS", variant="ghost", slot=self._on_snooze,
         )
-        body.setWordWrap(True)
-        body.setStyleSheet(
-            f"color: {TEXT_MID}; font-size: 13px; font-weight: 300;"
-            f" font-family: {FONT_FAMILY}; line-height: 1.6;"
+        self.add_footer_button(
+            "I UNDERSTAND", variant="primary", slot=self.accept,
         )
-        outer.addWidget(body)
-        outer.addSpacing(24)
-
-        # buttons
-        btn_row = QHBoxLayout()
-        btn_row.setSpacing(10)
-
-        snooze_btn = QPushButton("silence for 7 days")
-        snooze_btn.setCursor(Qt.PointingHandCursor)
-        snooze_btn.setStyleSheet(SECONDARY_BTN_QSS)
-        snooze_btn.clicked.connect(self._on_snooze)
-        btn_row.addWidget(snooze_btn)
-
-        btn_row.addStretch()
-
-        ok_btn = QPushButton("I understand")
-        ok_btn.setCursor(Qt.PointingHandCursor)
-        ok_btn.setDefault(True)
-        ok_btn.clicked.connect(self.accept)
-        btn_row.addWidget(ok_btn)
-
-        outer.addLayout(btn_row)
 
     def _on_snooze(self) -> None:
         _snooze()

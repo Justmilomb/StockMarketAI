@@ -18,7 +18,7 @@ from datetime import datetime
 from typing import Any, Dict, List
 
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import (
     QGroupBox,
     QHeaderView,
@@ -34,15 +34,16 @@ from core.market_hours import (
     status,
 )
 
+from desktop import tokens as T
+
 
 COLUMNS = ["Exchange", "Country", "Status", "Local Time", "Next", "Pos"]
 
-#: Terminal palette (matches positions / orders panels).
-COLOR_TICKER = "#00bfff"   # cyan — exchange code
-COLOR_VALUE = "#ffd700"    # gold — counts and times
-COLOR_DIM = "#aaaaaa"      # dim grey — country / inactive
-COLOR_OPEN = "#00ff00"     # green — market open
-COLOR_CLOSED = "#ff0000"   # red — market closed
+COLOR_TICKER = T.FG_0
+COLOR_VALUE = T.FG_1_HEX
+COLOR_DIM = T.FG_2_HEX
+COLOR_OPEN = T.ACCENT_HEX
+COLOR_CLOSED = T.ALERT
 
 
 class ExchangesPanel(QGroupBox):
@@ -51,17 +52,20 @@ class ExchangesPanel(QGroupBox):
     def __init__(self, state: Any) -> None:
         super().__init__("MARKETS")
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(2, 16, 2, 2)
+        layout.setContentsMargins(2, 18, 2, 2)
+        layout.setSpacing(0)
 
         self.table = QTableWidget(0, len(COLUMNS))
-        self.table.setHorizontalHeaderLabels(COLUMNS)
+        self.table.setHorizontalHeaderLabels([c.upper() for c in COLUMNS])
         self.table.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.Stretch
         )
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.verticalHeader().setVisible(False)
-        self.table.setAlternatingRowColors(True)
+        self.table.setShowGrid(False)
+        self.table.setAlternatingRowColors(False)
+        self.table.verticalHeader().setDefaultSectionSize(26)
         layout.addWidget(self.table)
 
         # Cache the last state so the timer-driven refresh sees the latest
@@ -107,14 +111,15 @@ class ExchangesPanel(QGroupBox):
             count = counts.get(ex.code, 0)
 
             row_items = [
-                _item(ex.code, COLOR_TICKER),
+                _item(ex.code, COLOR_TICKER, bold=True),
                 _item(ex.country, COLOR_DIM),
                 _item("OPEN" if is_open else "CLOSED",
-                      COLOR_OPEN if is_open else COLOR_CLOSED),
-                _item(local_now, COLOR_VALUE),
-                _item(transition, COLOR_VALUE if is_open else COLOR_DIM),
-                _item(str(count) if count else "--",
-                      COLOR_VALUE if count else COLOR_DIM),
+                      COLOR_OPEN if is_open else COLOR_CLOSED, bold=True),
+                _item(local_now, T.FG_0, align=Qt.AlignRight),
+                _item(transition, COLOR_VALUE if is_open else COLOR_DIM,
+                      align=Qt.AlignRight),
+                _item(str(count) if count else "—",
+                      COLOR_VALUE if count else COLOR_DIM, align=Qt.AlignRight),
             ]
             for col, item in enumerate(row_items):
                 if col == 0:
@@ -151,8 +156,18 @@ def _hhmm(iso_local: str) -> str:
         return "--"
 
 
-def _item(text: str, color: str) -> QTableWidgetItem:
+def _item(
+    text: str,
+    color: str,
+    *,
+    align: Qt.AlignmentFlag = Qt.AlignLeft | Qt.AlignVCenter,
+    bold: bool = False,
+) -> QTableWidgetItem:
     item = QTableWidgetItem(text)
     item.setForeground(QColor(color))
-    item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+    item.setTextAlignment(align | Qt.AlignVCenter)
+    font = QFont(T.FONT_MONO_FAMILY)
+    font.setStyleHint(QFont.Monospace)
+    font.setWeight(QFont.Medium if bold else QFont.Normal)
+    item.setFont(font)
     return item

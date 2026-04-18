@@ -32,112 +32,93 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from desktop.design import (
-    BG,
-    BORDER,
-    FONT_FAMILY,
-    GLOW,
-    GLOW_BORDER,
-    GLOW_DIM,
-    GLOW_MID,
-    RED,
-    SURFACE,
-    TEXT,
-    TEXT_DIM,
-    TEXT_MID,
-)
+from desktop import tokens as T
 
 
 _BANNER_QSS = f"""
 QFrame#UpdateBanner {{
-    background: {SURFACE};
-    border: 1px solid {GLOW_BORDER};
+    background: {T.BG_1};
+    border: none;
+    border-bottom: 1px solid {T.BORDER_0};
     border-radius: 0;
 }}
 QFrame#UpdateBanner QLabel {{
     background: transparent;
-    color: {TEXT_MID};
-    font-family: {FONT_FAMILY};
+    color: {T.FG_1_HEX};
+    font-family: {T.FONT_SANS};
     font-size: 12px;
 }}
 QFrame#UpdateBanner QLabel#HeadlineLabel {{
-    color: {GLOW};
-    font-size: 13px;
-    font-weight: 700;
-    letter-spacing: 0.5px;
+    color: {T.FG_0};
+    font-family: {T.FONT_MONO};
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 2px;
 }}
 QFrame#UpdateBanner QLabel#StatusLabel {{
-    color: {TEXT_DIM};
-    font-size: 11px;
-    font-weight: 300;
+    color: {T.FG_2_HEX};
+    font-family: {T.FONT_MONO};
+    font-size: 10px;
+    letter-spacing: 2px;
 }}
 QFrame#UpdateBanner QPushButton {{
-    background: transparent;
-    color: {GLOW};
-    border: 1px solid {GLOW_BORDER};
+    background: {T.ACCENT_HEX};
+    color: {T.BG_0};
+    border: 1px solid {T.ACCENT_HEX};
     border-radius: 0;
     padding: 6px 14px;
-    font-family: {FONT_FAMILY};
-    font-size: 11px;
-    font-weight: 400;
-    letter-spacing: 0.8px;
+    font-family: {T.FONT_MONO};
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 2px;
     min-height: 16px;
 }}
 QFrame#UpdateBanner QPushButton:hover {{
-    background: {GLOW};
-    color: {BG};
+    background: {T.FG_0};
+    border-color: {T.FG_0};
 }}
-QFrame#UpdateBanner QPushButton#NotesToggle {{
-    color: {TEXT_MID};
-    border-color: {BORDER};
-}}
-QFrame#UpdateBanner QPushButton#NotesToggle:hover {{
-    color: {TEXT};
+QFrame#UpdateBanner QPushButton#NotesToggle,
+QFrame#UpdateBanner QPushButton#SkipBtn,
+QFrame#UpdateBanner QPushButton#DismissBtn {{
     background: transparent;
-    border-color: {GLOW_BORDER};
+    color: {T.FG_1_HEX};
+    border: 1px solid {T.BORDER_1};
+}}
+QFrame#UpdateBanner QPushButton#NotesToggle:hover,
+QFrame#UpdateBanner QPushButton#SkipBtn:hover {{
+    background: transparent;
+    color: {T.FG_0};
+    border-color: {T.FG_0};
 }}
 QFrame#UpdateBanner QPushButton#DismissBtn {{
-    color: {TEXT_DIM};
-    border-color: {BORDER};
     min-width: 24px;
     padding: 6px 10px;
 }}
 QFrame#UpdateBanner QPushButton#DismissBtn:hover {{
-    color: {RED};
     background: transparent;
-    border-color: {RED};
-}}
-QFrame#UpdateBanner QPushButton#SkipBtn {{
-    color: {TEXT_MID};
-    border-color: {BORDER};
-}}
-QFrame#UpdateBanner QPushButton#SkipBtn:hover {{
-    color: {TEXT};
-    background: transparent;
-    border-color: {BORDER};
+    color: {T.ALERT};
+    border-color: {T.ALERT};
 }}
 QFrame#UpdateBanner QTextEdit#NotesView {{
-    background: {BG};
-    color: {TEXT_MID};
-    border: 1px solid {BORDER};
+    background: {T.BG_0};
+    color: {T.FG_1_HEX};
+    border: 1px solid {T.BORDER_0};
     border-radius: 0;
-    font-family: {FONT_FAMILY};
-    font-size: 11px;
+    font-family: {T.FONT_SANS};
+    font-size: 12px;
     padding: 8px;
-    selection-background-color: {GLOW_MID};
+    selection-background-color: {T.ACCENT_DIM};
 }}
 QFrame#UpdateBanner QProgressBar {{
-    background: {BG};
-    border: 1px solid {BORDER};
+    background: {T.BG_0};
+    border: none;
     border-radius: 0;
     text-align: center;
-    color: {TEXT_DIM};
-    font-family: {FONT_FAMILY};
-    font-size: 10px;
-    max-height: 4px;
+    color: {T.FG_2_HEX};
+    max-height: 2px;
 }}
 QFrame#UpdateBanner QProgressBar::chunk {{
-    background: {GLOW};
+    background: {T.ACCENT_HEX};
 }}
 """
 
@@ -305,7 +286,7 @@ class UpdateBanner(QFrame):
 
     def set_error(self, message: str) -> None:
         self._status_label.setText(f"error — {message}")
-        self._status_label.setStyleSheet(f"color: {RED};")
+        self._status_label.setStyleSheet(f"color: {T.ALERT};")
         self._status_label.setVisible(True)
         self._progress.setVisible(False)
         self._install_btn.setEnabled(True)
@@ -313,7 +294,7 @@ class UpdateBanner(QFrame):
 
     def set_installing(self) -> None:
         self._status_label.setText("launching installer — blank will restart shortly")
-        self._status_label.setStyleSheet(f"color: {GLOW};")
+        self._status_label.setStyleSheet(f"color: {T.ACCENT_HEX};")
         self._status_label.setVisible(True)
         self._progress.setVisible(False)
         self._install_btn.setEnabled(False)
@@ -333,7 +314,7 @@ class UpdateBanner(QFrame):
         self._skip_btn.setVisible(not mandatory)
         self._cancel_schedule_btn.setVisible(False)
         self._dismiss_btn.setVisible(not mandatory)
-        self._status_label.setStyleSheet(f"color: {TEXT_DIM};")
+        self._status_label.setStyleSheet(f"color: {T.FG_2_HEX};")
 
     def _set_scheduled_state(self) -> None:
         self._install_btn.setEnabled(True)
@@ -343,7 +324,7 @@ class UpdateBanner(QFrame):
         self._cancel_schedule_btn.setVisible(True)
         self._cancel_schedule_btn.setEnabled(True)
         self._dismiss_btn.setVisible(False)
-        self._status_label.setStyleSheet(f"color: {TEXT_DIM};")
+        self._status_label.setStyleSheet(f"color: {T.FG_2_HEX};")
 
     # ─── slot handlers ──────────────────────────────────────────────────
 
@@ -376,9 +357,8 @@ class UpdateBanner(QFrame):
     def _available_headline(self, manifest: dict[str, Any]) -> str:
         version = str(manifest.get("version") or "")
         mandatory = bool(manifest.get("mandatory", False))
-        prefix = "▲ blank"
-        suffix = " (REQUIRED)" if mandatory else " AVAILABLE"
-        return f"{prefix} {version}{suffix}"
+        suffix = " REQUIRED" if mandatory else " AVAILABLE"
+        return f"BLANK {version}{suffix}".upper()
 
     def _refresh_scheduled_headline(self) -> None:
         if self._pending is None:
@@ -386,7 +366,9 @@ class UpdateBanner(QFrame):
         version = str(self._pending.get("version") or "")
         scheduled_iso = str(self._pending.get("scheduled_at") or "")
         when_text = self._format_schedule(scheduled_iso)
-        self._headline.setText(f"⏱ blank {version} SCHEDULED — {when_text}")
+        self._headline.setText(
+            f"BLANK {version} SCHEDULED \u2014 {when_text}".upper()
+        )
 
     @staticmethod
     def _format_schedule(scheduled_iso: str) -> str:

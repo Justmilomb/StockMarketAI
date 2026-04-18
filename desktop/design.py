@@ -1,9 +1,16 @@
-"""Shared design system for the blank desktop app.
+"""Design constants + base QSS for dialogs.
 
-All colours, fonts, and base styles match the blank website (website/index.html).
-Every dialog and screen imports from here -- single source of truth.
+Thin shim over :mod:`desktop.tokens` — the tokens module is the single
+source of truth for the palette (it mirrors ``website/assets/css/theme.css``).
+This module re-exports the legacy names so every dialog that imports
+from ``desktop.design`` keeps working, and provides the small QSS
+snippets (``BASE_QSS``, ``SECONDARY_BTN_QSS``, ``DANGER_BTN_QSS``) used
+by the dialog pass.
 """
 from __future__ import annotations
+
+from desktop import tokens as T
+
 
 # ── Brand ─────────────────────────────────────────────────────────────
 
@@ -12,40 +19,46 @@ APP_NAME_UPPER = "blank"
 COMPANY = "certified random"
 COMPANY_UPPER = "CERTIFIED RANDOM"
 
-# ── Colours ───────────────────────────────────────────────────────────
 
-BG = "#000000"
-SURFACE = "#0a0a0a"
-TEXT = "#ffffff"
-TEXT_MID = "rgba(255,255,255,0.5)"
-TEXT_DIM = "rgba(255,255,255,0.2)"
-GLOW = "#00ff87"
-GLOW_DIM = "rgba(0,255,135,0.06)"
-GLOW_MID = "rgba(0,255,135,0.15)"
-GLOW_BORDER = "rgba(0,255,135,0.25)"
-BORDER = "rgba(255,255,255,0.06)"
-BORDER_HOVER = "rgba(255,255,255,0.12)"
-RED = "#ff4d4d"
-AMBER = "#ffaa00"
+# ── Colours (re-exported from tokens) ────────────────────────────────
 
-# Hex versions for QPainter / QColor (no rgba)
-GLOW_HEX = "#00ff87"
-TEXT_MID_HEX = "#808080"
-TEXT_DIM_HEX = "#333333"
-BORDER_HEX = "#0f0f0f"
+BG = T.BG_0
+SURFACE = T.BG_1
+SURFACE_RAISED = T.BG_2
+TEXT = T.FG_0
+TEXT_MID = T.FG_1
+TEXT_DIM = T.FG_2
+TEXT_FAINT = T.FG_3
+GLOW = T.ACCENT
+GLOW_DIM = T.ACCENT_DIM
+GLOW_MID = T.ACCENT_SOFT
+GLOW_BORDER = T.ACCENT_BORDER
+BORDER = T.BORDER_0
+BORDER_HOVER = T.BORDER_1
+RED = T.ALERT
+AMBER = T.WARN
 
-# ── Font ──────────────────────────────────────────────────────────────
+# Hex variants for QPainter / QColor where rgba() strings are not allowed
+GLOW_HEX = T.ACCENT_HEX
+TEXT_MID_HEX = T.FG_1_HEX
+TEXT_DIM_HEX = T.FG_2_HEX
+BORDER_HEX = T.BORDER_0_HEX
 
-FONT_FAMILY = "'Outfit', 'Segoe UI', sans-serif"
 
-# ── Base QSS ──────────────────────────────────────────────────────────
+# ── Fonts ────────────────────────────────────────────────────────────
+
+FONT_FAMILY = T.FONT_SANS
+FONT_MONO = T.FONT_MONO
+
+
+# ── Base QSS — used by dialogs that style themselves in isolation ───
 
 BASE_QSS = f"""
 QWidget {{
-    background: {BG};
-    color: {TEXT};
-    font-family: {FONT_FAMILY};
-    font-size: 13px;
+    background: {T.BG_0};
+    color: {T.FG_0};
+    font-family: {T.FONT_SANS};
+    font-size: {T.STEP_3};
 }}
 
 QLabel {{
@@ -56,41 +69,53 @@ QLabel {{
 
 QPushButton {{
     background: transparent;
-    color: {GLOW};
-    border: 1px solid {GLOW_BORDER};
-    border-radius: 2px;
-    padding: 10px 24px;
-    font-family: {FONT_FAMILY};
-    font-size: 13px;
-    font-weight: 400;
-    letter-spacing: 1px;
+    color: {T.FG_0};
+    border: 1px solid {T.BORDER_1};
+    border-radius: 0;
+    padding: 10px 22px;
+    font-family: {T.FONT_MONO};
+    font-size: {T.STEP_1};
+    letter-spacing: 2px;
+    text-transform: uppercase;
 }}
 QPushButton:hover {{
-    background: {GLOW};
-    color: {BG};
+    background: {T.BG_3};
+    color: {T.FG_0};
+    border-color: {T.FG_1};
 }}
 QPushButton:pressed {{
-    background: {GLOW};
-    color: {BG};
+    background: {T.ACCENT};
+    color: {T.BG_0};
+    border-color: {T.ACCENT};
 }}
 QPushButton:disabled {{
-    color: {TEXT_DIM};
-    border-color: {BORDER};
+    color: {T.FG_3};
+    border-color: {T.BORDER_0};
+}}
+
+QPushButton[variant="primary"] {{
+    background: {T.ACCENT};
+    color: {T.BG_0};
+    border-color: {T.ACCENT};
+}}
+QPushButton[variant="primary"]:hover {{
+    background: {T.FG_0};
+    color: {T.BG_0};
+    border-color: {T.FG_0};
 }}
 
 QLineEdit {{
-    background: {SURFACE};
-    color: {TEXT};
-    border: 1px solid {BORDER};
-    border-radius: 2px;
+    background: {T.BG_1};
+    color: {T.FG_0};
+    border: 1px solid {T.BORDER_0};
+    border-radius: 0;
     padding: 10px 14px;
-    font-family: {FONT_FAMILY};
-    font-size: 14px;
-    font-weight: 400;
-    selection-background-color: {GLOW_MID};
+    font-family: {T.FONT_MONO};
+    font-size: {T.STEP_3};
+    selection-background-color: {T.ACCENT_DIM};
 }}
 QLineEdit:focus {{
-    border-color: {GLOW_BORDER};
+    border-color: {T.ACCENT};
 }}
 
 QScrollBar:vertical {{
@@ -99,12 +124,11 @@ QScrollBar:vertical {{
     margin: 0;
 }}
 QScrollBar::handle:vertical {{
-    background: {BORDER_HOVER};
-    border-radius: 2px;
+    background: {T.BORDER_1};
     min-height: 20px;
 }}
 QScrollBar::handle:vertical:hover {{
-    background: {TEXT_DIM};
+    background: {T.FG_2};
 }}
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
     height: 0;
@@ -114,27 +138,52 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{
 }}
 """
 
-# Secondary button style (dim, for "quit" / "skip" buttons)
+
+# Secondary button style (dim, for "quit" / "skip" buttons).
 SECONDARY_BTN_QSS = f"""
 QPushButton {{
-    color: {TEXT_DIM};
-    border-color: {BORDER};
+    color: {T.FG_2};
+    border-color: {T.BORDER_0};
+    background: transparent;
 }}
 QPushButton:hover {{
-    color: {TEXT};
+    color: {T.FG_0};
     background: transparent;
-    border-color: {BORDER_HOVER};
+    border-color: {T.BORDER_1};
 }}
 """
 
-# Danger button style
+
+# Danger button style.
 DANGER_BTN_QSS = f"""
 QPushButton {{
-    color: {RED};
-    border-color: rgba(255,77,77,0.25);
+    color: {T.ALERT};
+    border-color: rgba(255, 59, 59, 0.32);
+    background: transparent;
 }}
 QPushButton:hover {{
-    background: {RED};
-    color: {BG};
+    background: {T.ALERT};
+    color: {T.BG_0};
+    border-color: {T.ALERT};
+}}
+"""
+
+
+# Primary CTA style (solid green, black text — matches website .btn-primary).
+PRIMARY_BTN_QSS = f"""
+QPushButton {{
+    background: {T.ACCENT};
+    color: {T.BG_0};
+    border: 1px solid {T.ACCENT};
+}}
+QPushButton:hover {{
+    background: {T.FG_0};
+    color: {T.BG_0};
+    border-color: {T.FG_0};
+}}
+QPushButton:disabled {{
+    background: {T.BG_2};
+    color: {T.FG_3};
+    border-color: {T.BORDER_0};
 }}
 """

@@ -1,85 +1,125 @@
 """Search ticker dialog — AI-powered ticker search."""
 from __future__ import annotations
+
 from typing import Any, List
+
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
-    QDialog, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
-    QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout,
+    QHeaderView,
+    QLabel,
+    QLineEdit,
+    QTableWidget,
+    QTableWidgetItem,
 )
 
-class SearchTickerDialog(QDialog):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Search Tickers")
-        self.setMinimumSize(500, 400)
+from desktop import tokens as T
+from desktop.dialogs._base import BaseDialog
+
+
+class SearchTickerDialog(BaseDialog):
+    def __init__(self, parent=None) -> None:
+        super().__init__(
+            kicker="DISCOVERY",
+            title="Search tickers",
+            parent=parent,
+        )
+        self.setMinimumSize(560, 520)
         self.selected_ticker: str = ""
+        self._search_callback: Any = None
 
-        layout = QVBoxLayout(self)
+        body = self.body_layout()
 
-        title = QLabel("SEARCH TICKERS")
-        title.setStyleSheet("color: #ffb000; font-weight: bold;")
-        layout.addWidget(title)
-
-        hint = QLabel("Enter a search term (company name, sector, etc.)")
-        hint.setStyleSheet("color: #888888; font-size: 11px;")
-        layout.addWidget(hint)
+        hint = QLabel(
+            "Describe what you are looking for \u2014 a company, a sector,"
+            " a theme. The agent suggests matching tickers."
+        )
+        hint.setStyleSheet(
+            f"color: {T.FG_1_HEX}; font-family: {T.FONT_SANS};"
+            f" font-size: 12px;"
+        )
+        hint.setWordWrap(True)
+        body.addWidget(hint)
 
         self._input = QLineEdit()
-        self._input.setPlaceholderText("Search...")
+        self._input.setPlaceholderText("dividend aristocrats, AI infrastructure, UK small caps\u2026")
         self._input.returnPressed.connect(self._search)
-        layout.addWidget(self._input)
+        self._input.setStyleSheet(
+            f"QLineEdit {{ background: transparent; border: none;"
+            f" border-bottom: 1px solid {T.BORDER_1};"
+            f" color: {T.FG_0}; font-family: {T.FONT_MONO};"
+            f" font-size: 14px; padding: 6px 0; letter-spacing: 0.5px; }}"
+            f"QLineEdit:focus {{ border-bottom: 1px solid {T.ACCENT_HEX}; }}"
+        )
+        body.addWidget(self._input)
 
         self._status = QLabel("")
-        self._status.setStyleSheet("color: #888888; font-size: 11px;")
-        layout.addWidget(self._status)
+        self._status.setStyleSheet(
+            f"color: {T.FG_2_HEX}; font-family: {T.FONT_MONO};"
+            f" font-size: 10px; letter-spacing: 2px;"
+        )
+        body.addWidget(self._status)
 
         self._table = QTableWidget(0, 2)
-        self._table.setHorizontalHeaderLabels(["Ticker", "Reason"])
+        self._table.setHorizontalHeaderLabels(["TICKER", "REASON"])
         self._table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self._table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self._table.verticalHeader().setVisible(False)
-        layout.addWidget(self._table, 1)
+        self._table.setShowGrid(False)
+        self._table.setStyleSheet(
+            f"QTableWidget {{ background: transparent; border: none;"
+            f" color: {T.FG_0}; font-family: {T.FONT_SANS}; font-size: 12px; }}"
+            f"QHeaderView::section {{ background: transparent; border: none;"
+            f" border-bottom: 1px solid {T.BORDER_0};"
+            f" color: {T.FG_2_HEX}; font-family: {T.FONT_MONO};"
+            f" font-size: 10px; letter-spacing: 2px; padding: 6px 8px; }}"
+            f"QTableWidget::item {{ padding: 6px 8px; }}"
+            f"QTableWidget::item:selected {{ background: {T.ACCENT_DIM};"
+            f" color: {T.FG_0}; }}"
+        )
+        body.addWidget(self._table, 1)
 
-        buttons = QHBoxLayout()
-        add_btn = QPushButton("Add Selected")
-        add_btn.clicked.connect(self._add_selected)
-        close_btn = QPushButton("Close")
-        close_btn.clicked.connect(self.reject)
-        buttons.addWidget(add_btn)
-        buttons.addWidget(close_btn)
-        layout.addLayout(buttons)
+        self.add_footer_button("CLOSE", variant="ghost", slot=self.reject)
+        self.add_footer_button("ADD SELECTED", variant="primary", slot=self._add_selected)
 
     def set_search_callback(self, fn: Any) -> None:
-        """Set callback for background AI search requests."""
         self._search_callback = fn
 
     def _search(self) -> None:
         query = self._input.text().strip()
         if not query:
             return
-        if hasattr(self, '_search_callback') and self._search_callback:
-            self._status.setText("Searching...")
-            self._status.setStyleSheet("color: #ffb000; font-size: 11px;")
+        if self._search_callback:
+            self._status.setText("SEARCHING\u2026")
+            self._status.setStyleSheet(
+                f"color: {T.WARN}; font-family: {T.FONT_MONO};"
+                f" font-size: 10px; letter-spacing: 2px;"
+            )
             self._search_callback(query)
         else:
-            self._status.setText("AI search not connected")
-            self._status.setStyleSheet("color: #ff0000; font-size: 11px;")
+            self._status.setText("AGENT OFFLINE")
+            self._status.setStyleSheet(
+                f"color: {T.ALERT}; font-family: {T.FONT_MONO};"
+                f" font-size: 10px; letter-spacing: 2px;"
+            )
 
     def populate_results(self, results: List[dict]) -> None:
-        """Called by the main window after a background search completes."""
         self._table.setRowCount(len(results))
         for row, r in enumerate(results):
             ticker = r.get("symbol", r.get("ticker", ""))
             reason = r.get("reason", "")
             t_item = QTableWidgetItem(ticker)
-            t_item.setForeground(QColor("#00bfff"))
+            t_item.setForeground(QColor(T.ACCENT_HEX))
             r_item = QTableWidgetItem(reason)
-            r_item.setForeground(QColor("#ffd700"))
+            r_item.setForeground(QColor(T.FG_1_HEX))
             self._table.setItem(row, 0, t_item)
             self._table.setItem(row, 1, r_item)
-        self._status.setText(f"Found {len(results)} results")
-        self._status.setStyleSheet("color: #00ff00; font-size: 11px;")
+        self._status.setText(f"{len(results)} MATCHES")
+        self._status.setStyleSheet(
+            f"color: {T.ACCENT_HEX}; font-family: {T.FONT_MONO};"
+            f" font-size: 10px; letter-spacing: 2px;"
+        )
 
     def _add_selected(self) -> None:
         row = self._table.currentRow()

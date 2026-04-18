@@ -1,17 +1,16 @@
 """Watchlist panel — live price + sentiment view.
 
-Only the columns the agent-native pipeline actually populates remain:
-ticker, live price, day change %, and aggregated news sentiment. The
-legacy ML columns (Verdict, Signal, AI Rec, Consensus, Prob, Conf)
-and the orphan Strategy column were removed — they were rendering
-``--`` on every row once the scikit-learn ensemble and strategy
-selector were retired in favour of the agent loop.
+Columns: ticker, live price, day change %, sentiment (signed score).
+Colouring maps onto the website palette — green for positive, red for
+negative, dim grey for neutral. No gold / amber / cyan anywhere.
 """
 from __future__ import annotations
 from typing import Any
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import QGroupBox, QHeaderView, QTableWidget, QTableWidgetItem, QVBoxLayout
+
+from desktop import tokens as T
 
 COLUMNS = ["Ticker", "Live Px", "Day %", "Sentiment"]
 
@@ -20,15 +19,18 @@ class WatchlistPanel(QGroupBox):
     def __init__(self, state: Any) -> None:
         super().__init__("WATCHLIST")
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(2, 16, 2, 2)
+        layout.setContentsMargins(2, 18, 2, 2)
+        layout.setSpacing(0)
 
         self.table = QTableWidget(0, len(COLUMNS))
-        self.table.setHorizontalHeaderLabels(COLUMNS)
+        self.table.setHorizontalHeaderLabels([c.upper() for c in COLUMNS])
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.verticalHeader().setVisible(False)
-        self.table.setAlternatingRowColors(True)
+        self.table.setShowGrid(False)
+        self.table.setAlternatingRowColors(False)
+        self.table.verticalHeader().setDefaultSectionSize(26)
         layout.addWidget(self.table)
         self.refresh_view(state)
 
@@ -44,16 +46,7 @@ class WatchlistPanel(QGroupBox):
         return re.sub(r'\[[A-Z]\]', '', item.text()).strip()
 
     def refresh_view(self, state: Any) -> None:
-        # Watchlist is owned by the agent loop now — we enumerate the
-        # active watchlist directly rather than relying on the legacy
-        # ``signals`` DataFrame which is no longer populated.
-        config = getattr(state, "_config_snapshot", None)
-        if config is None:
-            # Derive the active watchlist from state fields populated
-            # by app.py on each refresh.
-            tickers = list(getattr(state, "active_watchlist_tickers", []) or [])
-        else:
-            tickers = list(config)
+        tickers = list(getattr(state, "active_watchlist_tickers", []) or [])
 
         self.table.setRowCount(len(tickers))
         for r, ticker in enumerate(tickers):
@@ -71,31 +64,50 @@ class WatchlistPanel(QGroupBox):
 
             prefix = "[L]" if is_protected else ""
             display_ticker = f"{prefix} {ticker}" if prefix else ticker
-            ticker_color = "#00bfff" if held else "#ffd700"
-            self.table.setItem(r, 0, _item(display_ticker, ticker_color))
+            self.table.setItem(r, 0, _item(display_ticker, T.FG_0, bold=True))
 
-            px_str = f"{float(price):.2f}" if price else "--"
-            self.table.setItem(r, 1, _item(px_str, "#ffd700"))
+            px_str = f"{float(price):.2f}" if price else "—"
+            self.table.setItem(r, 1, _item(px_str, T.FG_0, align=Qt.AlignRight))
 
             try:
                 chg = float(change_pct) if change_pct else 0.0
             except (TypeError, ValueError):
                 chg = 0.0
-            chg_color = "#00ff00" if chg > 0 else "#ff0000" if chg < 0 else "#888888"
-            self.table.setItem(r, 2, _item(f"{chg:+.1f}%", chg_color))
+            chg_color = _price_color(chg)
+            self.table.setItem(r, 2, _item(f"{chg:+.2f}%", chg_color, align=Qt.AlignRight))
 
-            s_color = "#00ff00" if sent_score > 0.1 else "#ff0000" if sent_score < -0.1 else "#888888"
-            self.table.setItem(r, 3, _item(f"{sent_score:+.2f}" if sent_score else "--", s_color))
+            s_color = _price_color(sent_score, threshold=0.05)
+            s_text = f"{sent_score:+.2f}" if sent_score else "—"
+            self.table.setItem(r, 3, _item(s_text, s_color, align=Qt.AlignRight))
 
             if held:
+                wash = QColor(0, 255, 135, int(255 * 0.04))
                 for col in range(len(COLUMNS)):
                     item = self.table.item(r, col)
                     if item:
-                        item.setBackground(QColor("#111111"))
+                        item.setBackground(wash)
 
 
-def _item(text: str, color: str) -> QTableWidgetItem:
+def _price_color(value: float, threshold: float = 0.0) -> str:
+    if value > threshold:
+        return T.ACCENT_HEX
+    if value < -threshold:
+        return T.ALERT
+    return T.FG_2_HEX
+
+
+def _item(
+    text: str,
+    color: str,
+    *,
+    align: Qt.AlignmentFlag = Qt.AlignLeft | Qt.AlignVCenter,
+    bold: bool = False,
+) -> QTableWidgetItem:
     item = QTableWidgetItem(text)
     item.setForeground(QColor(color))
-    item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+    item.setTextAlignment(align | Qt.AlignVCenter)
+    font = QFont(T.FONT_MONO_FAMILY)
+    font.setStyleHint(QFont.Monospace)
+    font.setWeight(QFont.Medium if bold else QFont.Normal)
+    item.setFont(font)
     return item
