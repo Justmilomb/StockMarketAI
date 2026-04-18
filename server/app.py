@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import os
 import re
@@ -47,6 +48,7 @@ DOWNLOAD_URL = os.environ.get(
 # the marketing site root and let the admin override per-deploy via env.
 SITE_URL = os.environ.get("BLANK_SITE_URL", "https://stockmarketai-3qhs.onrender.com/")
 SUPPORT_URL = os.environ.get("BLANK_SUPPORT_URL", SITE_URL)
+ADMIN_EMAIL = os.environ.get("BLANK_ADMIN_EMAIL", "milomilomilomb@gmail.com")
 
 # ── Database ─────────────────────────────────────────────────────────────
 
@@ -117,6 +119,19 @@ def _init_db(conn: psycopg2.extensions.connection) -> None:
             );
             CREATE INDEX IF NOT EXISTS idx_email_sent_template
                 ON email_sent(template_id);
+            -- Drafts waiting for admin to fill in missing vars before
+            -- the actual user-facing email is dispatched.
+            CREATE TABLE IF NOT EXISTS email_drafts (
+                id TEXT PRIMARY KEY,
+                template_id TEXT NOT NULL,
+                recipient TEXT NOT NULL,
+                prefilled_vars TEXT NOT NULL,
+                admin_vars TEXT NOT NULL,
+                reason_key TEXT NOT NULL,
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                filled_at TIMESTAMPTZ,
+                expires_at TIMESTAMPTZ NOT NULL
+            );
         """)
         # Additive migration for databases that pre-date scheduled releases.
         # Must run before creating the scheduled_at index — if the table already
@@ -1344,18 +1359,24 @@ def admin_revoke_license(
     recipient = (row["email"] or "").strip()
     if recipient:
         display_name = (row["name"] or "there").strip() or "there"
-        reason = body.reason.strip() or "no reason provided"
-        send_template_once(
-            conn,
-            "license_revoked",
-            {
-                "name": display_name,
-                "reason": reason,
-                "contact_url": SUPPORT_URL,
-            },
-            recipient=recipient,
-            reason_key=f"revoke:{license_key}",
-        )
+        prefilled = {"name": display_name, "contact_url": SUPPORT_URL}
+        if body.reason.strip():
+            prefilled["reason"] = body.reason.strip()
+            send_template_once(
+                conn,
+                "license_revoked",
+                prefilled,
+                recipient=recipient,
+                reason_key=f"revoke:{license_key}",
+            )
+        else:
+            _queue_admin_fill(
+                conn,
+                "license_revoked",
+                prefilled,
+                recipient=recipient,
+                reason_key=f"revoke:{license_key}",
+            )
     return {"status": "revoked"}
 
 
@@ -1742,6 +1763,304 @@ def send_template_once(
         return False, f"resend_{r.status_code}: {r.text[:200]}"
 
     return True, "ok"
+
+
+def _send_email_raw(to: str, subject: str, html: str, text: str) -> None:
+    """Fire-and-forget Resend call with no idempotency ledger."""
+    if not RESEND_API_KEY:
+        logger.warning("RESEND_API_KEY unset — would have sent to %s: %s", to, subject)
+        return
+    try:
+        requests.post(
+            "https://api.resend.com/emails",
+            json={"from": RESEND_FROM, "to": [to], "subject": subject, "html": html, "text": text},
+            headers={"Authorization": f"Bearer {RESEND_API_KEY}", "Content-Type": "application/json"},
+            timeout=10,
+        )
+    except Exception:
+        logger.exception("Failed to send admin notification to %s", to)
+
+
+def _queue_admin_fill(
+    conn: "psycopg2.extensions.connection",
+    template_id: str,
+    prefilled_vars: Dict[str, Any],
+    recipient: str,
+    reason_key: str,
+) -> None:
+    """Store an email draft and notify the admin to fill in missing vars.
+
+    If the template has no admin_vars the call falls through to a normal
+    send_template_once so callers don't need to branch.
+    """
+    from server.email_templates import _spec as get_spec, render as render_tpl
+
+    spec = get_spec(template_id)
+    if not spec.admin_vars:
+        send_template_once(conn, template_id, prefilled_vars, recipient=recipient, reason_key=reason_key)
+        return
+
+    token = secrets.token_urlsafe(32)
+    expires = datetime.now(timezone.utc) + timedelta(days=7)
+
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO email_drafts "
+            "(id, template_id, recipient, prefilled_vars, admin_vars, reason_key, expires_at) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+            (
+                token, template_id, recipient,
+                json.dumps(prefilled_vars),
+                json.dumps(spec.admin_vars),
+                reason_key,
+                expires,
+            ),
+        )
+    conn.commit()
+
+    fill_url = f"{SITE_URL.rstrip('/')}/fill/{token}"
+    try:
+        subj, html, text = render_tpl(
+            "admin_fill_request",
+            {
+                "template_label": spec.label,
+                "draft_recipient": recipient,
+                "admin_fields": spec.admin_vars,
+                "fill_url": fill_url,
+            },
+            recipient=ADMIN_EMAIL,
+        )
+        _send_email_raw(ADMIN_EMAIL, subj, html, text)
+    except Exception:
+        logger.exception("Failed to send fill-request notification for draft %s", token)
+
+
+# ── Fill-form page (public, token-gated) ─────────────────────────────────
+
+_FILL_CSS = """
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+    background: #000;
+    color: #fff;
+    font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem 1rem;
+}
+.card {
+    width: 100%;
+    max-width: 520px;
+    border: 1px solid rgba(255,255,255,0.1);
+    background: #050505;
+    padding: 2rem 2rem 2.25rem;
+}
+.brand {
+    font-family: 'Outfit', monospace;
+    font-size: 10px;
+    letter-spacing: 0.28em;
+    text-transform: uppercase;
+    color: #00ff87;
+    margin-bottom: 1.5rem;
+}
+h1 { font-size: 1.25rem; font-weight: 300; color: #fff; margin-bottom: 0.5rem; }
+.meta {
+    font-size: 0.8125rem;
+    color: rgba(255,255,255,0.4);
+    margin-bottom: 2rem;
+    line-height: 1.6;
+}
+.field { margin-bottom: 1.375rem; }
+label {
+    display: block;
+    font-size: 0.6875rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.4);
+    margin-bottom: 0.5rem;
+}
+textarea {
+    width: 100%;
+    background: #000;
+    border: 1px solid rgba(255,255,255,0.15);
+    color: #fff;
+    font-family: inherit;
+    font-size: 0.9375rem;
+    line-height: 1.6;
+    padding: 0.75rem 1rem;
+    resize: vertical;
+    outline: none;
+    min-height: 4rem;
+    transition: border-color 0.2s;
+}
+textarea:focus { border-color: #00ff87; }
+.error {
+    background: rgba(255,60,60,0.07);
+    border: 1px solid rgba(255,60,60,0.25);
+    color: #ff7070;
+    font-size: 0.8125rem;
+    padding: 0.75rem 1rem;
+    margin-bottom: 1.375rem;
+}
+button {
+    width: 100%;
+    background: #00ff87;
+    color: #000;
+    border: none;
+    font-family: inherit;
+    font-size: 0.75rem;
+    font-weight: 500;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 1rem;
+    cursor: pointer;
+    margin-top: 0.25rem;
+    transition: opacity 0.2s;
+}
+button:hover { opacity: 0.85; }
+.icon { font-size: 2rem; margin-bottom: 1rem; color: #00ff87; }
+"""
+
+
+def _fill_page_form(
+    token: str,
+    template_id: str,
+    recipient: str,
+    admin_vars: List[str],
+    error: str = "",
+) -> str:
+    from server.email_templates import _spec
+    try:
+        label = _spec(template_id).label
+    except KeyError:
+        label = template_id
+
+    error_html = f'<div class="error">{error}</div>' if error else ""
+    fields_html = "".join(
+        f'<div class="field"><label for="f_{v}">{v.replace("_", " ")}</label>'
+        f'<textarea id="f_{v}" name="{v}" rows="3" placeholder="enter {v.replace("_", " ")}..." required></textarea></div>'
+        for v in admin_vars
+    )
+    return (
+        f'<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">'
+        f'<meta name="viewport" content="width=device-width,initial-scale=1">'
+        f'<title>fill in — blank</title><style>{_FILL_CSS}</style></head>'
+        f'<body><div class="card"><div class="brand">blank</div>'
+        f'<h1>fill in before sending</h1>'
+        f'<p class="meta">template: {label}<br>to: {recipient}</p>'
+        f'{error_html}'
+        f'<form method="POST" action="/fill/{token}">{fields_html}'
+        f'<button type="submit">send email &rarr;</button></form>'
+        f'</div></body></html>'
+    )
+
+
+def _fill_page_done(template_id: str, recipient: str, sent: bool) -> str:
+    from server.email_templates import _spec
+    try:
+        label = _spec(template_id).label
+    except KeyError:
+        label = template_id
+    if sent:
+        body = f'<div class="icon">✓</div><h1>email sent</h1><p class="meta">{label}<br>{recipient}</p>'
+    else:
+        body = '<h1>already sent</h1><p class="meta">this draft was already submitted.</p>'
+    return (
+        f'<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">'
+        f'<meta name="viewport" content="width=device-width,initial-scale=1">'
+        f'<title>done — blank</title><style>{_FILL_CSS}</style></head>'
+        f'<body><div class="card"><div class="brand">blank</div>{body}</div></body></html>'
+    )
+
+
+def _fill_page_error(msg: str) -> str:
+    return (
+        f'<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">'
+        f'<meta name="viewport" content="width=device-width,initial-scale=1">'
+        f'<title>error — blank</title><style>{_FILL_CSS}</style></head>'
+        f'<body><div class="card"><div class="brand">blank</div>'
+        f'<h1>something went wrong</h1><p class="meta">{msg}</p>'
+        f'</div></body></html>'
+    )
+
+
+@app.get("/fill/{token}", response_class=HTMLResponse)
+def fill_form_get(
+    token: str,
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> HTMLResponse:
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT template_id, recipient, admin_vars, filled_at, expires_at "
+            "FROM email_drafts WHERE id = %s",
+            (token,),
+        )
+        draft = cur.fetchone()
+    if not draft:
+        return HTMLResponse(_fill_page_error("link not found or already expired"), status_code=404)
+    if draft["filled_at"]:
+        return HTMLResponse(_fill_page_done(draft["template_id"], draft["recipient"], sent=False))
+    if draft["expires_at"] < datetime.now(timezone.utc):
+        return HTMLResponse(_fill_page_error("this link has expired"), status_code=410)
+    admin_vars: List[str] = json.loads(draft["admin_vars"])
+    return HTMLResponse(_fill_page_form(token, draft["template_id"], draft["recipient"], admin_vars))
+
+
+@app.post("/fill/{token}", response_class=HTMLResponse)
+async def fill_form_post(
+    token: str,
+    request: Request,
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> HTMLResponse:
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT template_id, recipient, prefilled_vars, admin_vars, reason_key, "
+            "filled_at, expires_at FROM email_drafts WHERE id = %s",
+            (token,),
+        )
+        draft = cur.fetchone()
+    if not draft:
+        return HTMLResponse(_fill_page_error("link not found or already expired"), status_code=404)
+    if draft["filled_at"]:
+        return HTMLResponse(_fill_page_done(draft["template_id"], draft["recipient"], sent=False))
+    if draft["expires_at"] < datetime.now(timezone.utc):
+        return HTMLResponse(_fill_page_error("this link has expired"), status_code=410)
+
+    form_data = await request.form()
+    admin_vars: List[str] = json.loads(draft["admin_vars"])
+
+    filled: Dict[str, str] = {}
+    missing: List[str] = []
+    for v in admin_vars:
+        val = str(form_data.get(v, "")).strip()
+        if val:
+            filled[v] = val
+        else:
+            missing.append(v)
+
+    if missing:
+        return HTMLResponse(
+            _fill_page_form(
+                token, draft["template_id"], draft["recipient"], admin_vars,
+                error=f"please fill in: {', '.join(missing)}",
+            )
+        )
+
+    full_ctx = {**json.loads(draft["prefilled_vars"]), **filled}
+    ok, info = send_template_once(
+        conn, draft["template_id"], full_ctx,
+        recipient=draft["recipient"],
+        reason_key=draft["reason_key"],
+    )
+
+    with conn.cursor() as cur:
+        cur.execute("UPDATE email_drafts SET filled_at = NOW() WHERE id = %s", (token,))
+    conn.commit()
+
+    if ok or info == "already_sent":
+        return HTMLResponse(_fill_page_done(draft["template_id"], draft["recipient"], sent=ok))
+    return HTMLResponse(_fill_page_error(f"send failed: {info}"), status_code=500)
 
 
 # ── Admin: email template library ────────────────────────────────────────

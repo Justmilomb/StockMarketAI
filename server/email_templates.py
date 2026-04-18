@@ -17,7 +17,7 @@ the operator. Emails are never sent with placeholder values.
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Tuple
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined, select_autoescape
@@ -46,6 +46,10 @@ class TemplateSpec:
     label: str
     subject: str
     required_vars: List[str]
+    # Vars that must be typed in by a human — the system cannot auto-fill
+    # them. When non-empty, event triggers route through _queue_admin_fill
+    # instead of sending directly.
+    admin_vars: List[str] = field(default_factory=list)
 
 
 #: Every template the admin UI knows about. Add a new row + two .j2 files
@@ -110,6 +114,7 @@ TEMPLATES: List[TemplateSpec] = [
         label="Licence revoked (admin action)",
         subject="Your blank licence has been revoked",
         required_vars=["name", "reason", "contact_url"],
+        admin_vars=["reason"],
     ),
     TemplateSpec(
         id="first_time_tips",
@@ -152,6 +157,7 @@ def list_templates() -> List[Dict[str, Any]]:
             "label": t.label,
             "subject": t.subject,
             "required_vars": list(t.required_vars),
+            "admin_vars": list(t.admin_vars),
         }
         for t in TEMPLATES
     ]

@@ -1,0 +1,12 @@
+fill needed: {{ template_label }} for {{ draft_recipient }}
+
+blank is holding this email until you fill in the missing fields.
+
+fields to fill:
+{% for f in admin_fields %}
+  - {{ f }}
+{% endfor %}
+
+fill in now: {{ fill_url }}
+
+this link expires in 7 days. after that the draft is discarded.
