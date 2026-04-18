@@ -91,7 +91,7 @@ desktop/dialogs/        setup wizard, license, add ticker, trade…
 | Live prices | Trading 212 `/equity/portfolio` | Free live price for held positions |
 | News | feedparser + custom scrapers | Lightweight, 9 free sources |
 | Broker | Trading 212 REST v0 | User's choice; LogBroker fallback for paper |
-| Packaging | PyInstaller + Inno Setup | `build.bat` produces `BlankSetup.exe` |
+| Packaging | PyInstaller + Inno Setup | `build.bat` produces `blank-setup.exe` |
 
 ## Key constraints
 

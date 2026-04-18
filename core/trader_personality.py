@@ -1,6 +1,6 @@
 """Per-install trader personality — the terminal's evolving character.
 
-Each Blank install gets its own ``trader_personality.json`` file with:
+Each blank install gets its own ``trader_personality.json`` file with:
 
 * ``seed`` — a randomly-picked archetype / risk profile / name generated
   at first run. Fixed for the install's lifetime. Gives the agent a

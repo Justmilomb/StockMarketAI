@@ -129,7 +129,7 @@ def _apply_remote_config(remote_cfg: dict[str, str]) -> None:
 
 
 def launch(mode: str | None = None) -> None:
-    """Launch the Blank desktop app.
+    """Launch the blank desktop app.
 
     Args:
         mode: 'desktop' for default desktop edition (shows stocks/polymarket

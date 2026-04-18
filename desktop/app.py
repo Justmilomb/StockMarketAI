@@ -1,4 +1,4 @@
-"""Main window for the Blank desktop application.
+"""Main window for the blank desktop application.
 
 Implements the terminal-style dockable layout, wires up the broker
 and chat services, and manages background timers and keyboard

@@ -332,7 +332,7 @@ class UpdateService(QObject):
             logger.warning("install already in progress; ignoring duplicate trigger")
             return
 
-        dest = Path(tempfile.gettempdir()) / f"BlankSetup-{version}.exe"
+        dest = Path(tempfile.gettempdir()) / f"blank-setup-{version}.exe"
         # Remove any stale partial download from a prior attempt.
         try:
             dest.unlink(missing_ok=True)

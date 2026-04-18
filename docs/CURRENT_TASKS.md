@@ -81,7 +81,7 @@ the full history — everything before 2026-04-09 is legacy.
   `claude_agent_sdk`)
 - [x] `build.bat` produces `dist/blank.exe` successfully (291 MB);
   .exe launches, Qt event loop runs, no import errors.
-  `BlankSetup.exe` requires Inno Setup 6 (not installed on this
+  `blank-setup.exe` requires Inno Setup 6 (not installed on this
   machine) — `.iss` script is up to date.
 
 **Rebuild Phase 7 — Research browser tool** — 2026-04-13

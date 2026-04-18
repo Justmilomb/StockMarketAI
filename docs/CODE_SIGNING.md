@@ -26,7 +26,7 @@ set BLANK_CERT_PASS=your-certificate-password
 
 ### 3. Build
 
-`build.bat` automatically detects `BLANK_CERT_PATH` and signs both `blank.exe` and `BlankSetup.exe`.
+`build.bat` automatically detects `BLANK_CERT_PATH` and signs both `blank.exe` and `blank-setup.exe`.
 
 ## Manual Signing
 
@@ -35,14 +35,14 @@ set BLANK_CERT_PASS=your-certificate-password
 signtool sign /f "%BLANK_CERT_PATH%" /p "%BLANK_CERT_PASS%" /tr http://timestamp.digicert.com /td sha256 /fd sha256 dist\blank.exe
 
 # Sign the installer
-signtool sign /f "%BLANK_CERT_PATH%" /p "%BLANK_CERT_PASS%" /tr http://timestamp.digicert.com /td sha256 /fd sha256 dist\BlankSetup.exe
+signtool sign /f "%BLANK_CERT_PATH%" /p "%BLANK_CERT_PASS%" /tr http://timestamp.digicert.com /td sha256 /fd sha256 dist\blank-setup.exe
 ```
 
 ## Verification
 
 ```powershell
 signtool verify /pa dist\blank.exe
-signtool verify /pa dist\BlankSetup.exe
+signtool verify /pa dist\blank-setup.exe
 ```
 
 ## Notes

@@ -148,8 +148,8 @@ def main(argv: list[str]) -> int:
         print("next steps:")
         print("  1. git diff      # sanity check")
         print("  2. pytest tests/ # regressions")
-        print("  3. build.bat     # dist/blank.exe + BlankSetup.exe")
-        print("  4. upload BlankSetup.exe to GitHub Releases as v" + version)
+        print("  3. build.bat     # dist/blank.exe + blank-setup.exe")
+        print("  4. upload blank-setup.exe to GitHub Releases as v" + version)
         print("  5. /admin -> releases -> publish")
     return 0
 

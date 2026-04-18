@@ -18,15 +18,15 @@
 [Setup]
 AppName=blank
 AppVersion=1.0.0
-AppPublisher=Certified Random
-AppCopyright=Copyright (C) 2026 Certified Random
+AppPublisher=certified random
+AppCopyright=Copyright (C) 2026 certified random
 AppMutex=BlankTradingTerminalMutex_v2
 SetupIconFile={#MyAppRoot}\desktop\assets\icon.ico
 UninstallDisplayIcon={app}\blank.exe
 DefaultDirName={localappdata}\Programs\blank
 DefaultGroupName=blank
 OutputDir={#MyAppRoot}\dist
-OutputBaseFilename=BlankSetup
+OutputBaseFilename=blank-setup
 SourceDir={#MyAppRoot}
 Compression=lzma2
 SolidCompression=yes

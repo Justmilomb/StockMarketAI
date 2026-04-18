@@ -123,7 +123,7 @@ StockMarketAI/
 ├── installer/
 │   ├── blank.spec                 PyInstaller spec
 │   └── blank.iss                  Inno Setup script
-├── build.bat                      Builds blank.exe + BlankSetup.exe
+├── build.bat                      Builds blank.exe + blank-setup.exe
 ├── version_info.py                PyInstaller version resource
 │
 │  ── Tests & scripts ───────────────────────────────────────────────────

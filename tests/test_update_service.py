@@ -129,7 +129,7 @@ def test_check_emits_when_newer(
     """Remote > local → update_available fires with the full manifest."""
     manifest = {
         "version": "2.0.0",
-        "download_url": "https://example.com/BlankSetup.exe",
+        "download_url": "https://example.com/blank-setup.exe",
         "sha256": "",
         "notes": "- bug fixes",
         "mandatory": False,
@@ -236,7 +236,7 @@ def test_sha256_verification_pass(
 ) -> None:
     """Matching sha256 → no error emitted, installer launches."""
     blob = b"fake installer bytes"
-    installer = tmp_path / "BlankSetup-2.0.0.exe"
+    installer = tmp_path / "blank-setup-2.0.0.exe"
     installer.write_bytes(blob)
     expected_sha = hashlib.sha256(blob).hexdigest()
 
@@ -269,7 +269,7 @@ def test_sha256_verification_fail(
     service: UpdateService, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Wrong sha256 → error emitted, file deleted, installer not launched."""
-    installer = tmp_path / "BlankSetup-2.0.0.exe"
+    installer = tmp_path / "blank-setup-2.0.0.exe"
     installer.write_bytes(b"genuine bytes")
     wrong_sha = "0" * 64  # all-zero sha256
 
@@ -300,7 +300,7 @@ def test_sha256_skipped_when_manifest_has_no_hash(
     service: UpdateService, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Empty sha256 in manifest → skip verification, still launch."""
-    installer = tmp_path / "BlankSetup-2.0.0.exe"
+    installer = tmp_path / "blank-setup-2.0.0.exe"
     installer.write_bytes(b"any bytes")
 
     launched: List[str] = []
@@ -329,7 +329,7 @@ def test_schedule_install_persists_to_config(
     """``schedule_install`` writes pending_install and calls the saver."""
     manifest = {
         "version": "2.0.0",
-        "download_url": "https://example.com/BlankSetup.exe",
+        "download_url": "https://example.com/blank-setup.exe",
         "sha256": "abc123",
         "notes": "- thing",
         "mandatory": False,
@@ -341,7 +341,7 @@ def test_schedule_install_persists_to_config(
     pending = config["updates"]["pending_install"]
     assert pending is not None
     assert pending["version"] == "2.0.0"
-    assert pending["download_url"] == "https://example.com/BlankSetup.exe"
+    assert pending["download_url"] == "https://example.com/blank-setup.exe"
     assert pending["sha256"] == "abc123"
     assert pending["notes"] == "- thing"
     assert pending["mandatory"] is False

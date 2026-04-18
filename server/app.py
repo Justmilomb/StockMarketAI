@@ -41,7 +41,7 @@ RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
 RESEND_FROM = os.environ.get("RESEND_FROM", "blank <blank@resend.dev>")
 DOWNLOAD_URL = os.environ.get(
     "BLANK_DOWNLOAD_URL",
-    "https://github.com/Justmilomb/StockMarketAI/releases/latest/download/BlankSetup.exe",
+    "https://github.com/Justmilomb/StockMarketAI/releases/latest/download/blank-setup.exe",
 )
 # Public-facing URL used in outbound emails that ask the user to take
 # action (renew, contact, give feedback). No billing page yet — point at
@@ -208,7 +208,7 @@ def _init_db(conn: psycopg2.extensions.connection) -> None:
             """,
             (
                 "1.0.0",
-                "https://github.com/Justmilomb/StockMarketAI/releases/download/v1.0.0/BlankSetup.exe",
+                "https://github.com/Justmilomb/StockMarketAI/releases/download/v1.0.0/blank-setup.exe",
                 seed_notes,
                 "2026-04-15",
             ),
@@ -547,7 +547,7 @@ def version_info(
     if not row:
         return {
             "version": "1.0.0",
-            "download_url": "https://github.com/Justmilomb/StockMarketAI/releases/latest/download/BlankSetup.exe",
+            "download_url": "https://github.com/Justmilomb/StockMarketAI/releases/latest/download/blank-setup.exe",
             "sha256": "",
             "notes": "",
             "mandatory": False,
@@ -643,7 +643,7 @@ def heartbeat(
     if not row:
         return {
             "version": "1.0.0",
-            "download_url": "https://github.com/Justmilomb/StockMarketAI/releases/latest/download/BlankSetup.exe",
+            "download_url": "https://github.com/Justmilomb/StockMarketAI/releases/latest/download/blank-setup.exe",
             "sha256": "",
             "notes": "",
             "mandatory": False,
@@ -783,7 +783,7 @@ def _render_signup_email_html(key: str, expires_iso: str) -> str:
         <tr><td style="padding:28px 0 0 0;">
           <p style="margin:0 0 10px 0;font-size:13px;line-height:1.65;color:rgba(255,255,255,0.55);"><strong style="color:#fff;font-weight:400;">how to activate</strong></p>
           <ol style="margin:0 0 0 18px;padding:0;font-size:12px;line-height:1.65;color:rgba(255,255,255,0.5);">
-            <li>run BlankSetup.exe and let it install (no admin rights needed).</li>
+            <li>run blank-setup.exe and let it install (no admin rights needed).</li>
             <li>launch blank from the start menu.</li>
             <li>paste your access key into the first-run prompt.</li>
             <li>the setup wizard takes it from there.</li>

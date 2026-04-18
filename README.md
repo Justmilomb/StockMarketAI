@@ -47,7 +47,7 @@ terminating the thread.
 
 ### Windows installer
 
-1. Download `BlankSetup.exe` from the latest release.
+1. Download `blank-setup.exe` from the latest release.
 2. Run the installer.
 3. Enter your license key on first launch.
 4. Follow the setup wizard — it walks you through Claude Code CLI and
@@ -60,7 +60,7 @@ setup.bat                              # Create venv + install deps
 build.bat                              # Build blank.exe + installer
 ```
 
-Output: `dist/BlankSetup.exe`.
+Output: `dist/blank-setup.exe`.
 
 ### Dev harness
 

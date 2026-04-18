@@ -9,7 +9,7 @@ Steps:
     3. Stage the bundled AI engine (portable Node + claude-code CLI)
     4. Run build.bat (PyInstaller + Inno Setup if available)
     5. Pause for manual Inno Setup compile if needed
-    6. Compute SHA256 of dist/BlankSetup.exe
+    6. Compute SHA256 of dist/blank-setup.exe
     7. Push to GitHub Releases
     8. Print exact admin-panel values to publish the update
 """
@@ -116,7 +116,7 @@ def main() -> None:
     _run(["cmd", "/c", str(ROOT / "build.bat")], cwd=str(ROOT))
 
     # ── 3. Installer compile pause ───────────────────────────────────────
-    installer = ROOT / "dist" / "BlankSetup.exe"
+    installer = ROOT / "dist" / "blank-setup.exe"
 
     print()
     print("── Compile the installer ───────────────────────────────────────")
@@ -124,9 +124,9 @@ def main() -> None:
     print("  ► File → Open → installer\\blank.iss")
     print("  ► Build → Compile  (or press F9)")
     print()
-    _pause("  Press Enter once dist\\BlankSetup.exe is ready...")
+    _pause("  Press Enter once dist\\blank-setup.exe is ready...")
     if not installer.exists():
-        raise SystemExit("dist/BlankSetup.exe not found — aborting.")
+        raise SystemExit("dist/blank-setup.exe not found — aborting.")
 
     # ── 4. SHA256 ────────────────────────────────────────────────────────
     print()
@@ -171,7 +171,7 @@ def main() -> None:
 
     # ── 6. Admin panel instructions ──────────────────────────────────────
     download_url = (
-        f"https://github.com/Justmilomb/StockMarketAI/releases/download/{tag}/BlankSetup.exe"
+        f"https://github.com/Justmilomb/StockMarketAI/releases/download/{tag}/blank-setup.exe"
     )
 
     print()

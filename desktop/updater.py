@@ -6,7 +6,7 @@ No auto-download, no background service — just a version check.
 
 Setup:
   Host a JSON file at your UPDATE_URL containing:
-  {"version": "1.1.0", "download_url": "https://example.com/BlankSetup.exe"}
+  {"version": "1.1.0", "download_url": "https://example.com/blank-setup.exe"}
 
   Update UPDATE_URL below to point to your hosted file.
 """

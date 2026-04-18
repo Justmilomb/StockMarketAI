@@ -16,14 +16,14 @@ VSVersionInfo(
     kids=[
         StringFileInfo([
             StringTable("040904B0", [
-                StringStruct("CompanyName", "Certified Random"),
-                StringStruct("FileDescription", "Blank Trading Terminal"),
+                StringStruct("CompanyName", "certified random"),
+                StringStruct("FileDescription", "blank trading terminal"),
                 StringStruct("FileVersion", "1.0.0"),
                 StringStruct("InternalName", "blank"),
                 StringStruct("LegalCopyright",
-                             "Copyright (C) 2026 Certified Random. All rights reserved."),
+                             "Copyright (C) 2026 certified random. All rights reserved."),
                 StringStruct("OriginalFilename", "blank.exe"),
-                StringStruct("ProductName", "Blank"),
+                StringStruct("ProductName", "blank"),
                 StringStruct("ProductVersion", "1.0.0"),
             ]),
         ]),

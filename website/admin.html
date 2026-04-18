@@ -829,7 +829,7 @@
                     </div>
                     <div class="form-row">
                         <label>download url</label>
-                        <input id="rel-url" type="text" placeholder="https://github.com/Justmilomb/StockMarketAI/releases/download/v2.0.0/BlankSetup.exe">
+                        <input id="rel-url" type="text" placeholder="https://github.com/Justmilomb/StockMarketAI/releases/download/v2.0.0/blank-setup.exe">
                     </div>
                     <div class="form-row">
                         <label>sha256 (optional — enables integrity check on client)</label>
@@ -1439,7 +1439,7 @@
             const urlInput = document.getElementById('rel-url');
             const current = urlInput.value;
             if (!current || current.startsWith(URL_TEMPLATE_PREFIX)) {
-                urlInput.value = version ? URL_TEMPLATE_PREFIX + version + '/BlankSetup.exe' : '';
+                urlInput.value = version ? URL_TEMPLATE_PREFIX + version + '/blank-setup.exe' : '';
             }
         });
 
