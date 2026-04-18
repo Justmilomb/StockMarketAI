@@ -111,6 +111,44 @@ class UpdatesConfig(BaseModel):
     pending_install: Optional[Any] = None
 
 
+class ForecastingConfig(BaseModel):
+    """Forecasting ensemble toggles.
+
+    Each backend is gated by an ``*_enabled`` flag so a machine that
+    can't install (e.g.) TimesFM can still run the rest of the ensemble.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    ensemble_enabled: bool = True
+    kronos_enabled: bool = True
+    chronos_enabled: bool = True
+    timesfm_enabled: bool = True
+    tft_enabled: bool = False
+    meta_model_path: str = "models/meta_learner.json"
+    default_horizon_minutes: int = 60
+
+
+class NlpConfig(BaseModel):
+    """FinBERT + sentiment config."""
+
+    model_config = ConfigDict(extra="allow")
+
+    finbert_enabled: bool = True
+    finbert_model_id: str = "ProsusAI/finbert"
+    max_texts_per_call: int = 32
+
+
+class ExecutionConfig(BaseModel):
+    """Execution-strategy defaults for smart order routing."""
+
+    model_config = ConfigDict(extra="allow")
+
+    default_strategy: Literal["market", "vwap", "twap"] = "market"
+    vwap_slices_per_hour: int = 4
+    twap_slices_per_hour: int = 6
+
+
 class AppConfig(BaseModel):
     """Top-level config shape. Unknown keys pass through untouched."""
 
@@ -131,6 +169,9 @@ class AppConfig(BaseModel):
     scrapers: ScrapersConfig = Field(default_factory=ScrapersConfig)
     terminal: TerminalConfig = Field(default_factory=TerminalConfig)
     updates: UpdatesConfig = Field(default_factory=UpdatesConfig)
+    forecasting: ForecastingConfig = Field(default_factory=ForecastingConfig)
+    nlp: NlpConfig = Field(default_factory=NlpConfig)
+    execution: ExecutionConfig = Field(default_factory=ExecutionConfig)
 
     active_asset_class: str = "stocks"
     enabled_asset_classes: List[str] = Field(default_factory=lambda: ["stocks"])

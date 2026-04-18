@@ -280,18 +280,18 @@ class TestResearchDBHelpers:
 class TestResearchRoles:
     """Verify the ResearchRole definitions in research_roles.py."""
 
-    def test_exactly_20_roles(self) -> None:
+    def test_exactly_21_roles(self) -> None:
         from agent.research_roles import ALL_ROLES
 
-        assert len(ALL_ROLES) == 20
+        assert len(ALL_ROLES) == 21
 
-    def test_10_quick_10_deep(self) -> None:
+    def test_10_quick_11_deep(self) -> None:
         from agent.research_roles import ALL_ROLES
 
         quick = [r for r in ALL_ROLES if r.tier == "quick"]
         deep = [r for r in ALL_ROLES if r.tier == "deep"]
         assert len(quick) == 10
-        assert len(deep) == 10
+        assert len(deep) == 11
 
     def test_unique_role_ids(self) -> None:
         from agent.research_roles import ALL_ROLES
@@ -339,8 +339,8 @@ class TestResearchModelRouter:
         from core.agent.research_roles import get_role
 
         config = {"ai": {
-            "model_simple": "Y2xhdWRlLWhhaWt1LTQtNS0yMDI1MTAwMQ==",
-            "model_medium": "Y2xhdWRlLXNvbm5ldC00LTIwMjUwNTE0",
+            "model_simple": "claude-haiku-4-5-20251001",
+            "model_medium": "claude-sonnet-4-6",
         }}
         role = get_role("tech_watcher")
         model_id = research_worker_model(config, role)
@@ -351,8 +351,8 @@ class TestResearchModelRouter:
         from core.agent.research_roles import get_role
 
         config = {"ai": {
-            "model_simple": "Y2xhdWRlLWhhaWt1LTQtNS0yMDI1MTAwMQ==",
-            "model_medium": "Y2xhdWRlLXNvbm5ldC00LTIwMjUwNTE0",
+            "model_simple": "claude-haiku-4-5-20251001",
+            "model_medium": "claude-sonnet-4-6",
         }}
         role = get_role("macro_researcher")
         model_id = research_worker_model(config, role)
@@ -744,24 +744,25 @@ class TestResearchQueue:
     """Cadence-based scheduler: due roles, priority ordering, mark_fired."""
 
     def test_all_roles_due_initially(self) -> None:
-        """A fresh queue has no fire history, so all 20 roles are due."""
+        """A fresh queue has no fire history, so every role is due."""
         from core.agent.research_queue import ResearchQueue
         from agent.research_roles import ALL_ROLES
 
         queue = ResearchQueue()
         due = queue.get_due_roles()
-        assert len(due) == len(ALL_ROLES) == 20
+        assert len(due) == len(ALL_ROLES) == 21
 
     def test_role_not_due_after_fire(self) -> None:
         """Marking a role as fired removes it from the due list immediately."""
         from core.agent.research_queue import ResearchQueue
+        from agent.research_roles import ALL_ROLES
 
         queue = ResearchQueue()
         queue.mark_fired("tech_watcher")
         due_ids = {r.role_id for r in queue.get_due_roles()}
         assert "tech_watcher" not in due_ids
-        # All other 19 roles should still be due.
-        assert len(due_ids) == 19
+        # All other roles should still be due.
+        assert len(due_ids) == len(ALL_ROLES) - 1
 
     def test_priority_quick_over_deep(self) -> None:
         """On a fresh queue, all quick-tier roles appear before all deep-tier roles."""
@@ -839,9 +840,10 @@ class TestSwarmCoordinator:
         assert not coord.is_alive()
 
     def test_generate_tasks_for_due_roles(self, tmp_path: Path) -> None:
-        """Calling _generate_tasks directly inserts one pending task per role (20 total)."""
+        """Calling _generate_tasks directly inserts one pending task per role."""
         from database import HistoryManager
         from core.agent.swarm import SwarmCoordinator
+        from agent.research_roles import ALL_ROLES
 
         config_path = tmp_path / "config.json"
         config_path.write_text(json.dumps({
@@ -860,4 +862,4 @@ class TestSwarmCoordinator:
         coord._generate_tasks(db)
 
         stats = db.get_research_task_stats()
-        assert stats.get("pending", 0) == 20
+        assert stats.get("pending", 0) == len(ALL_ROLES)

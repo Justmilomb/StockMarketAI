@@ -33,6 +33,12 @@ from core.agent.tools.watchlist_tools import WATCHLIST_TOOLS
 from core.agent.tools.research_tools import RESEARCH_TOOLS
 from core.agent.tools.forecast_tools import FORECAST_TOOLS
 from core.agent.tools.personality_tools import PERSONALITY_TOOLS
+from core.agent.tools.ensemble_tools import ENSEMBLE_TOOLS
+from core.agent.tools.sentiment_tools import SENTIMENT_TOOLS
+from core.agent.tools.insider_tools import INSIDER_TOOLS
+from core.agent.tools.alt_data_tools import ALT_DATA_TOOLS
+from core.agent.tools.execution_tools import EXECUTION_TOOLS
+from core.agent.tools.rl_tools import RL_TOOLS
 
 # query_grok is disabled — it drives Playwright/Chromium which is blocked
 # on some client machines and crashes the app when invoked. Keep the
@@ -58,6 +64,12 @@ ALL_TOOLS: List[Any] = [
     *RESEARCH_TOOLS,
     *FLOW_TOOLS,
     *FORECAST_TOOLS,
+    *ENSEMBLE_TOOLS,
+    *SENTIMENT_TOOLS,
+    *INSIDER_TOOLS,
+    *ALT_DATA_TOOLS,
+    *EXECUTION_TOOLS,
+    *RL_TOOLS,
     *PERSONALITY_TOOLS,
 ]
 
