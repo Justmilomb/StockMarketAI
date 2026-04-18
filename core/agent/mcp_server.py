@@ -36,6 +36,7 @@ from core.agent.tools.personality_tools import PERSONALITY_TOOLS
 from core.agent.tools.ensemble_tools import ENSEMBLE_TOOLS
 from core.agent.tools.sentiment_tools import SENTIMENT_TOOLS
 from core.agent.tools.insider_tools import INSIDER_TOOLS
+from core.agent.tools.alt_data_tools import ALT_DATA_TOOLS
 
 # query_grok is disabled — it drives Playwright/Chromium which is blocked
 # on some client machines and crashes the app when invoked. Keep the
@@ -64,6 +65,7 @@ ALL_TOOLS: List[Any] = [
     *ENSEMBLE_TOOLS,
     *SENTIMENT_TOOLS,
     *INSIDER_TOOLS,
+    *ALT_DATA_TOOLS,
     *PERSONALITY_TOOLS,
 ]
 
