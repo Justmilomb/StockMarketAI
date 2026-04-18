@@ -272,6 +272,14 @@ class AgentRunner(QThread):
         db = HistoryManager(self._db_path)
         risk = RiskManager(config=effective_config)
 
+        from core.trader_personality import TraderPersonality
+        personality_path = str(
+            agent_cfg.get("trader_personality_path")
+            or "data/trader_personality.json"
+        )
+        trader_personality = TraderPersonality(personality_path)
+        trader_personality.load()
+
         iteration_id = f"iter-{uuid.uuid4().hex[:8]}"
         init_agent_context(
             config=effective_config,
@@ -280,6 +288,7 @@ class AgentRunner(QThread):
             risk_manager=risk,
             iteration_id=iteration_id,
             paper_mode=paper_mode,
+            trader_personality=trader_personality,
         )
 
         self._tool_call_count = 0
