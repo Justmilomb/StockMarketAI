@@ -32,6 +32,7 @@ from core.agent.tools.strategy_backtest_tools import STRATEGY_BACKTEST_TOOLS
 from core.agent.tools.watchlist_tools import WATCHLIST_TOOLS
 from core.agent.tools.research_tools import RESEARCH_TOOLS
 from core.agent.tools.grok_tools import GROK_TOOLS
+from core.agent.tools.forecast_tools import FORECAST_TOOLS
 
 
 #: Every tool the agent sees this phase.
@@ -52,6 +53,7 @@ ALL_TOOLS: List[Any] = [
     *RESEARCH_TOOLS,
     *GROK_TOOLS,
     *FLOW_TOOLS,
+    *FORECAST_TOOLS,
 ]
 
 
