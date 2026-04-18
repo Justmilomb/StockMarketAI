@@ -92,20 +92,59 @@ class RiskManager:
     # Stop-loss / take-profit
     # ------------------------------------------------------------------
 
+    def regime_atr_multiplier(self, atr: float, price: float) -> float:
+        """Return an ATR-stop multiplier based on volatility regime.
+
+        Tier thresholds (ATR / price):
+            <  1.0%  → low vol     → 2.0×
+            <  2.5%  → mid vol     → 3.0×
+            >= 2.5%  → high vol    → 4.0×
+
+        Wider stops in high-vol regimes avoid being knocked out by noise
+        that isn't signal; tighter stops in low-vol regimes let us harvest
+        small moves without wasting risk budget.
+        """
+        if price <= 0 or atr <= 0:
+            return self._atr_stop_multiplier
+        ratio = atr / price
+        if ratio < 0.01:
+            return 2.0
+        if ratio < 0.025:
+            return 3.0
+        return 4.0
+
     def compute_stop_loss(
-        self, entry_price: float, atr: float, side: str = "BUY"
+        self, entry_price: float, atr: float, side: str = "BUY",
+        regime_adjust: bool = False,
     ) -> float:
-        """ATR-based stop-loss level."""
-        offset = atr * self._atr_stop_multiplier
+        """ATR-based stop-loss level.
+
+        When *regime_adjust* is True, use the volatility-regime multiplier
+        (2× / 3× / 4×) instead of the static ``atr_stop_multiplier``.
+        """
+        multiplier = (
+            self.regime_atr_multiplier(atr, entry_price)
+            if regime_adjust else self._atr_stop_multiplier
+        )
+        offset = atr * multiplier
         if side.upper() == "BUY":
             return round(entry_price - offset, 4)
         return round(entry_price + offset, 4)
 
     def compute_take_profit(
-        self, entry_price: float, atr: float, side: str = "BUY"
+        self, entry_price: float, atr: float, side: str = "BUY",
+        regime_adjust: bool = False,
     ) -> float:
-        """ATR-based take-profit level."""
-        offset = atr * self._atr_profit_multiplier
+        """ATR-based take-profit level.
+
+        When *regime_adjust* is True, the profit target widens with the
+        volatility regime too (1.5× the stop multiplier).
+        """
+        if regime_adjust:
+            multiplier = self.regime_atr_multiplier(atr, entry_price) * 1.5
+        else:
+            multiplier = self._atr_profit_multiplier
+        offset = atr * multiplier
         if side.upper() == "BUY":
             return round(entry_price + offset, 4)
         return round(entry_price - offset, 4)
@@ -270,9 +309,10 @@ class RiskManager:
         # Recompute exact dollar exposure
         position_dollars = shares * price
 
-        # Stop-loss and take-profit
-        stop_loss = self.compute_stop_loss(price, atr, side="BUY")
-        take_profit = self.compute_take_profit(price, atr, side="BUY")
+        # Stop-loss and take-profit — regime-adjusted so the multiplier
+        # widens in volatile names and stays tight in quiet ones.
+        stop_loss = self.compute_stop_loss(price, atr, side="BUY", regime_adjust=True)
+        take_profit = self.compute_take_profit(price, atr, side="BUY", regime_adjust=True)
 
         # Risk score: 0 = low risk, 1 = high risk.  Blend of inverse
         # confidence and ATR-relative-to-price (higher vol = higher risk).
