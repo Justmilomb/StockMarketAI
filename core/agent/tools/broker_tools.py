@@ -78,6 +78,26 @@ async def get_portfolio(args: Dict[str, Any]) -> Dict[str, Any]:
     positions = svc.get_positions()
     account = svc.get_account_info()
     currency = str(account.get("currency", "USD") or "USD").upper()
+
+    # Compute hold age per position so the prompt's min-hold floor
+    # has real data to reason against. Only the paper broker exposes
+    # position_entry_time today; live T212 will return None and the
+    # model should treat the field as unknown.
+    entry_lookup = getattr(getattr(svc, "broker", None), "position_entry_time", None)
+
+    def _hold_minutes(ticker: str) -> Any:
+        if not callable(entry_lookup):
+            return None
+        try:
+            ts = entry_lookup(ticker)
+        except Exception:
+            return None
+        if ts is None:
+            return None
+        from datetime import datetime, timezone
+        age = datetime.now(tz=timezone.utc) - ts
+        return round(age.total_seconds() / 60, 1)
+
     result = {
         "cash_free": float(account.get("free", 0.0)),
         "invested": float(account.get("invested", 0.0)),
@@ -104,6 +124,7 @@ async def get_portfolio(args: Dict[str, Any]) -> Dict[str, Any]:
                 "unrealised_pnl": float(p.get("unrealised_pnl", 0.0) or 0.0),
                 "unrealised_trading_pnl": float(p.get("unrealised_trading_pnl", 0.0) or 0.0),
                 "unrealised_fx_pnl": float(p.get("unrealised_fx_pnl", 0.0) or 0.0),
+                "hold_minutes": _hold_minutes(str(p.get("ticker", ""))),
             }
             for p in positions
         ],

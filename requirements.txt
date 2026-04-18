@@ -53,3 +53,8 @@ youtube-transcript-api>=0.6.2
 # powers the live finance-TV vision scraper that samples frames from the
 # 24/7 stream and asks a vision model what's on screen.
 yt-dlp>=2024.10.7
+
+# Kronos financial-candlestick foundation model (vendored under
+# core/kronos/ from github.com/shiyu-coder/Kronos, MIT licensed).
+# einops is the only runtime dep not already pulled in by torch.
+einops>=0.8.0

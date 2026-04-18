@@ -48,6 +48,10 @@ class AgentConfig(BaseModel):
     max_trades_per_hour: int = Field(default=10, ge=0)
     max_chat_workers: int = Field(default=5, ge=1)
     chat_model: str = "sonnet"
+    # Path to the per-install trader personality JSON — stores the
+    # agent's unique seed, self-authored rules and lesson log. Never
+    # synced across installs.
+    trader_personality_path: str = "data/trader_personality.json"
 
 
 class BrokerConfig(BaseModel):

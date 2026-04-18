@@ -17,6 +17,34 @@ single-user desktop trading terminal. You are the *only* decision-maker. There
 is no pre-computed pipeline, no ML ensemble, no consensus committee. Every
 read is a tool call; every trade is your call.
 
+## Your trader personality
+
+You are **{personality_name}**. Style: **{personality_archetype}**.
+Risk tolerance: **{personality_risk}**.
+This isn't a costume; it's who you *are* as a trader on this install.
+Every other copy of blank running somewhere else is a different trader
+with different instincts, and they'll make different calls than you.
+Trade like yourself.
+
+Initial traits (your starting disposition — you may grow past some of
+these as you learn): {personality_traits}.
+
+### Your rules (learned from your own experience)
+{personality_rules_block}
+
+### Recent lessons from your own trades
+{personality_lessons_block}
+
+You can read, add, and remove your own rules using `get_personality`,
+`list_rules`, `add_rule`, and `remove_rule`. You can record a lesson at
+any time with `add_lesson`. Rules are injected into this prompt every
+iteration; lessons are append-only and immortal. Use rules for durable
+preferences ("wait at least 30 minutes on airline dips before reacting")
+and lessons for single-trade reflections ("Panicked on JBLU -24p; it
+closed +8p the next day. Don't sell into the first red candle.").
+When reality contradicts a rule you wrote, remove it — it's not
+sacred. But don't churn them: you earn a rule by watching it work.
+
 ## Your job
 
 You are an **active swing / day trader**, not a passive portfolio manager.
@@ -263,6 +291,17 @@ returns the last `tail_rows` bars. Use this instead of mentally computing
 from raw bars — faster, cheaper, more accurate. Good for checking "is
 this oversold?" or "is MACD crossing up?" before sizing.
 
+**Forecast** — `forecast_candles(ticker, pred_minutes, interval)` runs
+the Kronos financial foundation model on recent intraday bars and
+returns predicted close / high / low arrays for the next N minutes,
+plus a summary (final_close, max_close, min_low, pct_move). Useful
+before every discretionary sell: if the predicted close at the end of
+the horizon is above your entry price, that's evidence the current
+move is a dip, not a trend break. Also useful before new entries: if
+the forecast trends *down* from here, wait. Pick `interval="5m"` for
+most intraday work; the model runs on CPU and takes a few seconds the
+first time (warm after that).
+
 **Strategy backtesting** — `backtest_strategy(ticker, entry_conditions,
 exit_conditions, stop_pct, target_pct, max_hold_days, lookback_days)`
 runs a rule-based strategy over historical data and returns Sharpe, win
@@ -348,14 +387,63 @@ what you'll check next. No preambles, no markdown headers, no bullet lists.
 """
 
 
-def render_system_prompt(config: Dict[str, Any]) -> str:
+def _format_personality_rules(personality: Any) -> str:
+    if personality is None:
+        return "(none yet — earn them by watching setups play out and writing them down)"
+    rules = getattr(personality, "active_rules", lambda: [])()
+    if not rules:
+        return "(none yet — earn them by watching setups play out and writing them down)"
+    lines = []
+    for i, r in enumerate(rules):
+        conf = r.get("confidence", "experimental")
+        lines.append(f"{i}. [{conf}] {r.get('rule', '')}")
+    return "\n".join(lines)
+
+
+def _format_personality_lessons(personality: Any) -> str:
+    if personality is None:
+        return "(none yet — record them with `add_lesson` after closing trades)"
+    lessons = getattr(personality, "recent_lessons", lambda n=10: [])(10)
+    if not lessons:
+        return "(none yet — record them with `add_lesson` after closing trades)"
+    lines = []
+    for l in lessons:
+        tags = l.get("tags") or []
+        tag_str = f" [{', '.join(tags)}]" if tags else ""
+        lines.append(f"- {l.get('lesson', '')}{tag_str}")
+    return "\n".join(lines)
+
+
+def render_system_prompt(
+    config: Dict[str, Any],
+    personality: Any | None = None,
+) -> str:
     """Fill the template with values from the ``agent`` config section."""
     agent_cfg = config.get("agent", {}) or {}
     paper_cfg = config.get("paper_broker", {}) or {}
+
+    if personality is not None:
+        seed = getattr(personality, "seed", None)
+        name = getattr(seed, "name", "Trader") if seed else "Trader"
+        archetype = getattr(seed, "archetype", "discretionary trader") if seed else "discretionary trader"
+        risk = getattr(seed, "risk_tolerance", "balanced") if seed else "balanced"
+        traits = getattr(seed, "initial_traits", []) if seed else []
+        traits_str = ", ".join(traits) if traits else "balanced, observant"
+    else:
+        name, archetype, risk, traits_str = (
+            "Trader", "discretionary trader", "balanced", "balanced, observant",
+        )
+
     return SYSTEM_PROMPT_AUTONOMOUS_PM_TEMPLATE.format(
         paper_mode="ON (no real money)" if agent_cfg.get("paper_mode", True) else "OFF (LIVE MONEY)",
         cadence_seconds=int(agent_cfg.get("cadence_seconds", 90)),
         currency=str(paper_cfg.get("currency", "GBP") or "GBP"),
+        personality_name=name,
+        personality_archetype=archetype,
+        personality_risk=risk,
+        personality_traits=traits_str,
+        personality_rules_block=_format_personality_rules(personality),
+        personality_lessons_block=_format_personality_lessons(personality),
     )
 
 

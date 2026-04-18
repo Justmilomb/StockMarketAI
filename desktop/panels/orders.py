@@ -35,7 +35,16 @@ class OrdersPanel(QGroupBox):
         self.refresh_view(state)
 
     def refresh_view(self, state: Any) -> None:
-        orders = (state.recent_orders or [])[:_MAX_ROWS]
+        raw = state.recent_orders or []
+        # Defence in depth: the broker should already have hidden RESET
+        # rows and cancelled-qty-0 entries, but if an unexpected audit
+        # shape leaks in, render nothing rather than a blank red "SELL".
+        orders = [
+            o for o in raw
+            if isinstance(o, dict)
+            and str(o.get("ticker", "")).strip()
+            and str(o.get("side", "")).strip().upper() in ("BUY", "SELL")
+        ][:_MAX_ROWS]
         self.table.setRowCount(len(orders))
         for row, order in enumerate(orders):
             side = order.get("side", "")
@@ -46,7 +55,7 @@ class OrdersPanel(QGroupBox):
                 status_color = "#00ff00"
             elif status_upper in ("CANCELLED", "REJECTED", "FAILED"):
                 status_color = "#ff0000"
-            elif status_upper in ("PENDING", "NEW", "WORKING", "ACCEPTED"):
+            elif status_upper in ("PENDING", "NEW", "WORKING", "ACCEPTED", "QUEUED"):
                 status_color = "#ffd700"
             else:
                 status_color = "#aaaaaa"

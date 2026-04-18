@@ -272,6 +272,14 @@ class AgentRunner(QThread):
         db = HistoryManager(self._db_path)
         risk = RiskManager(config=effective_config)
 
+        from core.trader_personality import TraderPersonality
+        personality_path = str(
+            agent_cfg.get("trader_personality_path")
+            or "data/trader_personality.json"
+        )
+        trader_personality = TraderPersonality(personality_path)
+        trader_personality.load()
+
         iteration_id = f"iter-{uuid.uuid4().hex[:8]}"
         init_agent_context(
             config=effective_config,
@@ -280,6 +288,7 @@ class AgentRunner(QThread):
             risk_manager=risk,
             iteration_id=iteration_id,
             paper_mode=paper_mode,
+            trader_personality=trader_personality,
         )
 
         self._tool_call_count = 0
@@ -327,7 +336,7 @@ class AgentRunner(QThread):
             delete=False, encoding="utf-8",
         )
         try:
-            prompt_file.write(render_system_prompt(effective_config))
+            prompt_file.write(render_system_prompt(effective_config, personality=trader_personality))
             prompt_file.close()
             system_prompt_ref: Dict[str, str] = {
                 "type": "file",
@@ -457,6 +466,13 @@ class AgentRunner(QThread):
                 )
             except Exception as e:
                 logger.warning("assessor stage failed: %s", e)
+            try:
+                await self._run_reflector(
+                    personality=trader_personality,
+                    config=effective_config,
+                )
+            except Exception as e:
+                logger.warning("reflector stage failed: %s", e)
             clear_agent_context()
             try:
                 os.unlink(prompt_file.name)
@@ -512,6 +528,29 @@ class AgentRunner(QThread):
                 )
         except Exception as e:
             logger.warning("failed to persist assessor review: %s", e)
+
+    async def _run_reflector(
+        self,
+        personality: Any,
+        config: Dict[str, Any],
+    ) -> None:
+        """Turn newly-closed trades into personality lessons.
+
+        Reads the paper-broker audit log, updates win/loss stats, and
+        (when the assessor model is configured) asks Claude for one
+        lesson per closed trade. Purely advisory — never blocks.
+        """
+        if personality is None:
+            return
+        paper_cfg = config.get("paper_broker", {}) or {}
+        audit_path = str(paper_cfg.get("audit_path") or "logs/paper_orders.jsonl")
+
+        from core.trade_reflector import reflect_on_closed_trades
+        written = await reflect_on_closed_trades(audit_path, personality, config)
+        if written:
+            self.log_line.emit(
+                f"[reflector] wrote {written} lesson(s) from closed trades",
+            )
 
     def _write_last_iteration_summary(
         self,
