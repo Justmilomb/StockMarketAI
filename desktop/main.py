@@ -128,6 +128,82 @@ def _apply_remote_config(remote_cfg: dict[str, str]) -> None:
         logger.info("Remote config applied to local config.json")
 
 
+def _start_telemetry(*, server_url: str) -> None:
+    """Initialise the telemetry collector + uploader.
+
+    Reads the live ``telemetry`` block from ``config.json`` and the
+    stored licence key from disk. A disabled telemetry config or a
+    missing licence key short-circuits without starting anything.
+    """
+    import json
+
+    from core import telemetry
+    from core.telemetry.hooks import TelemetryLogHandler
+    from core.telemetry.machine_id import get_machine_id
+    from core.telemetry.uploader import TelemetryUploader
+    from desktop.license import _read_stored_key
+    from desktop.paths import user_data_dir
+
+    config_path = Path("config.json")
+    try:
+        with config_path.open("r", encoding="utf-8") as f:
+            raw_cfg = json.load(f)
+    except Exception:
+        raw_cfg = {}
+
+    t_cfg = raw_cfg.get("telemetry") or {}
+    enabled = bool(t_cfg.get("enabled", True))
+    if not enabled:
+        logger.info("telemetry disabled in config — skipping bootstrap")
+        return
+
+    licence_key = (_read_stored_key() or "").strip()
+    if not licence_key:
+        logger.info("no licence key on disk — telemetry will not upload")
+        return
+
+    # Default to the licence/admin server host if the telemetry endpoint
+    # isn't explicitly configured. The server exposes /api/telemetry on
+    # the same origin, so we just append the path.
+    endpoint = str(
+        t_cfg.get("endpoint")
+        or (server_url.rstrip("/") + "/api/telemetry"),
+    )
+
+    data_dir = user_data_dir()
+    db_path = data_dir / "data" / "telemetry.db"
+    machine_id = get_machine_id(data_dir)
+
+    collector = telemetry.init(
+        db_path=db_path,
+        machine_id=machine_id,
+        licence_key=licence_key,
+        endpoint=endpoint,
+        enabled=True,
+        max_queue_size=int(t_cfg.get("max_queue_size", 100_000)),
+    )
+
+    uploader = TelemetryUploader(
+        collector,
+        upload_hour=int(t_cfg.get("upload_hour", 3)),
+        batch_size=int(t_cfg.get("batch_size", 500)),
+    )
+    uploader.start()
+    collector.attach_uploader(uploader)
+
+    # Route WARNING+ records into the error_log event stream so crashes
+    # can be correlated with the preceding agent actions. The handler
+    # is installed once globally.
+    handler = TelemetryLogHandler()
+    root = logging.getLogger()
+    root.addHandler(handler)
+
+    logger.info(
+        "telemetry started (endpoint=%s machine_id=%s)",
+        endpoint, machine_id,
+    )
+
+
 def launch(mode: str | None = None) -> None:
     """Launch the blank desktop app.
 
@@ -264,6 +340,15 @@ def launch(mode: str | None = None) -> None:
 
     _apply_remote_config(remote_cfg)
 
+    # ── Telemetry bootstrap ──────────────────────────────────────────
+    # Start the collector + uploader now so scraper / agent / chat hooks
+    # can emit from the moment MainWindow comes up. Failures here must
+    # never block the app — telemetry is optional.
+    try:
+        _start_telemetry(server_url=server_url)
+    except Exception as exc:
+        logger.warning("telemetry bootstrap failed: %s", exc)
+
     # ── Splash screen ────────────────────────────────────────────────
     from desktop.design import BG, TEXT, TEXT_DIM, TEXT_MID, GLOW, FONT_FAMILY
 
@@ -327,6 +412,18 @@ def launch(mode: str | None = None) -> None:
         maybe_start_tour(window)
     except Exception as exc:
         logger.warning("Onboarding tour failed to start: %s", exc)
+
+    # Flush telemetry on graceful exit so the last session's events are
+    # shipped before the uploader thread is joined.
+    def _on_about_to_quit() -> None:
+        try:
+            from core import telemetry
+            telemetry.flush()
+            telemetry.close()
+        except Exception:
+            pass
+
+    app.aboutToQuit.connect(_on_about_to_quit)
 
     _run_loop = getattr(app, "exec")
     sys.exit(_run_loop())

@@ -56,6 +56,8 @@ from typing import Any, Dict, List, Optional
 
 from PySide6.QtCore import QThread, Signal
 
+from core.telemetry import hooks as telemetry_hooks
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_WAKE_PROMPT: str = (
@@ -393,6 +395,10 @@ class AgentRunner(QThread):
                                 "input": block.input,
                                 "iteration_id": iteration_id,
                             })
+                            telemetry_hooks.record_tool_use(
+                                iteration_id, block.name or "",
+                                block.input if isinstance(block.input, dict) else {},
+                            )
                             args_preview = self._truncate(
                                 json.dumps(block.input, default=str), 160,
                             )
@@ -411,6 +417,10 @@ class AgentRunner(QThread):
                                     "is_error": bool(block.is_error),
                                     "iteration_id": iteration_id,
                                 })
+                                telemetry_hooks.record_tool_result(
+                                    iteration_id, preview,
+                                    is_error=bool(block.is_error),
+                                )
                                 tag = "err" if block.is_error else "ok"
                                 self.log_line.emit(
                                     f"[result:{tag}] {self._truncate(preview, 200)}",
@@ -452,10 +462,19 @@ class AgentRunner(QThread):
                 summary=summary,
             )
             self.iteration_finished.emit(iteration_id, summary)
+            iter_duration = time.monotonic() - start
+            telemetry_hooks.record_iteration_finished(
+                iteration_id, summary,
+                tool_call_count=self._tool_call_count,
+                trade_count=self._trade_count,
+                duration_seconds=iter_duration,
+                model_id=model_id,
+                effort=str(effort),
+            )
             self.log_line.emit(
                 f"[runner] iteration {iteration_id} done "
                 f"({self._tool_call_count} tool calls, "
-                f"{time.monotonic() - start:.1f}s)",
+                f"{iter_duration:.1f}s)",
             )
             try:
                 await self._run_assessor(
@@ -506,6 +525,13 @@ class AgentRunner(QThread):
             return
 
         colour = {"good": "ok", "mediocre": "warn", "bad": "err"}.get(review.grade, "warn")
+        telemetry_hooks.record_assessor_review(
+            iteration_id,
+            grade=str(review.grade),
+            one_line=str(review.one_line),
+            concerns=list(review.concerns or []),
+            follow_ups=list(review.follow_ups or []),
+        )
         self.log_line.emit(
             f"[rev:{colour}] {review.grade.upper()} — {review.one_line}",
         )

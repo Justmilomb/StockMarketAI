@@ -297,6 +297,14 @@
     "vwap_slices_per_hour": 4,
     "twap_slices_per_hour": 6
   },
+  "telemetry": {
+    "enabled": true,
+    "upload_hour": 3,
+    "endpoint": "https://stockmarketai-3qhs.onrender.com/api/telemetry",
+    "max_queue_size": 100000,
+    "batch_size": 500,
+    "include_chat": true
+  },
   "active_asset_class": "stocks",
   "enabled_asset_classes": [
     "stocks"

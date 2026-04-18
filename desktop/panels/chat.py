@@ -7,7 +7,7 @@ render with hairline white-alpha borders, no coloured grade tags.
 from __future__ import annotations
 from typing import Any
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import QGroupBox, QLineEdit, QTextEdit, QVBoxLayout
+from PySide6.QtWidgets import QGroupBox, QLabel, QLineEdit, QTextEdit, QVBoxLayout
 
 from desktop import tokens as T
 
@@ -112,6 +112,22 @@ class ChatPanel(QGroupBox):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(6, 20, 6, 6)
         layout.setSpacing(8)
+
+        # Standing warning: anonymised transcripts ship to the blank
+        # server nightly for model training. Users must see this every
+        # time they open the chat — not buried in the EULA.
+        self._warning = QLabel(
+            "chats are used to improve blank. do not share personal "
+            "information here."
+        )
+        self._warning.setWordWrap(True)
+        self._warning.setStyleSheet(
+            f"QLabel {{ color: {T.WARN}; background: transparent;"
+            f" border: 1px solid {T.BORDER_0}; padding: 6px 10px;"
+            f" font-family: {T.FONT_MONO}; font-size: 10px;"
+            f" letter-spacing: 1px; }}"
+        )
+        layout.addWidget(self._warning)
 
         self._messages = QTextEdit()
         self._messages.setReadOnly(True)

@@ -132,6 +132,30 @@ def _init_db(conn: psycopg2.extensions.connection) -> None:
                 filled_at TIMESTAMPTZ,
                 expires_at TIMESTAMPTZ NOT NULL
             );
+            -- Anonymised telemetry events — one row per event the
+            -- desktop client shipped in its nightly batch. ``payload``
+            -- is the raw event JSON, already scrubbed of PII on the
+            -- client side. ``session_id`` stitches events from one
+            -- app run together; ``machine_id`` stitches sessions from
+            -- the same install.
+            CREATE TABLE IF NOT EXISTS telemetry_events (
+                id BIGSERIAL PRIMARY KEY,
+                license_key TEXT NOT NULL,
+                machine_id TEXT NOT NULL,
+                session_id TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                client_created_at DOUBLE PRECISION NOT NULL,
+                payload JSONB NOT NULL,
+                received_at TIMESTAMPTZ DEFAULT NOW()
+            );
+            CREATE INDEX IF NOT EXISTS idx_telemetry_license
+                ON telemetry_events(license_key);
+            CREATE INDEX IF NOT EXISTS idx_telemetry_machine
+                ON telemetry_events(machine_id);
+            CREATE INDEX IF NOT EXISTS idx_telemetry_type
+                ON telemetry_events(event_type);
+            CREATE INDEX IF NOT EXISTS idx_telemetry_received
+                ON telemetry_events(received_at);
         """)
         # Additive migration for databases that pre-date scheduled releases.
         # Must run before creating the scheduled_at index — if the table already
@@ -1187,6 +1211,108 @@ def ingest_logs(
             )
     conn.commit()
     return {"status": "ok", "count": str(len(body.entries))}
+
+
+# ── Telemetry ingest ─────────────────────────────────────────────────────
+
+# Hard cap on the number of events a single POST can deliver. Matches
+# the desktop uploader's DEFAULT_BATCH_SIZE so a mis-behaving client
+# can't overwhelm the database in one shot.
+_TELEMETRY_MAX_EVENTS_PER_BATCH = 1000
+
+
+@app.post("/api/telemetry")
+async def ingest_telemetry(
+    request: Request,
+    x_licence_key: str = Header("", alias="X-Licence-Key"),
+    x_machine_id: str = Header("", alias="X-Machine-Id"),
+    content_encoding: str = Header("", alias="Content-Encoding"),
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> dict[str, Any]:
+    """Receive a nightly gzipped batch of anonymised events.
+
+    The desktop client ships a JSON body of shape::
+
+        {"machine_id": "...", "events": [
+            {"event_type": "...", "session_id": "...",
+             "created_at": 1.7e9, "payload": {...}},
+            ...
+        ]}
+
+    gzipped. The licence key in the ``X-Licence-Key`` header is
+    validated against the ``licenses`` table — an unknown key gets 403
+    so the client stops wasting bandwidth retrying a stale key.
+    """
+    licence_key = (x_licence_key or "").strip()
+    if not licence_key:
+        raise HTTPException(status_code=401, detail="missing X-Licence-Key")
+
+    with conn.cursor() as cur:
+        cur.execute("SELECT id FROM licenses WHERE key = %s", (licence_key,))
+        row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=403, detail="invalid licence key")
+
+    raw_body = await request.body()
+    if content_encoding.lower() == "gzip":
+        import gzip as _gzip
+        try:
+            raw_body = _gzip.decompress(raw_body)
+        except Exception:
+            raise HTTPException(status_code=400, detail="invalid gzip body")
+
+    try:
+        parsed = json.loads(raw_body.decode("utf-8"))
+    except Exception:
+        raise HTTPException(status_code=400, detail="invalid json body")
+
+    events = parsed.get("events") or []
+    if not isinstance(events, list):
+        raise HTTPException(status_code=400, detail="events must be a list")
+    if len(events) > _TELEMETRY_MAX_EVENTS_PER_BATCH:
+        raise HTTPException(
+            status_code=413,
+            detail=f"too many events in one batch (>{_TELEMETRY_MAX_EVENTS_PER_BATCH})",
+        )
+
+    # Machine id: prefer the header, fall back to body — this matches
+    # the client which sends both, so a minor version mismatch can't
+    # drop the whole batch.
+    machine_id = (x_machine_id or parsed.get("machine_id") or "").strip()
+    if not machine_id:
+        raise HTTPException(status_code=400, detail="missing machine_id")
+
+    inserted = 0
+    with conn.cursor() as cur:
+        for e in events:
+            if not isinstance(e, dict):
+                continue
+            event_type = str(e.get("event_type") or "").strip()
+            if not event_type:
+                continue
+            session_id = str(e.get("session_id") or "")
+            try:
+                created_at = float(e.get("created_at") or 0.0)
+            except (TypeError, ValueError):
+                created_at = 0.0
+            payload = e.get("payload") or {}
+            try:
+                cur.execute(
+                    "INSERT INTO telemetry_events "
+                    "(license_key, machine_id, session_id, event_type, "
+                    " client_created_at, payload) "
+                    "VALUES (%s, %s, %s, %s, %s, %s)",
+                    (
+                        licence_key, machine_id, session_id,
+                        event_type, created_at,
+                        psycopg2.extras.Json(payload),
+                    ),
+                )
+                inserted += 1
+            except Exception as exc:
+                logger.warning("telemetry insert failed: %s", exc)
+    conn.commit()
+    return {"status": "ok", "accepted": inserted}
 
 
 # ── Admin: stats ─────────────────────────────────────────────────────────
