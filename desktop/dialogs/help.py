@@ -27,10 +27,6 @@ HELP_TEXT = """
 <tr><td style="color:#00ff00;">E</td><td>Browse instruments</td></tr>
 <tr><td style="color:#00ff00;">L</td><td>Lock/unlock ticker (protect from auto-trade)</td></tr>
 <tr><td style="color:#00ff00;">B</td><td>About Blank</td></tr>
-<tr><td style="color:#00ff00;">M</td><td>Main menu (mode selector)</td></tr>
-<tr><td style="color:#00ff00;">1</td><td>Switch to Stocks</td></tr>
-<tr><td style="color:#00ff00;">2</td><td>Switch to Polymarket</td></tr>
-<tr><td style="color:#00ff00;">3</td><td>Switch to Crypto</td></tr>
 </table>
 """
 

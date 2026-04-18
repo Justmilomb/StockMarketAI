@@ -139,6 +139,7 @@ class _Order:
     def to_dict(self) -> Dict[str, Any]:
         return {
             "order_id": self.order_id,
+            "id": self.order_id,
             "ticker": self.ticker,
             "side": self.side,
             "quantity": self.quantity,
@@ -148,6 +149,7 @@ class _Order:
             "reserved_cash": self.reserved_cash,
             "created_at": self.created_at,
             "queue_reason": self.queue_reason,
+            "status": "PENDING",
         }
 
     @classmethod
@@ -936,7 +938,13 @@ class PaperBroker(Broker):
         limit: int = 50,
         cursor: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Read recent fills from the JSONL audit log (newest first)."""
+        """Read recent audit rows, newest-first, collapsed per order_id.
+
+        Skips RESET housekeeping rows (they carry no ticker/side and
+        would render as blank red "SELL" entries in the orders panel)
+        and keeps only the latest status per order_id — a BUY that
+        was QUEUED and then FILLED must not show up twice.
+        """
         if not self._audit_path.exists():
             return {"items": [], "next_cursor": None}
         try:
@@ -944,15 +952,62 @@ class PaperBroker(Broker):
                 lines = f.readlines()
         except Exception:
             return {"items": [], "next_cursor": None}
+
+        seen_ids: set[str] = set()
         items: List[Dict[str, Any]] = []
         for line in reversed(lines):
             line = line.strip()
             if not line:
                 continue
             try:
-                items.append(json.loads(line))
+                row = json.loads(line)
             except Exception:
                 continue
+            if str(row.get("status", "")).upper() == "RESET":
+                continue
+            if not row.get("ticker") or not row.get("side"):
+                continue
+            oid = str(row.get("order_id") or "")
+            if oid and oid in seen_ids:
+                continue
+            if oid:
+                seen_ids.add(oid)
+            items.append(row)
             if len(items) >= limit:
                 break
         return {"items": items, "next_cursor": None}
+
+    def position_entry_time(self, ticker: str) -> Optional[datetime]:
+        """Return the timestamp of the most recent BUY fill for *ticker*.
+
+        Reads the audit log newest-first and stops at the first
+        matching FILLED BUY. The agent's exit logic uses this to
+        measure how long a position has been open so it can honour
+        the ``min_hold_minutes`` floor from config.
+        """
+        if not self._audit_path.exists():
+            return None
+        try:
+            with self._audit_path.open("r", encoding="utf-8") as f:
+                lines = f.readlines()
+        except Exception:
+            return None
+        for line in reversed(lines):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                row = json.loads(line)
+            except Exception:
+                continue
+            if (str(row.get("ticker", "")) == ticker
+                    and str(row.get("side", "")).upper() == "BUY"
+                    and str(row.get("status", "")).upper() == "FILLED"):
+                ts = row.get("timestamp")
+                if not ts:
+                    continue
+                try:
+                    return datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+                except Exception:
+                    continue
+        return None

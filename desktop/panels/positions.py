@@ -1,22 +1,37 @@
-"""Positions panel — holdings table with position notes (patient chart)."""
+"""Positions panel — holdings table.
+
+Shows only what the agent-native pipeline actually populates: ticker,
+quantity, average entry price, current price, and unrealised P/L.
+The legacy Strategy / Regime / Held / Intent columns were removed
+when the ``position_notes`` table stopped being written to — they
+were rendering ``--`` on every row.
+"""
 from __future__ import annotations
-from datetime import datetime
 from typing import Any
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QGroupBox, QHeaderView, QTableWidget, QTableWidgetItem, QVBoxLayout
 
-COLUMNS = ["Ticker", "Qty", "Avg Px", "Cur Px", "PnL", "Strategy", "Regime", "Held", "Intent"]
+COLUMNS = ["Ticker", "Qty", "Avg Px", "Cur Px", "PnL"]
 
-STRATEGY_COLORS = {
-    "conservative": "#888888",
-    "day_trader": "#00ff00",
-    "swing": "#ffd700",
-    "crisis_alpha": "#ff0000",
-    "trend_follower": "#00bfff",
-    "scalper": "#ff00ff",
-    "intraday_momentum": "#ff8c00",
+#: Currency symbol lookup for the prices column. Kept in-panel to avoid
+#: a core-agent import from the UI layer. GBX (UK pence) is the odd one
+#: out — Trading 212 quotes some LSE names in pence, so we divide by
+#: 100 and render in pounds so the user doesn't read "7820" as £7,820.
+_CURRENCY_SYMBOLS: dict[str, str] = {
+    "USD": "$", "GBP": "£", "EUR": "€", "JPY": "¥", "CHF": "CHF ",
+    "CAD": "C$", "AUD": "A$", "NZD": "NZ$", "HKD": "HK$", "SGD": "S$",
+    "SEK": "kr ", "NOK": "kr ", "DKK": "kr ", "PLN": "zł ",
+    "GBX": "£",
 }
+
+
+def _format_price(value: float, currency: str) -> str:
+    ccy = (currency or "").strip().upper()
+    if ccy == "GBX":
+        return f"£{value / 100:.2f}"
+    symbol = _CURRENCY_SYMBOLS.get(ccy, "")
+    return f"{symbol}{value:.2f}"
 
 
 class PositionsPanel(QGroupBox):
@@ -37,7 +52,6 @@ class PositionsPanel(QGroupBox):
 
     def refresh_view(self, state: Any) -> None:
         positions = state.positions or []
-        notes = getattr(state, "position_notes", {})
         self.table.setRowCount(len(positions))
         for row, pos in enumerate(positions):
             ticker = pos.get("ticker", "")
@@ -50,46 +64,24 @@ class PositionsPanel(QGroupBox):
             except (TypeError, ValueError):
                 pnl = 0.0
 
-            # Position notes (patient chart)
-            note = notes.get(ticker, {})
-            strategy = note.get("strategy_profile", "--")
-            regime = note.get("regime_at_entry", "--")
-            intended = note.get("intended_hold", "--")
-            held = _days_held(note.get("opened_at", ""))
-
-            strat_color = STRATEGY_COLORS.get(strategy, "#888888")
+            # Trading 212 returns the native quote currency per instrument
+            # (e.g. TSLA in USD, VUKG.L in GBX). Fall back to USD when the
+            # field is missing so we at least get a $ symbol on US names.
+            native_ccy = str(
+                pos.get("native_currency")
+                or pos.get("currency")
+                or "USD",
+            ).upper()
 
             items = [
                 _item(ticker, "#00bfff"),
                 _item(f"{qty:.4f}", "#ffd700"),
-                _item(f"{avg_px:.2f}", "#ffd700"),
-                _item(f"{cur_px:.2f}", "#ffd700"),
+                _item(_format_price(avg_px, native_ccy), "#ffd700"),
+                _item(_format_price(cur_px, native_ccy), "#ffd700"),
                 _item(f"{pnl:+.2f}", "#00ff00" if pnl >= 0 else "#ff0000"),
-                _item(strategy, strat_color),
-                _item(regime, "#aaaaaa"),
-                _item(held, "#aaaaaa"),
-                _item(intended, "#aaaaaa"),
             ]
             for col, item in enumerate(items):
-                # Tooltip with full entry reason on the ticker cell
-                if col == 0 and note.get("entry_reason"):
-                    item.setToolTip(note["entry_reason"])
                 self.table.setItem(row, col, item)
-
-
-def _days_held(opened_at: str) -> str:
-    """Compute human-readable time held from an ISO timestamp."""
-    if not opened_at:
-        return "--"
-    try:
-        opened = datetime.fromisoformat(opened_at)
-        delta = datetime.now() - opened
-        if delta.days > 0:
-            return f"{delta.days}d"
-        hours = delta.seconds // 3600
-        return f"{hours}h" if hours > 0 else "<1h"
-    except (ValueError, TypeError):
-        return "--"
 
 
 def _item(text: str, color: str) -> QTableWidgetItem:

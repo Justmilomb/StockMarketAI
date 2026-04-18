@@ -1,23 +1,35 @@
-"""News panel — sentiment summaries and headlines."""
+"""Information panel — news sentiment, market news, and research findings.
+
+Three sections render top-down:
+
+1. **WATCHLIST SENTIMENT** — per-ticker aggregate mood from the news
+   agent, plus up to three representative headlines. Only rendered when
+   the news agent has produced scored data for a ticker.
+2. **AGENT RESEARCH** — latest findings submitted by the research swarm,
+   one per iteration-cycle. Shows role, ticker (or ``MKT`` when the
+   finding is market-wide / discovery), confidence, and the short
+   headline. Colour-coded by the finding type / confidence.
+3. **MARKET NEWS** — the raw scraper cache, with a VADER sentiment
+   badge prepended to each row so the user can triage at a glance.
+"""
 from __future__ import annotations
 
 from datetime import datetime, timezone
 from html import escape
-from typing import Any, List
+from typing import Any, List, Optional
 
 from PySide6.QtWidgets import QGroupBox, QTextEdit, QVBoxLayout
 
 
 class NewsPanel(QGroupBox):
     def __init__(self, state: Any) -> None:
-        super().__init__("NEWS")
+        super().__init__("INFORMATION")
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 16, 4, 4)
         self._text = QTextEdit()
         self._text.setReadOnly(True)
         layout.addWidget(self._text)
         self._news_available = self._check_dependencies()
-        self._ai_available = True
         self.refresh_view(state)
 
     def _check_dependencies(self) -> bool:
@@ -28,13 +40,10 @@ class NewsPanel(QGroupBox):
         except ImportError:
             return False
 
-    def set_ai_available(self, available: bool) -> None:
-        """Update whether the AI backend is reachable."""
-        self._ai_available = available
-
     def refresh_view(self, state: Any) -> None:
         sentiment = state.news_sentiment or {}
         market_news: List[dict] = list(getattr(state, "market_news", []) or [])
+        findings: List[dict] = list(getattr(state, "research_findings", []) or [])
 
         if not self._news_available:
             self._text.setHtml(
@@ -44,21 +53,16 @@ class NewsPanel(QGroupBox):
             )
             return
 
-        if not sentiment and not market_news:
-            if not self._ai_available:
-                self._text.setHtml(
-                    '<p style="color:#ff5555; font-weight:bold;">AI UNAVAILABLE</p>'
-                    '<p style="color:#888888;">AI engine is offline -- news '
-                    'sentiment is disabled.</p>'
-                    '<p style="color:#555555;">See the setup wizard or '
-                    'help.blank.app/setup.</p>'
-                )
-            else:
-                self._text.setHtml(
-                    '<p style="color:#ffb000;">Waiting for news data...</p>'
-                    '<p style="color:#555555;">Scraper runner fills this within '
-                    'a minute of startup. Press N to force a sentiment refresh.</p>'
-                )
+        # Scraper runner + agent research swarm fill these three sources.
+        # Both spin up asynchronously at launch, so the empty-state wait
+        # banner is the honest answer here; there is no "AI engine" to
+        # be offline any more.
+        if not sentiment and not market_news and not findings:
+            self._text.setHtml(
+                '<p style="color:#ffb000;">Waiting for news data...</p>'
+                '<p style="color:#555555;">Scraper runner fills this within '
+                'a minute of startup. Press N to force a sentiment refresh.</p>'
+            )
             return
 
         html_parts: List[str] = []
@@ -92,10 +96,62 @@ class NewsPanel(QGroupBox):
                         f'<p style="color:#888888;margin-left:12px;">- {escape(str(title))}</p>'
                     )
 
+        swarm_status = getattr(state, "swarm_status", None) or {}
+        swarm_running = bool(swarm_status.get("running"))
+
+        if findings or swarm_running:
+            html_parts.append(
+                '<p style="color:#ff8c00;font-weight:bold;margin-top:8px;">'
+                'AGENT RESEARCH</p>'
+            )
+        if not findings and swarm_running:
+            active = int(swarm_status.get("active_workers", 0) or 0)
+            ran = int(swarm_status.get("total_tasks_run", 0) or 0)
+            html_parts.append(
+                f'<p style="color:#888888;margin-left:4px;">'
+                f'Swarm running — {active} active workers, {ran} tasks run. '
+                f'Findings land here once workers complete.</p>'
+            )
+        if findings:
+            for f in findings[:8]:
+                role = str(f.get("role", ""))[:14]
+                ticker = str(f.get("ticker") or "MKT")[:8]
+                try:
+                    conf = int(f.get("confidence_pct", 0) or 0)
+                except (TypeError, ValueError):
+                    conf = 0
+                headline = str(f.get("headline", "")).strip()
+                if not headline:
+                    continue
+                finding_type = str(f.get("finding_type", "")).lower()
+                headline_display = headline[:120] + ("…" if len(headline) > 120 else "")
+                conf_color = (
+                    "#00ff00" if conf >= 75
+                    else "#ffd700" if conf >= 55
+                    else "#888888"
+                )
+                type_color = {
+                    "alert": "#ff5555",
+                    "opportunity": "#00ff00",
+                    "risk": "#ff8c00",
+                    "insight": "#00bfff",
+                }.get(finding_type, "#aaaaaa")
+                rel = _relative_time(f.get("created_at"))
+                html_parts.append(
+                    f'<p style="margin-left:4px;">'
+                    f'<span style="color:#888888;">[{escape(role)}]</span> '
+                    f'<span style="color:#00bfff;font-weight:bold;">{escape(ticker)}</span> '
+                    f'<span style="color:{conf_color};">{conf}%</span> '
+                    f'<span style="color:{type_color};">{escape(finding_type or "--")}</span> '
+                    f'<span style="color:#666666;">{escape(rel)}</span> '
+                    f'<span style="color:#cccccc;">{escape(headline_display)}</span>'
+                    f'</p>'
+                )
+
         if market_news:
-            # Smaller appendix when we also have per-ticker sentiment,
-            # full-width primary view when we don't.
-            appendix = bool(sentiment)
+            # Shrink the market-news section when other sections are also
+            # showing so the overall panel doesn't scroll off the screen.
+            appendix = bool(sentiment or findings)
             header_size = "10px" if appendix else "11px"
             limit = 8 if appendix else 15
             html_parts.append(
@@ -109,9 +165,14 @@ class NewsPanel(QGroupBox):
                     continue
                 title_display = title[:140] + ("…" if len(title) > 140 else "")
                 rel = _relative_time(item.get("ts") or item.get("fetched_at"))
+                badge_html = _sentiment_badge(
+                    item.get("sentiment_score"),
+                    item.get("sentiment_label"),
+                )
                 html_parts.append(
                     f'<p style="color:#888888;margin-left:4px;">'
                     f'<span style="color:#00bfff;">[{escape(src)}]</span> '
+                    f'{badge_html}'
                     f'<span style="color:#666666;">{escape(rel)}</span> '
                     f'<span style="color:#cccccc;">{escape(title_display)}</span>'
                     f'</p>'
@@ -120,14 +181,32 @@ class NewsPanel(QGroupBox):
         self._text.setHtml("".join(html_parts))
 
 
+def _sentiment_badge(score: Any, label: Optional[str]) -> str:
+    """Return an inline HTML span for the sentiment badge or empty string."""
+    if score is None:
+        return ""
+    try:
+        s = float(score)
+    except (TypeError, ValueError):
+        return ""
+    # Colour matches the threshold logic in _sentiment.py.
+    if s > 0.1:
+        color = "#00ff00"
+    elif s < -0.1:
+        color = "#ff0000"
+    else:
+        color = "#888888"
+    return f'<span style="color:{color};">[{s:+.2f}]</span> '
+
+
 def _relative_time(ts: Any) -> str:
     """Return a short relative-time label like '12m' / '3h' / '2d'.
 
-    The scraper_items table stores timestamps as ISO strings (either the
-    RSS-parsed ``ts`` or SQLite's ``fetched_at`` default). We parse
-    loosely and fall back to an empty string on anything weird — the
-    caller renders the label alongside the title, so an empty string
-    just means "no timestamp" rather than breaking the layout.
+    The scraper_items and research_findings tables both store timestamps
+    as ISO strings (either the RSS-parsed ``ts``, SQLite's ``fetched_at``
+    default, or ``created_at``). Parses loosely and falls back to an
+    empty string on anything weird — the caller renders the label
+    alongside the title, so empty = "no timestamp" rather than broken.
     """
     if not ts:
         return ""
@@ -135,7 +214,6 @@ def _relative_time(ts: Any) -> str:
     if not s:
         return ""
     try:
-        # Accept both "2026-04-15T10:03:00+00:00" and "2026-04-15 10:03:00"
         parsed = datetime.fromisoformat(s.replace("Z", "+00:00").replace(" ", "T"))
     except ValueError:
         return ""

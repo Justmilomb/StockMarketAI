@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ subject|e }}</title>
+</head>
+<body style="margin:0;padding:0;background:#000000;font-family:'Outfit','Inter',Arial,sans-serif;color:#ffffff;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#000000;">
+    <tr><td align="center" style="padding:40px 16px 16px;">
+      <table role="presentation" width="560" cellspacing="0" cellpadding="0" border="0" style="max-width:560px;width:100%;background:#050505;border:1px solid rgba(255,255,255,0.08);">
+        <tr><td style="padding:32px 32px 16px;border-bottom:1px solid rgba(255,255,255,0.08);">
+          <div style="font-family:'JetBrains Mono','Consolas',monospace;color:#00ff87;font-size:12px;letter-spacing:0.25em;text-transform:uppercase;">blank</div>
+          <div style="color:rgba(255,255,255,0.32);font-size:11px;margin-top:4px;">certified random</div>
+        </td></tr>
+        <tr><td style="padding:28px 32px 32px;">
+          {% block content %}{% endblock %}
+        </td></tr>
+        <tr><td style="padding:20px 32px 28px;border-top:1px solid rgba(255,255,255,0.08);color:rgba(255,255,255,0.32);font-size:11px;line-height:1.6;">
+          Sent to {{ recipient|e }}.
+          {% if unsubscribe_url %}
+            <a href="{{ unsubscribe_url|e }}" style="color:rgba(255,255,255,0.6);">Unsubscribe</a>.
+          {% endif %}
+          <br>© Certified Random. blank is an autonomous AI trading terminal. Trading involves risk of loss.
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>

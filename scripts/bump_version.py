@@ -6,7 +6,7 @@ blank's version lives in four places that must stay in lockstep:
    reports; used by ``UpdateService`` for semver comparison)
 2. ``version_info.py`` — Windows VERSIONINFO resource baked into the
    PyInstaller build so Explorer shows the right version on the .exe
-3. ``installer/bloomberg.iss`` — Inno Setup's ``AppVersion`` used in
+3. ``installer/blank.iss`` — Inno Setup's ``AppVersion`` used in
    the Control Panel "Apps" list and the installer wizard
 4. ``server/app.py`` — the ``/api/version`` fallback string returned
    when the ``releases`` table is empty (keeps in-flight v1 clients
@@ -92,7 +92,7 @@ def _bump_version_info(version: str) -> bool:
 
 
 def _bump_installer(version: str) -> bool:
-    path = ROOT / "installer" / "bloomberg.iss"
+    path = ROOT / "installer" / "blank.iss"
     old = _read(path)
     new = _sub_once(old, r"AppVersion=[^\r\n]+", f"AppVersion={version}", path)
     return _write_if_changed(path, old, new)

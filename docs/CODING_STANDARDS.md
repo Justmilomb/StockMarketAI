@@ -10,7 +10,7 @@
 | Constants | UPPER_SNAKE | `FEATURE_COLUMNS`, `DEFAULT_DATA_DIR` |
 | Booleans | `is_`/`has_`/`_loaded` | `_model_loaded`, `is_active` |
 | Private members | `_leading_underscore` | `_config_cache`, `_broker` |
-| Dataclass configs | `{System}Config` | `ModelConfig`, `StrategyConfig`, `ClaudeConfig` |
+| Dataclass configs | `{System}Config` | `ModelConfig`, `StrategyConfig`, `AIConfig` |
 
 ## File Organisation
 

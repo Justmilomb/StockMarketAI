@@ -75,8 +75,8 @@ the full history — everything before 2026-04-09 is legacy.
   autoconfig), added `agent-runner.md` and `scrapers.md`, rewrote
   `desktop-app.md`
 - [x] `website/index.html` copy updated to the "autonomous AI trader"
-  story (`claude drives · news & social 24/7 · bloomberg-dark ui`)
-- [x] `installer/bloomberg.spec` hiddenimports cleaned (dropped 16
+  story (`claude drives · news & social 24/7 · terminal-dark ui`)
+- [x] `installer/blank.spec` hiddenimports cleaned (dropped 16
   deleted ML modules, added `core.agent.*`, `core.scrapers.*`,
   `claude_agent_sdk`)
 - [x] `build.bat` produces `dist/blank.exe` successfully (291 MB);
@@ -127,7 +127,7 @@ tests** — 2026-04-14
   market-hours + backtesting; standing rule #9 telling Claude to call
   `get_market_status` early and use it to drive
   `next_check_in_minutes` when the markets are closed.
-- [x] `desktop/panels/exchanges.py` — Bloomberg-style MARKETS panel
+- [x] `desktop/panels/exchanges.py` — terminal-style MARKETS panel
   (QGroupBox + QTableWidget + 30s QTimer) showing 13 venues with
   OPEN/CLOSED/local time/next transition/positions count. Wired
   into `desktop/app.py` MainWindow, included in the stocks dock
@@ -140,13 +140,112 @@ tests** — 2026-04-14
   bucketing, and `end_iteration` mutating runner signals. All 12
   green. Combined with `test_browser_tools.py` the agent test suite
   is 22 tests, ~7 s.
-- [x] `installer/bloomberg.spec` hiddenimports updated for
+- [x] `installer/blank.spec` hiddenimports updated for
   `core.market_hours`, `core.agent.tools.market_hours_tools`,
   `core.agent.tools.backtest_tools`, `desktop.panels.exchanges`.
 
+**Rebuild Phase 9 — Opus 4.7 upgrade, transcript scraper, UI polish** — 2026-04-16
+- [x] `config.json` — `ai` block rewritten with plain-string model IDs
+  (no base64), supervisor pinned to `claude-opus-4-7`, workers to
+  `claude-opus-4-7` / `claude-sonnet-4-6` / `claude-haiku-4-5-20251001`,
+  plus `effort_supervisor=max` / `effort_decision=high` /
+  `effort_info=medium` / `effort_research_deep=high` /
+  `effort_research_quick=medium`.
+- [x] `core/agent/model_router.py` — added `supervisor_effort`,
+  `decision_effort`, `info_effort`, `chat_worker_effort`,
+  `research_effort` accessors; `_coerce_effort` validator enforces
+  the SDK's `low|medium|high|max` literal.
+- [x] `core/agent/runner.py` / `chat_worker.py` / `research_worker.py`
+  — pass `effort=<tier>` through to `ClaudeAgentOptions`; logged in
+  the startup log_line.
+- [x] `core/agent/tools/watchlist_tools.py` — extracted
+  `add_to_watchlist_sync` plain helper; MCP tool calls it.
+- [x] `core/agent/tools/broker_tools.py` — `place_order` auto-adds
+  the ticker to the watchlist on successful BUY, never blocks the
+  order on a watchlist failure.
+- [x] `core/agent/prompts.py` — "Small capital, small wins" section
+  (£200 accounts, pennies = wins, bank 0.5–2 % gains); "Operating
+  mode" updated for the new 45 s default cadence.
+- [x] `config.json` — `cadence_seconds: 90 → 45`.
+- [x] `desktop/panels/positions.py` — currency-aware `_format_price`
+  (`$` / `£` / `€`, GBX → £ via /100).
+- [x] `desktop/panels/orders.py` — 6-column rewrite, 200-row cap,
+  coloured `Status` column (FILLED / PENDING / CANCELLED / REJECTED).
+- [x] `desktop/app.py` — `get_order_history(limit=200)`;
+  `state.research_findings` populated via
+  `history_manager.get_research_findings`.
+- [x] `desktop/panels/watchlist.py` — removed Verdict / Signal /
+  AI Rec / Consensus columns and the dead `compute_verdict` helper;
+  7 columns now (Ticker, Live Px, Day %, Prob, Conf, Sentiment,
+  Strategy).
+- [x] `core/database.py` — schema migration: `sentiment_score REAL`
+  and `sentiment_label TEXT` on `scraper_items`; included in
+  `save_scraper_items` / `get_scraper_items`.
+- [x] `core/scrapers/_sentiment.py` — VADER-based `score_text` +
+  `score_item`, thresholds ±0.1 → bullish / bearish / neutral.
+- [x] `core/scrapers/runner.py` — scores every item before save.
+- [x] `core/agent/tools/news_tools.py` — `_row_to_public` returns
+  `sentiment_score` + `sentiment_label` to the agent.
+- [x] `desktop/panels/news.py` — full rewrite: WATCHLIST SENTIMENT,
+  AGENT RESEARCH (role / ticker-or-MKT / confidence / type /
+  relative time / headline, colour-coded), MARKET NEWS with a
+  per-item VADER badge.
+- [x] `core/agent/prompts_research.py` — rule #5 allows findings for
+  unknown tickers and `ticker=null` market-wide signals, capped at
+  60 % confidence.
+- [x] `core/agent/research_roles.py` — new `market_scanner` deep
+  role (Sonnet tier, 600 s cadence, `default_tickers=False`).
+- [x] `core/scrapers/youtube_transcripts.py` +
+  `_transcript_summariser.py` — new transcript scraper: @markets
+  channel recent uploads + 24/7 live-stream rolling window,
+  Haiku-summarised with a regex-extractive fallback.
+- [x] `core/scrapers/__init__.py` — `YouTubeTranscriptsScraper`
+  registered in `SCRAPERS`.
+- [x] `requirements.txt` — `vaderSentiment>=3.3.2`,
+  `youtube-transcript-api>=0.6.2`.
+
+**Rebuild Phase 10 — Prediction & profitability upgrade** — 2026-04-18
+- [x] `core/forecasting/` — Chronos-2, TimesFM, TFT wrappers + XGBoost
+  meta-learner + `run_ensemble` orchestrator. All forecasters are lazy
+  singletons and never raise — a missing dependency returns
+  `{"error": ...}` and the meta-learner drops that backend.
+- [x] `core/agent/tools/ensemble_tools.py` — `forecast_ensemble` MCP
+  tool blending Kronos + Chronos + TimesFM + TFT in one call, returns
+  `meta.prob_up` / `meta.direction` / `meta.expected_move_pct` and a
+  per-forecaster availability map.
+- [x] `core/nlp/finbert.py` + `core/agent/tools/sentiment_tools.py` —
+  FinBERT compound scoring and the `finbert_ticker_sentiment` tool
+  that compares model inference vs StockTwits bull/bear tags and
+  surfaces the `disagreement` gap.
+- [x] Regime-aware ATR stops in `core/risk_manager.py`
+  (`regime_atr_multiplier` → 2× / 3× / 4× by ATR/price ratio,
+  `regime_adjust=True` default in `assess_position`).
+- [x] `core/scrapers/sec_insider.py` — SEC Form 4 Atom feed parser
+  (regex, no new deps) + `core/scrapers/options_flow.py` — yfinance
+  option-chain heuristic (`vol/oi > 3.0` AND `vol >= 200`).
+- [x] `core/agent/tools/insider_tools.py` — `recent_insider_trades` and
+  `unusual_options_activity` tools with bullish/bearish/neutral bias.
+- [x] `core/alt_data/analyst_revisions.py` +
+  `analyst_revision_momentum` tool — recommendation velocity, EPS
+  revision slope, and analyst price-target snapshot.
+- [x] `core/execution/vwap.py` + `plan_vwap_twap` MCP tool — TWAP and
+  VWAP slice planners against the UTC 14:30–21:00 US session with a
+  U-shape intraday profile.
+- [x] `core/rl/finrl_scaffold.py` + `rl_portfolio_allocation` seam —
+  regime-aware equal-weight cold-start allocator with rebalance
+  cadence (bull 72 h / neutral 48 h / bear 24 h / crisis 6 h).
+- [x] `core/finetune/terminal_finetune.py` — paper-broker audit log
+  scanner emitting a training manifest, `should_retrain` gate
+  (20 new trades OR 7 days).
+- [x] `core/config_schema.py` + `config.json` — new `forecasting`,
+  `nlp`, `execution` sections.
+- [x] `docs/systems/forecasting.md` + `docs/systems/nlp.md` +
+  `docs/ARCHITECTURE.md` — owner map + payload docs updated.
+
 ### Up Next
 
-- [ ] (none currently — Phase 8 closed out the post-Phase-7 backlog)
+- [ ] (none currently — Phase 10 closes this round of prediction and
+  profitability upgrades)
 
 (Crypto + polymarket restore is deferred indefinitely; dormant code
 stays bundled in the installer but is not exposed to the agent.)

@@ -1,7 +1,7 @@
-"""AgentRunner — QThread that drives the Claude agent loop.
+"""AgentRunner — QThread that drives the AI agent loop.
 
-Phase 4 of the Claude-native rebuild. One fresh Claude Code subprocess
-per iteration, streamed through the claude-agent-sdk ``query()`` helper.
+Phase 4 of the agent-native rebuild. One fresh AI subprocess per
+iteration, streamed through the agent SDK ``query()`` helper.
 No tool-call or wall-clock budget is enforced here any more — the
 agent runs each iteration until the model calls ``end_iteration`` (or
 the user hits stop). The earlier caps kept being hit mid-thought and
@@ -37,9 +37,9 @@ can retune cadence / caps live without restarting the app.
 """
 from __future__ import annotations
 
-# Must import the subprocess patch before claude_agent_sdk so the SDK
-# binds to the Windows-no-console launchers. Importing this package
-# normally also runs the patch via __init__.py, but the explicit import
+# Must import the subprocess patch before the agent SDK so it binds to
+# the Windows-no-console launchers. Importing this package normally
+# also runs the patch via __init__.py, but the explicit import
 # documents the dependency and survives __init__.py refactors.
 from . import subprocess_patch  # noqa: F401
 
@@ -47,6 +47,7 @@ import asyncio
 import json
 import logging
 import sqlite3
+import tempfile
 import time
 import uuid
 from datetime import datetime, timezone
@@ -64,7 +65,7 @@ DEFAULT_WAKE_PROMPT: str = (
 )
 
 #: Hard floor on cadence — the agent cannot run more than this often,
-#: regardless of config, to protect the Claude subscription quota.
+#: regardless of config, to protect the AI subscription quota.
 CADENCE_FLOOR_SECONDS: int = 30
 
 #: Upper bound on how many journal-tail lines we keep in memory so the
@@ -105,6 +106,7 @@ class AgentRunner(QThread):
         self._trade_count: int = 0
         self._watchlist_add_count: int = 0
         self._last_action_desc: str = ""
+        self._agent_requested_wait_minutes: int = 0
 
         # Lifetime iteration counter (increments each iteration).
         self._iter_count: int = 0
@@ -159,6 +161,7 @@ class AgentRunner(QThread):
 
     async def _main_loop(self) -> None:
         while not self._stop_requested:
+            self._agent_requested_wait_minutes = 0
             try:
                 await self._run_one_iteration()
             except asyncio.CancelledError:
@@ -170,7 +173,9 @@ class AgentRunner(QThread):
 
             if self._stop_requested:
                 break
-            await self._sleep_with_interrupt(self._compute_wait_seconds())
+            await self._sleep_with_interrupt(
+                self._compute_wait_seconds(self._agent_requested_wait_minutes),
+            )
 
     # ── iteration plumbing ───────────────────────────────────────────
 
@@ -180,7 +185,15 @@ class AgentRunner(QThread):
         # see paper_mode=True, regardless of what's on disk.
         return self._pool._load_config()
 
-    def _compute_wait_seconds(self) -> float:
+    def _compute_wait_seconds(self, agent_requested_minutes: int = 0) -> float:
+        """Compute sleep duration, respecting the agent's end_iteration request.
+
+        If the agent called end_iteration(next_check_in_minutes=N), that
+        value is used (converted to seconds and clamped to the cadence
+        floor). Otherwise falls back to the configured cadence_seconds.
+        """
+        if agent_requested_minutes > 0:
+            return float(max(CADENCE_FLOOR_SECONDS, agent_requested_minutes * 60))
         try:
             cfg = self._load_config()
             cadence = int(cfg.get("agent", {}).get("cadence_seconds", 90))
@@ -222,7 +235,7 @@ class AgentRunner(QThread):
         # Lazy-import so that importing this module does not force the
         # SDK + tool bus to resolve at app startup (cheaper boot, and a
         # missing SDK fails the agent loop rather than the whole app).
-        from claude_agent_sdk import (
+        from core.agent._sdk import (
             AssistantMessage,
             ClaudeAgentOptions,
             ResultMessage,
@@ -242,7 +255,7 @@ class AgentRunner(QThread):
             allowed_tool_names,
             build_mcp_server,
         )
-        from core.agent.model_router import supervisor_model
+        from core.agent.model_router import supervisor_effort, supervisor_model
         from core.agent.paths import (
             cli_path_for_sdk,
             prepare_env_for_bundled_engine,
@@ -259,6 +272,14 @@ class AgentRunner(QThread):
         db = HistoryManager(self._db_path)
         risk = RiskManager(config=effective_config)
 
+        from core.trader_personality import TraderPersonality
+        personality_path = str(
+            agent_cfg.get("trader_personality_path")
+            or "data/trader_personality.json"
+        )
+        trader_personality = TraderPersonality(personality_path)
+        trader_personality.load()
+
         iteration_id = f"iter-{uuid.uuid4().hex[:8]}"
         init_agent_context(
             config=effective_config,
@@ -267,6 +288,7 @@ class AgentRunner(QThread):
             risk_manager=risk,
             iteration_id=iteration_id,
             paper_mode=paper_mode,
+            trader_personality=trader_personality,
         )
 
         self._tool_call_count = 0
@@ -274,34 +296,67 @@ class AgentRunner(QThread):
         self._watchlist_add_count = 0
         self._last_action_desc = ""
         self._iter_count += 1
+        transcript_lines: list[str] = []
         prompt_text = self._build_iteration_prompt()
 
-        # The supervisor is the autonomous trade decider — always Opus.
-        # Chat workers get the lighter Sonnet tier for info-retrieval
-        # questions via core.agent.model_router.chat_worker_model.
+        # The supervisor is the autonomous trade decider — always the
+        # heaviest tier. Chat workers get the lighter tier for
+        # info-retrieval questions via model_router.chat_worker_model.
         model_id = supervisor_model(effective_config)
+        effort = supervisor_effort(effective_config)
 
         self.iteration_started.emit(iteration_id)
         self.log_line.emit(
             f"[runner] iteration {iteration_id} "
-            f"(paper={paper_mode}, model={model_id}, no caps)",
+            f"(paper={paper_mode}, model={model_id}, effort={effort}, no caps)",
         )
 
         mcp_server = build_mcp_server()
-        # Bundled engine: on a frozen install the Claude CLI ships
+        # Bundled engine: on a frozen install the AI engine ships
         # next to blank.exe; we point the SDK straight at it so
-        # system PATH never decides which CLI gets spawned. In dev
-        # both helpers become no-ops and the SDK uses whatever
-        # ``claude`` is on PATH.
+        # system PATH never decides which engine gets spawned. In dev
+        # cli_path_for_sdk resolves the system claude so the SDK
+        # doesn't fall back to a stale bundled copy.
         prepare_env_for_bundled_engine()
+        resolved_cli = cli_path_for_sdk()
+        self.log_line.emit(f"[runner] cli={resolved_cli or '(sdk default)'}")
+
+        stderr_lines: list[str] = []
+
+        def _on_stderr(line: str) -> None:
+            logger.warning("claude stderr: %s", line)
+            stderr_lines.append(line)
+
+        # Write the system prompt to a temp file so the CLI arg stays
+        # short — Windows caps the command line at ~32k chars, and the
+        # full prompt + MCP config + allowed-tools list easily exceeds
+        # that when passed inline via --system-prompt.
+        prompt_file = tempfile.NamedTemporaryFile(
+            mode="w", suffix=".txt", prefix="blank_prompt_",
+            delete=False, encoding="utf-8",
+        )
+        try:
+            prompt_file.write(render_system_prompt(effective_config, personality=trader_personality))
+            prompt_file.close()
+            system_prompt_ref: Dict[str, str] = {
+                "type": "file",
+                "path": prompt_file.name,
+            }
+        except Exception:
+            prompt_file.close()
+            os.unlink(prompt_file.name)
+            raise
+
         options = ClaudeAgentOptions(
-            system_prompt=render_system_prompt(effective_config),
+            system_prompt=system_prompt_ref,  # type: ignore[arg-type]
             mcp_servers={SERVER_NAME: mcp_server},
             allowed_tools=allowed_tool_names(),
             permission_mode="bypassPermissions",
             model=model_id,
+            effort=effort,  # type: ignore[arg-type]
             cwd=str(self._config_path.parent),
-            cli_path=cli_path_for_sdk(),
+            cli_path=resolved_cli,
+            stderr=_on_stderr,
         )
 
         start = time.monotonic()
@@ -318,7 +373,8 @@ class AgentRunner(QThread):
                     for block in message.content:
                         if isinstance(block, TextBlock):
                             self.text_chunk.emit(block.text)
-                            self.log_line.emit(f"[claude] {block.text}")
+                            self.log_line.emit(f"[ai] {block.text}")
+                            transcript_lines.append(f"[thought] {block.text}")
                         elif isinstance(block, ToolUseBlock):
                             self._tool_call_count += 1
                             tool_name = block.name or ""
@@ -341,6 +397,9 @@ class AgentRunner(QThread):
                                 json.dumps(block.input, default=str), 160,
                             )
                             self.log_line.emit(f"[tool] {block.name}({args_preview})")
+                            transcript_lines.append(
+                                f"[tool] {short_name}({args_preview})"
+                            )
                 elif isinstance(message, UserMessage):
                     content = message.content
                     if isinstance(content, list):
@@ -355,6 +414,9 @@ class AgentRunner(QThread):
                                 tag = "err" if block.is_error else "ok"
                                 self.log_line.emit(
                                     f"[result:{tag}] {self._truncate(preview, 200)}",
+                                )
+                                transcript_lines.append(
+                                    f"[result:{tag}] {self._truncate(preview, 400)}"
                                 )
                 elif isinstance(message, ResultMessage):
                     if message.is_error:
@@ -371,12 +433,18 @@ class AgentRunner(QThread):
                     pass
         except Exception as e:
             logger.exception("Query stream failed")
-            self.error_occurred.emit(f"query failed: {e}")
+            detail = str(e)
+            if stderr_lines:
+                detail += " | stderr: " + " ".join(stderr_lines[-5:])
+            self.error_occurred.emit(f"query failed: {detail}")
         finally:
-            # Pull the summary the agent wrote via end_iteration, if any.
+            # Pull the summary + requested sleep the agent wrote via
+            # end_iteration, if any — must happen before clear_agent_context.
             try:
                 from core.agent.context import get_agent_context
-                summary = get_agent_context().end_summary or ""
+                ctx = get_agent_context()
+                summary = ctx.end_summary or ""
+                self._agent_requested_wait_minutes = ctx.next_wait_minutes
             except Exception:
                 summary = ""
             self._write_last_iteration_summary(
@@ -389,7 +457,100 @@ class AgentRunner(QThread):
                 f"({self._tool_call_count} tool calls, "
                 f"{time.monotonic() - start:.1f}s)",
             )
+            try:
+                await self._run_assessor(
+                    iteration_id=iteration_id,
+                    transcript_lines=transcript_lines,
+                    summary=summary,
+                    config=effective_config,
+                )
+            except Exception as e:
+                logger.warning("assessor stage failed: %s", e)
+            try:
+                await self._run_reflector(
+                    personality=trader_personality,
+                    config=effective_config,
+                )
+            except Exception as e:
+                logger.warning("reflector stage failed: %s", e)
             clear_agent_context()
+            try:
+                os.unlink(prompt_file.name)
+            except Exception:
+                pass
+
+    async def _run_assessor(
+        self,
+        iteration_id: str,
+        transcript_lines: List[str],
+        summary: str,
+        config: Dict[str, Any],
+    ) -> None:
+        """Grade the just-finished iteration and write the review to the journal.
+
+        Purely advisory — never blocks the next iteration. A disabled
+        assessor (empty ``ai.model_assessor``) short-circuits in
+        :func:`core.agent.assessor.run_assessor`.
+        """
+        if not transcript_lines and not summary:
+            return
+
+        from core.agent.assessor import run_assessor
+
+        transcript = "\n".join(transcript_lines)
+        if summary:
+            transcript += f"\n\n[end_iteration summary]\n{summary}"
+
+        review = await run_assessor(transcript, config)
+        if review is None:
+            return
+
+        colour = {"good": "ok", "mediocre": "warn", "bad": "err"}.get(review.grade, "warn")
+        self.log_line.emit(
+            f"[rev:{colour}] {review.grade.upper()} — {review.one_line}",
+        )
+        for c in review.concerns:
+            self.log_line.emit(f"[rev] concern: {c}")
+        for f in review.follow_ups:
+            self.log_line.emit(f"[rev] follow-up: {f}")
+
+        try:
+            with sqlite3.connect(self._db_path) as conn:
+                conn.execute(
+                    "INSERT INTO agent_journal (iteration_id, kind, payload, tags) "
+                    "VALUES (?, ?, ?, ?)",
+                    (
+                        iteration_id,
+                        "assessor_review",
+                        review.to_json(),
+                        review.grade,
+                    ),
+                )
+        except Exception as e:
+            logger.warning("failed to persist assessor review: %s", e)
+
+    async def _run_reflector(
+        self,
+        personality: Any,
+        config: Dict[str, Any],
+    ) -> None:
+        """Turn newly-closed trades into personality lessons.
+
+        Reads the paper-broker audit log, updates win/loss stats, and
+        (when the assessor model is configured) asks Claude for one
+        lesson per closed trade. Purely advisory — never blocks.
+        """
+        if personality is None:
+            return
+        paper_cfg = config.get("paper_broker", {}) or {}
+        audit_path = str(paper_cfg.get("audit_path") or "logs/paper_orders.jsonl")
+
+        from core.trade_reflector import reflect_on_closed_trades
+        written = await reflect_on_closed_trades(audit_path, personality, config)
+        if written:
+            self.log_line.emit(
+                f"[reflector] wrote {written} lesson(s) from closed trades",
+            )
 
     def _write_last_iteration_summary(
         self,

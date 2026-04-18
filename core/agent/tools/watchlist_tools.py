@@ -10,7 +10,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any, Dict
 
-from claude_agent_sdk import tool
+from core.agent._sdk import tool
 
 from core.agent.context import get_agent_context
 
@@ -70,6 +70,41 @@ async def get_watchlist(args: Dict[str, Any]) -> Dict[str, Any]:
     return _text_result({"watchlist": name, "tickers": tickers})
 
 
+def add_to_watchlist_sync(
+    ticker: str,
+    reason: str = "",
+    tool_tag: str = "add_to_watchlist",
+) -> Dict[str, Any]:
+    """Plain helper used by both the MCP tool and other tools (place_order).
+
+    Returns a dict shaped like ``{"status": ..., "ticker": ..., "watchlist": ...}``
+    so callers can log the outcome without parsing the MCP text envelope.
+    Never raises — a failure is reported as ``status == "error"``.
+    """
+    ticker = str(ticker or "").strip()
+    if not ticker:
+        return {"status": "rejected", "reason": "ticker is required"}
+
+    try:
+        wl_root = _watchlists_root()
+        name = _active_watchlist_name()
+        tickers = list(wl_root.get(name, []) or [])
+        if ticker in tickers:
+            return {"status": "noop", "reason": "already on watchlist",
+                    "ticker": ticker, "watchlist": name}
+        tickers.append(ticker)
+        wl_root[name] = tickers
+        _save_config()
+        _journal(
+            "watchlist_add",
+            {"tool": tool_tag, "ticker": ticker, "reason": reason, "watchlist": name},
+            tags=["watchlist"],
+        )
+        return {"status": "added", "ticker": ticker, "watchlist": name}
+    except Exception as e:
+        return {"status": "error", "reason": str(e), "ticker": ticker}
+
+
 @tool(
     "add_to_watchlist",
     "Add a ticker to the active watchlist. Supply a short reason for the journal.",
@@ -78,23 +113,8 @@ async def get_watchlist(args: Dict[str, Any]) -> Dict[str, Any]:
 async def add_to_watchlist(args: Dict[str, Any]) -> Dict[str, Any]:
     ticker = str(args.get("ticker", "")).strip()
     reason = str(args.get("reason", ""))
-    if not ticker:
-        return _text_result({"status": "rejected", "reason": "ticker is required"})
-
-    wl_root = _watchlists_root()
-    name = _active_watchlist_name()
-    tickers = list(wl_root.get(name, []) or [])
-    if ticker in tickers:
-        return _text_result({"status": "noop", "reason": "already on watchlist"})
-    tickers.append(ticker)
-    wl_root[name] = tickers
-    _save_config()
-    _journal(
-        "watchlist_add",
-        {"tool": "add_to_watchlist", "ticker": ticker, "reason": reason, "watchlist": name},
-        tags=["watchlist"],
-    )
-    return _text_result({"status": "added", "ticker": ticker, "watchlist": name})
+    result = add_to_watchlist_sync(ticker, reason=reason, tool_tag="add_to_watchlist")
+    return _text_result(result)
 
 
 @tool(

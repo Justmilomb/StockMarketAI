@@ -49,21 +49,22 @@ def _check_ai_engine() -> bool:
     """Return True if an AI engine is available to the app.
 
     Prefers the installer-bundled engine (``{app}/engine/``). Falls
-    back to a system ``claude`` on PATH so dev installs without a
-    built engine dir still pass the check. The wizard never asks the
-    user to install anything — if both are missing it's a corrupted
+    back to checking system PATH so dev installs without a built
+    engine dir still pass the check. The wizard never asks the user
+    to install anything — if both are missing it's a corrupted
     install, not a step the user can fix by typing.
     """
     try:
-        from core.agent.paths import engine_available
+        from core.agent.paths import engine_available, bundled_engine_cmd
         if engine_available():
             return True
     except Exception:
         pass
 
+    # Dev fallback: try whatever engine is on PATH.
     try:
         subprocess.run(
-            ["claude", "--version"],
+            ["blank-ai", "--version"],
             capture_output=True, text=True, timeout=10,
             **_SUBPROCESS_FLAGS,
         )

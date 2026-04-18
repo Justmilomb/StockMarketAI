@@ -1,4 +1,4 @@
-"""Risk tools for the Claude agent.
+"""Risk tools for the AI agent.
 
 ``size_position`` is the only risk tool exposed to the agent. It delegates
 to RiskManager.assess_position and computes ATR from recent daily bars
@@ -20,7 +20,7 @@ import json
 from datetime import datetime, timedelta
 from typing import Any, Dict
 
-from claude_agent_sdk import tool
+from core.agent._sdk import tool
 
 from core.agent.context import get_agent_context
 from fx import fx_rate, ticker_currency

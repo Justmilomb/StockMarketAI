@@ -1,0 +1,18 @@
+{% extends "_layout.html.j2" %}
+{% block content %}
+<div style="font-family:'JetBrains Mono',monospace;color:#00ff87;font-size:11px;letter-spacing:0.25em;text-transform:uppercase;margin-bottom:8px;">markets closed</div>
+<h1 style="font-size:26px;font-weight:200;margin:0 0 16px;">the week in review, {{ name|e }}.</h1>
+<p style="color:rgba(255,255,255,0.6);font-size:13px;line-height:1.6;margin:0 0 24px;font-family:'JetBrains Mono',monospace;">
+{{ period_start|e }} &mdash; {{ period_end|e }}
+</p>
+<div style="border-top:1px solid rgba(255,255,255,0.08);padding-top:20px;">
+{% for item in highlights %}
+  <div style="padding:14px 0;border-bottom:1px solid rgba(255,255,255,0.06);color:rgba(255,255,255,0.8);font-size:14px;line-height:1.65;">
+    <span style="color:#00ff87;font-family:'JetBrains Mono',monospace;font-size:11px;margin-right:10px;">&bull;</span>{{ item|e }}
+  </div>
+{% endfor %}
+</div>
+<p style="color:rgba(255,255,255,0.5);font-size:13px;line-height:1.6;margin:24px 0 0;">
+Markets reopen on the next business day. blank picks up where it left off.
+</p>
+{% endblock %}

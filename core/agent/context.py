@@ -1,6 +1,6 @@
 """Runtime context for the agent tool bus.
 
-The @tool decorator from claude-agent-sdk requires module-level async
+The @tool decorator from the agent SDK requires module-level async
 functions whose only parameter is a dict of arguments. Those functions
 still need access to stateful resources — broker, database, config,
 risk manager — so we park them in a context variable that each agent
@@ -60,6 +60,7 @@ class AgentContext:
     next_wait_minutes: int = 0
     end_summary: str = ""
     stats: Dict[str, int] = field(default_factory=dict)
+    trader_personality: Optional[Any] = None
 
 
 _context: ContextVar[Optional[AgentContext]] = ContextVar(
@@ -74,6 +75,7 @@ def init_agent_context(
     risk_manager: RiskManager,
     iteration_id: str = "",
     paper_mode: bool = True,
+    trader_personality: Optional[Any] = None,
 ) -> AgentContext:
     """Bind an agent context to the current asyncio task / thread.
 
@@ -89,6 +91,7 @@ def init_agent_context(
         risk_manager=risk_manager,
         iteration_id=iteration_id,
         paper_mode=paper_mode,
+        trader_personality=trader_personality,
     )
     _context.set(ctx)
     return ctx

@@ -1,4 +1,4 @@
-"""Market data tools for the Claude agent.
+"""Market data tools for the AI agent.
 
 Routing:
     * held ticker → Trading 212 ``currentPrice`` (live)
@@ -22,7 +22,7 @@ import os
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
-from claude_agent_sdk import tool
+from core.agent._sdk import tool
 
 from core.agent.context import get_agent_context
 
@@ -255,13 +255,23 @@ async def search_instrument(args: Dict[str, Any]) -> Dict[str, Any]:
             "note": "instrument catalogue unavailable — check T212 credentials",
         })
 
+    # Split query into individual words so "rolls royce" matches
+    # "Rolls-Royce Holdings" and "gbx leverage" matches instruments
+    # where both words appear in the name/ticker. Strip hyphens and
+    # other punctuation from the searchable text so hyphenated names
+    # (Rolls-Royce, Hims & Hers) match plain-word queries.
+    query_words = query.split()
+
     matches: List[Dict[str, Any]] = []
     for i in instruments:
         if not isinstance(i, dict):
             continue
         ticker = str(i.get("ticker", "")).lower()
         name = str(i.get("name", "")).lower()
-        if query in ticker or query in name:
+        # Normalise: replace common separators with spaces so
+        # "rolls-royce" becomes "rolls royce" for matching.
+        searchable = f"{ticker} {name}".replace("-", " ").replace("&", " ")
+        if all(w in searchable for w in query_words):
             matches.append({
                 "ticker": i.get("ticker", ""),
                 "name": i.get("name", ""),

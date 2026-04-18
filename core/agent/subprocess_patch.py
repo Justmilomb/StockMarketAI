@@ -1,7 +1,7 @@
 """Hide subprocess console windows on Windows.
 
-The Claude Agent SDK launches the AI engine via ``anyio.open_process``
-which on Windows pops a black console window for every spawn. This is
+The agent SDK launches the AI engine via ``anyio.open_process`` which
+on Windows pops a black console window for every spawn. This is
 visible to the user as flashing terminals every time the supervisor
 wakes or the chat worker sends a message.
 
@@ -9,9 +9,9 @@ The fix: monkey-patch both ``anyio.open_process`` and
 ``subprocess.Popen.__init__`` to inject ``CREATE_NO_WINDOW`` into the
 subprocess creation flags whenever the caller didn't set one.
 
-This module must be imported *before* ``claude_agent_sdk`` so the
-patched launchers are in place by the time the SDK opens its first
-subprocess. Importing it on non-Windows is a no-op.
+This module must be imported *before* the agent SDK so the patched
+launchers are in place by the time the SDK opens its first subprocess.
+Importing it on non-Windows is a no-op.
 """
 from __future__ import annotations
 

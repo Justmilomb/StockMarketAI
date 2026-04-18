@@ -1,6 +1,6 @@
 """Main window for the Blank desktop application.
 
-Implements the Bloomberg-style dockable layout, wires up the broker
+Implements the terminal-style dockable layout, wires up the broker
 and chat services, and manages background timers and keyboard
 shortcuts.
 
@@ -54,14 +54,14 @@ from desktop.dialogs.schedule_update import ScheduleUpdateDialog
 from desktop.update_service import UpdateService
 from desktop.workers import BackgroundTask
 
-# Phase 4: Claude agent pool owns the supervisor + chat-worker fleet.
+# Phase 4: agent pool owns the supervisor + chat-worker fleet.
 # AgentRunner itself is still used, but only via AgentPool so paper
 # broker state and the wake cadence are shared across agents.
 from core.agent.pool import AgentPool
 
 
 class MainWindow(QMainWindow):
-    """Bloomberg-style trading terminal window."""
+    """Terminal-style trading terminal window."""
 
     def __init__(
         self,
@@ -81,7 +81,6 @@ class MainWindow(QMainWindow):
 
         # Services
         from broker_service import BrokerService
-        from news_agent import NewsAgent
 
         if forced_paper_mode:
             # Paper window gets its own isolated broker that always uses
@@ -95,15 +94,24 @@ class MainWindow(QMainWindow):
             self.broker_service = BrokerService(config=paper_cfg)
             paper_broker_cfg = self.config.get("paper_broker") or {}
             # Always start fresh — delete any previous paper state so
-            # every paper session opens at £100.
+            # every paper session opens at £100. The audit log gets the
+            # same treatment so old orders don't ghost-show in the
+            # Orders panel after a reopen.
             state_path = Path(paper_broker_cfg.get("state_path", "data/paper_state.json"))
-            if state_path.exists():
-                state_path.unlink()
+            audit_path = Path(paper_broker_cfg.get("audit_path", "logs/paper_orders.jsonl"))
+            for _p in (state_path, audit_path):
+                if _p.exists():
+                    try:
+                        _p.unlink()
+                    except Exception:
+                        logging.getLogger(__name__).debug(
+                            "paper-open: could not delete %s", _p,
+                        )
             self.broker_service.register_broker(
                 "stocks",
                 PaperBroker(
                     state_path=state_path,
-                    audit_path=Path(paper_broker_cfg.get("audit_path", "logs/paper_orders.jsonl")),
+                    audit_path=audit_path,
                     starting_cash=float(paper_broker_cfg.get("starting_cash", 100.0)),
                     currency=str(paper_broker_cfg.get("currency", "GBP") or "GBP"),
                 ),
@@ -113,24 +121,34 @@ class MainWindow(QMainWindow):
         else:
             self.broker_service = BrokerService(self.config)
 
-        self._claude_client: Optional[Any] = None
-        self.news_agent: Optional[NewsAgent] = None
+        # Legacy ML/news AI pipeline is retired — the agent loop now
+        # owns all LLM work and the scraper runner owns news ingestion.
+        # ``_ai_client`` / ``news_agent`` are kept as always-None
+        # placeholders so the rest of the file's defensive ``if self.X``
+        # branches short-circuit cleanly; populating them is a follow-up
+        # once scraper-sourced VADER sentiment feeds ``state.news_sentiment``.
+        self._ai_client: Optional[Any] = None
+        self.news_agent: Optional[Any] = None
         self.history_manager: Optional[Any] = None
 
         try:
-            from ai_client import ClaudeClient, ClaudeConfig
-            ai_cfg_raw = self.config.get("ai", {})
-            ccfg = ClaudeConfig(
-                model=ai_cfg_raw.get("model", "claude-sonnet-4-20250514"),
-                model_complex=ai_cfg_raw.get("model_complex", "claude-opus-4-6"),
-                model_medium=ai_cfg_raw.get("model_medium", "claude-sonnet-4-20250514"),
-                model_simple=ai_cfg_raw.get("model_simple", "claude-haiku-4-5-20251001"),
-            )
-            self._claude_client = ClaudeClient(ccfg)
-
             from database import HistoryManager
             from desktop.paths import db_path as _user_db_path
             _base_db = _user_db_path()
+            # Paper windows are ephemeral — any survivors of a previous
+            # close (Windows file locks sometimes prevent closeEvent from
+            # deleting the DB) get wiped NOW, before HistoryManager opens
+            # the file. This guarantees a blank slate at open time.
+            if self._forced_paper_mode:
+                for _name in ("paper_history.db", "paper_chat_history.db"):
+                    _leftover = _base_db.parent / _name
+                    try:
+                        if _leftover.exists():
+                            _leftover.unlink()
+                    except Exception:
+                        logging.getLogger(__name__).debug(
+                            "paper-open: could not delete %s", _leftover,
+                        )
             _hist_db = (
                 _base_db.parent / "paper_chat_history.db"
                 if self._forced_paper_mode
@@ -138,17 +156,8 @@ class MainWindow(QMainWindow):
             )
             self.history_manager = HistoryManager(db_path=str(_hist_db))
             self.state.history_manager = self.history_manager
-
-            news_interval = self.config.get("news", {}).get(
-                "refresh_interval_minutes", 5,
-            )
-            news_claude = ClaudeClient(ccfg)
-            self.news_agent = NewsAgent(
-                news_claude, refresh_interval_minutes=news_interval,
-                config=self.config,
-            )
         except Exception as e:
-            logging.getLogger(__name__).warning("Could not init Claude/news: %s", e)
+            logging.getLogger(__name__).warning("Could not init HistoryManager: %s", e)
 
         self.state.broker_is_live = self.broker_service.is_live
 
@@ -173,6 +182,11 @@ class MainWindow(QMainWindow):
         # to chat at iteration end so the user sees the full agent message.
         self._agent_text_buffer: List[str] = []
 
+        # Persistent log file — every agent log line is appended here so
+        # the user can review what the agent did across sessions.
+        self._agent_log_file: Optional[Any] = None
+        self._open_agent_log_file()
+
         # Phase 5 scraper runner — refreshes the news/social cache in
         # the background. Started after _build_ui so the watchlist
         # provider can safely read from panels that are already alive.
@@ -190,7 +204,7 @@ class MainWindow(QMainWindow):
             self._init_update_service()
 
     def _build_ui(self) -> None:
-        """Create dockable panel layout with Bloomberg-style arrangement."""
+        """Create dockable panel layout with terminal-style arrangement."""
         if self._forced_paper_mode:
             self.setWindowTitle("blank — Paper Trading")
         else:
@@ -201,7 +215,7 @@ class MainWindow(QMainWindow):
         menu_bar = self.menuBar()
 
         file_menu = menu_bar.addMenu("&File")
-        file_menu.addAction("Main Menu  (M)", self.action_main_menu)
+        file_menu.addAction("Export My Data...", self._on_export_user_data)
         file_menu.addSeparator()
         file_menu.addAction("Quit  (Q)", self.close)
 
@@ -235,6 +249,9 @@ class MainWindow(QMainWindow):
             # can never share state.
             agent_menu.addAction(
                 "Open Paper Trading Window", self._open_paper_window,
+            )
+            agent_menu.addAction(
+                "Clear All Chats && History", self._on_clear_history,
             )
 
         mode_str = "AUTO" if self.state.mode == "full_auto_limited" else "ADVISOR"
@@ -288,11 +305,6 @@ class MainWindow(QMainWindow):
         self.exchanges_panel = ExchangesPanel(self.state)
         self.orders_panel = OrdersPanel(self.state)
         self.news_panel = NewsPanel(self.state)
-        ai_ok = self._claude_client is not None and getattr(self._claude_client, "available", False)
-        self.news_panel.set_ai_available(ai_ok)
-
-        from desktop.panels.polymarket_markets import PolymarketPanel
-        self._poly_panel = PolymarketPanel(self.state)
 
         self._watchlist_dock = self._make_dock("WATCHLIST", self.watchlist_panel)
         self._settings_dock = self._make_dock("SETTINGS", self.settings_panel)
@@ -300,12 +312,10 @@ class MainWindow(QMainWindow):
         self._exchanges_dock = self._make_dock("MARKETS", self.exchanges_panel)
         self._orders_dock = self._make_dock("ORDERS", self.orders_panel)
         self._chat_dock = self._make_dock("CHAT", self.chat_panel)
-        self._news_dock = self._make_dock("NEWS", self.news_panel)
+        self._news_dock = self._make_dock("INFORMATION", self.news_panel)
         self._agent_dock = self._make_dock("AGENT", self.agent_log_panel)
-        self._poly_dock = self._make_dock("POLYMARKET", self._poly_panel)
 
         self.addDockWidget(Qt.TopDockWidgetArea, self._watchlist_dock)
-        self.addDockWidget(Qt.TopDockWidgetArea, self._poly_dock)
         self.addDockWidget(Qt.LeftDockWidgetArea, self._settings_dock)
         self.addDockWidget(Qt.LeftDockWidgetArea, self._positions_dock)
         self.addDockWidget(Qt.LeftDockWidgetArea, self._exchanges_dock)
@@ -320,31 +330,29 @@ class MainWindow(QMainWindow):
         self.resizeDocks([self._watchlist_dock], [220], Qt.Vertical)
         self.resizeDocks([self._orders_dock], [140], Qt.Vertical)
 
-        self._apply_dock_layout()
+        self._all_docks = [
+            self._watchlist_dock, self._positions_dock,
+            self._exchanges_dock, self._orders_dock, self._news_dock,
+            self._settings_dock, self._chat_dock, self._agent_dock,
+        ]
 
-        self._all_docks = {
-            "stocks": [
-                self._watchlist_dock, self._positions_dock,
-                self._exchanges_dock, self._orders_dock, self._news_dock,
-            ],
-            "polymarket": [self._poly_dock],
-            "shared": [
-                self._settings_dock, self._chat_dock, self._agent_dock,
-            ],
-        }
+        self._apply_dock_layout()
         self._rebuild_view_menu()
 
         status = QStatusBar()
         self.setStatusBar(status)
         self._status_label = QLabel(
-            "  ? Help | B About | R Refresh | M Menu | A Mode | C Chat | G Chart | Q Quit",
+            "  ? Help | B About | R Refresh | A Mode | C Chat | G Chart | Q Quit",
         )
         status.addPermanentWidget(self._status_label, 1)
 
-        ai_ok = self._claude_client is not None and getattr(self._claude_client, "available", False)
-        self._ai_status = QLabel("AI: OK" if ai_ok else "AI: OFF")
+        # The legacy `_ai_client` flag is gone — the agent loop is the
+        # brain now and is always available once the app has booted. If
+        # the loop genuinely fails, the agent log panel and banners
+        # surface the error; this label no longer lies about it.
+        self._ai_status = QLabel("AI: ON")
         self._ai_status.setStyleSheet(
-            f"color: {'#00ff00' if ai_ok else '#ff0000'}; font-weight: bold; padding: 0 8px;",
+            "color: #00ff00; font-weight: bold; padding: 0 8px;",
         )
         status.addPermanentWidget(self._ai_status)
 
@@ -390,10 +398,7 @@ class MainWindow(QMainWindow):
             " }"
         )
         if hasattr(self, "_all_docks"):
-            docks: List[QDockWidget] = []
-            for group in self._all_docks.values():
-                docks.extend(group)
-            for dock in docks:
+            for dock in self._all_docks:
                 dock.setStyleSheet(dock_qss)
 
         # Status-bar broker label picks up the mode colour too so the
@@ -427,11 +432,9 @@ class MainWindow(QMainWindow):
         self._run_background(_ping, _on_result)
 
     def _rebuild_view_menu(self) -> None:
-        """Rebuild the View menu to only show docks for the active mode."""
+        """Rebuild the View menu with all docks."""
         self._view_menu.clear()
-        asset = self.state.active_asset_class
-        mode_docks = self._all_docks.get(asset, [])
-        for dock in mode_docks + self._all_docks["shared"]:
+        for dock in self._all_docks:
             self._view_menu.addAction(dock.toggleViewAction())
 
     def _make_dock(self, title: str, widget: QWidget) -> QDockWidget:
@@ -450,42 +453,17 @@ class MainWindow(QMainWindow):
         return dock
 
     def _apply_dock_layout(self) -> None:
-        """Switch dock layout based on active asset class."""
-        asset = self.state.active_asset_class
-
-        stocks_only = [
-            self._watchlist_dock, self._positions_dock,
-            self._orders_dock, self._news_dock,
-        ]
-        poly_only = [self._poly_dock]
-        shared = [
-            self._chat_dock, self._agent_dock, self._settings_dock,
-        ]
-
-        if asset == "polymarket":
-            for d in stocks_only:
-                d.hide()
-            for d in shared + poly_only:
-                d.show()
-            self.addDockWidget(Qt.TopDockWidgetArea, self._poly_dock)
-            self.addDockWidget(Qt.LeftDockWidgetArea, self._settings_dock)
-            self.addDockWidget(Qt.RightDockWidgetArea, self._chat_dock)
-            self.addDockWidget(Qt.BottomDockWidgetArea, self._agent_dock)
-        else:
-            for d in poly_only:
-                d.hide()
-            for d in shared + stocks_only:
-                d.show()
-            self.addDockWidget(Qt.TopDockWidgetArea, self._watchlist_dock)
-            self.addDockWidget(Qt.LeftDockWidgetArea, self._settings_dock)
-            self.addDockWidget(Qt.LeftDockWidgetArea, self._positions_dock)
-            self.addDockWidget(Qt.RightDockWidgetArea, self._chat_dock)
-            self.addDockWidget(Qt.RightDockWidgetArea, self._news_dock)
-            self.addDockWidget(Qt.BottomDockWidgetArea, self._orders_dock)
-            self.splitDockWidget(self._orders_dock, self._agent_dock, Qt.Horizontal)
-
-        if hasattr(self, "_all_docks"):
-            self._rebuild_view_menu()
+        """Apply the stocks dock layout."""
+        for d in self._all_docks:
+            d.show()
+        self.addDockWidget(Qt.TopDockWidgetArea, self._watchlist_dock)
+        self.addDockWidget(Qt.LeftDockWidgetArea, self._settings_dock)
+        self.addDockWidget(Qt.LeftDockWidgetArea, self._positions_dock)
+        self.addDockWidget(Qt.RightDockWidgetArea, self._chat_dock)
+        self.addDockWidget(Qt.RightDockWidgetArea, self._news_dock)
+        self.addDockWidget(Qt.BottomDockWidgetArea, self._orders_dock)
+        self.splitDockWidget(self._orders_dock, self._agent_dock, Qt.Horizontal)
+        self._rebuild_view_menu()
 
     def _setup_shortcuts(self) -> None:
         """Register all keyboard shortcuts."""
@@ -507,10 +485,6 @@ class MainWindow(QMainWindow):
             ("E", self.action_show_instruments),
             ("L", self.action_toggle_protect),
             ("B", self.action_show_about),
-            ("M", self.action_main_menu),
-            ("1", lambda: self._switch_asset("stocks")),
-            ("2", lambda: self._switch_asset("polymarket")),
-            ("3", lambda: self._switch_asset("crypto")),
         ]
         for key, slot in shortcuts:
             QShortcut(QKeySequence(key), self, slot)
@@ -817,22 +791,32 @@ class MainWindow(QMainWindow):
             errors.append(f"Orders: {e}")
 
         try:
-            history = self.broker_service.get_order_history(limit=20)
+            # Pull the full recent history so the orders panel can surface
+            # filled + cancelled + rejected orders the agent has placed,
+            # not just the last 20. The panel applies its own cap.
+            history = self.broker_service.get_order_history(limit=200)
             history_orders = history.get("items", [])
         except Exception:
             history_orders = []
 
+        # Paper broker uses "order_id"; Trading212 uses "id". Check both
+        # so a queued paper order doesn't render twice (once as pending,
+        # once as its QUEUED audit entry).
+        def _oid(o: dict) -> str:
+            return str(o.get("id") or o.get("order_id") or "")
+
         seen_ids: set[str] = set()
         merged: list[dict] = []
         for o in pending:
-            oid = o.get("id", "")
+            oid = _oid(o)
             if oid:
                 seen_ids.add(oid)
             merged.append(o)
         for o in history_orders:
-            oid = o.get("id", "")
-            if oid and oid not in seen_ids:
-                merged.append(o)
+            oid = _oid(o)
+            if oid and oid in seen_ids:
+                continue
+            merged.append(o)
         result["recent_orders"] = merged
 
         live_data: Dict[str, Any] = {}
@@ -920,34 +904,56 @@ class MainWindow(QMainWindow):
         self.state.unrealised_pnl = upnl
 
     def _refresh_all_panels(self) -> None:
-        """Refresh only the panels relevant to the active mode."""
-        asset = self.state.active_asset_class
-
+        """Refresh all panels."""
         self.settings_panel.refresh_view(self.state)
         self.chat_panel.refresh_view(self.state)
         self.chart_panel.refresh_view(self.state)
         self.agent_log_panel.refresh_view(self.state)
 
-        if asset == "polymarket":
-            self._poly_panel.refresh_view(self.state)
-        else:
-            self.watchlist_panel.refresh_view(self.state)
-            self.positions_panel.refresh_view(self.state)
-            self.exchanges_panel.refresh_view(self.state)
-            self.orders_panel.refresh_view(self.state)
-            if self.news_agent and self.news_agent.news_data:
-                self.state.news_sentiment = self.news_agent.news_data
-            # Market-wide scraper feed — populated even when the watchlist
-            # is empty so the panel always has something to show. The
-            # agent reads the full table via its own ``get_news`` tool.
-            if self.history_manager:
-                try:
-                    self.state.market_news = self.history_manager.get_scraper_items(
-                        kinds=["news"], since_minutes=240, limit=15,
-                    )
-                except Exception:
-                    self.state.market_news = []
-            self.news_panel.refresh_view(self.state)
+        try:
+            wl_key = self._watchlist_config_key()
+            active = self.state.active_watchlist or "Default"
+            wl_root = self.config.get(wl_key, {}) or {}
+            self.state.active_watchlist_tickers = list(wl_root.get(active, []) or [])
+        except Exception:
+            self.state.active_watchlist_tickers = []
+        self.watchlist_panel.refresh_view(self.state)
+        self.positions_panel.refresh_view(self.state)
+        self.exchanges_panel.refresh_view(self.state)
+        self.orders_panel.refresh_view(self.state)
+        if self.news_agent and self.news_agent.news_data:
+            self.state.news_sentiment = self.news_agent.news_data
+        if self.history_manager:
+            try:
+                self.state.market_news = self.history_manager.get_scraper_items(
+                    kinds=["news"], since_minutes=240, limit=15,
+                )
+            except Exception:
+                self.state.market_news = []
+            # Surface the latest research swarm findings so the agent's
+            # per-iteration work is visible in the Information panel —
+            # otherwise the swarm feels invisible to the user.
+            try:
+                self.state.research_findings = self.history_manager.get_research_findings(
+                    since_minutes=360, limit=20,
+                )
+            except Exception:
+                self.state.research_findings = []
+        # Feed the swarm status into state so the news panel can show
+        # "running (N workers)" vs "offline" when findings are empty.
+        try:
+            if self.agent_pool is not None and self.agent_pool.swarm_running():
+                status = self.agent_pool.swarm.get_status() if self.agent_pool.swarm else {}
+                self.state.swarm_status = {
+                    "running": True,
+                    "active_workers": status.get("active_workers", 0),
+                    "total_tasks_run": status.get("total_tasks_run", 0),
+                }
+            else:
+                self.state.swarm_status = {"running": False}
+        except Exception:
+            self.state.swarm_status = {"running": False}
+        self.news_panel.refresh_view(self.state)
 
         self._update_header()
 
@@ -968,68 +974,29 @@ class MainWindow(QMainWindow):
     @Slot()
     def _update_header(self) -> None:
         mode_str = "AUTO" if self.state.mode == "full_auto_limited" else "ADVISOR"
-        asset = self.state.active_asset_class
-        if asset == "polymarket":
-            self.setWindowTitle("blank predict")
-            self._header_label.setText(
-                "  blank predict | POLYMARKET | CERTIFIED RANDOM",
-            )
-            self._header_label.setStyleSheet(
-                "color: #00bfff; font-weight: bold; font-size: 11px; "
-                "background: transparent; padding: 2px 8px;",
-            )
-        else:
-            self.setWindowTitle("blank")
-            self._header_label.setText(
-                f"  blank [{mode_str}] | STOCKS | CERTIFIED RANDOM",
-            )
-            self._header_label.setStyleSheet(
-                "color: #ff8c00; font-weight: bold; font-size: 11px; "
-                "background: transparent; padding: 2px 8px;",
-            )
-
-    def action_main_menu(self) -> None:
-        """Show mode selector and switch asset class if changed."""
-        from desktop.dialogs.mode_selector import ModeSelector
-        selector = ModeSelector(self)
-        result = selector.run()
-        if result and result != self.state.active_asset_class:
-            self._switch_asset(result)
+        self.setWindowTitle("blank")
+        self._header_label.setText(
+            f"  blank [{mode_str}] | STOCKS | CERTIFIED RANDOM",
+        )
+        self._header_label.setStyleSheet(
+            "color: #ff8c00; font-weight: bold; font-size: 11px; "
+            "background: transparent; padding: 2px 8px;",
+        )
 
     def _switch_asset(self, asset_class: str) -> None:
-        """Switch active asset class."""
+        """Switch active asset class (currently only stocks)."""
         if asset_class == self.state.active_asset_class:
             return
-        asset_cfg = self.config.get(asset_class, {})
-        if asset_class != "stocks" and not asset_cfg.get("enabled", False):
-            self.statusBar().showMessage(
-                f"{asset_class.title()} is disabled in config.json", 3000,
-            )
-            return
-
         self.state.signals = None
         self.state.live_data = {}
-
         self.state.switch_asset_class(asset_class)
-        if asset_class == "stocks":
-            self.state.active_watchlist = self.config.get("active_watchlist", "Default")
-        else:
-            self.state.active_watchlist = asset_cfg.get("active_watchlist", "")
+        self.state.active_watchlist = self.config.get("active_watchlist", "Default")
         self._save_config_key("active_asset_class", asset_class)
-
         self._apply_dock_layout()
         self._update_header()
-
-        from desktop.theme import BLOOMBERG_DARK_QSS, MODE_OVERLAY_STOCKS, MODE_OVERLAY_POLYMARKET
-        from PySide6.QtWidgets import QApplication
-        overlay = MODE_OVERLAY_POLYMARKET if asset_class == "polymarket" else MODE_OVERLAY_STOCKS
-        QApplication.instance().setStyleSheet(BLOOMBERG_DARK_QSS + overlay)
-
-        if asset_class == "stocks":
-            self._populate_placeholder_signals()
+        self._populate_placeholder_signals()
         self._refresh_all_panels()
         self.action_refresh_data()
-        self.statusBar().showMessage(f"Switched to {asset_class.title()}", 3000)
 
     def action_toggle_mode(self) -> None:
         if self.state.mode == "recommendation":
@@ -1096,7 +1063,7 @@ class MainWindow(QMainWindow):
     def _handle_chat_message(self, message: str) -> None:
         """Spawn a chat worker for this message.
 
-        Every message goes through the agent pool: a fresh Claude
+        Every message goes through the agent pool: a fresh AI
         sub-agent is spawned in its own QThread, shares the supervisor's
         brain (journal, memory, broker, config), and streams back into
         the chat panel. No queueing, no "routed to the running agent"
@@ -1181,10 +1148,59 @@ class MainWindow(QMainWindow):
         """
         self._paper_window = MainWindow(
             config_path=self.config_path,
-            initial_asset=self.state.active_asset_class,
             forced_paper_mode=True,
         )
         self._paper_window.showMaximized()
+
+    @Slot()
+    def _on_export_user_data(self) -> None:
+        """Bundle every local DB + sanitised config into a timestamped zip.
+
+        Gives the user full control over the training corpus their
+        usage produces — they pick the save path, and nothing leaves
+        the machine unless they choose to hand the file back to us.
+        """
+        from pathlib import Path
+
+        from PySide6.QtWidgets import QFileDialog, QMessageBox
+
+        from desktop import __version__
+        from desktop.data_export import default_export_filename, export_user_data
+
+        default_dir = Path.home() / "Desktop"
+        if not default_dir.exists():
+            default_dir = Path.home()
+        suggested = str(default_dir / default_export_filename())
+
+        save_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export My Data",
+            suggested,
+            "Zip archive (*.zip)",
+        )
+        if not save_path:
+            return
+
+        try:
+            summary = export_user_data(Path(save_path), app_version=__version__)
+        except Exception as exc:
+            logging.getLogger(__name__).exception("export_user_data failed")
+            QMessageBox.warning(
+                self,
+                "Export failed",
+                f"Could not build the export bundle:\n\n{exc}",
+            )
+            self.statusBar().showMessage(f"Export failed: {exc}", 5000)
+            return
+
+        QMessageBox.information(
+            self,
+            "Export complete",
+            f"{summary.headline()}\n\nSaved to:\n{summary.zip_path}",
+        )
+        self.statusBar().showMessage(
+            f"Exported {summary.headline()}.", 5000,
+        )
 
     @Slot()
     def _on_reset_paper_account(self) -> None:
@@ -1219,6 +1235,69 @@ class MainWindow(QMainWindow):
                 "Reset skipped — not a paper broker.", 3000,
             )
 
+    def _on_clear_history(self) -> None:
+        """Wipe every agent-visible memory table and reset in-memory state.
+
+        Live-mode only. Paper windows already discard their DB on close.
+        Clears chat/memory/journal/research tables, empties the active
+        watchlist (user's expectation of "true blank slate"), and
+        refreshes every panel so the wipe is immediately visible.
+        """
+        from PySide6.QtWidgets import QMessageBox
+        if self.history_manager is None:
+            return
+        reply = QMessageBox.question(
+            self,
+            "Clear All Chats & History",
+            "Wipe every chat message, agent memory entry, research "
+            "finding, journal line, AND the active watchlist?\n\n"
+            "This gives the AI a true blank slate. Broker settings and "
+            "config are kept.\n\nThis cannot be undone.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            counts = self.history_manager.clear_agent_history()
+        except Exception as exc:
+            logging.getLogger(__name__).exception("clear_agent_history failed")
+            self.statusBar().showMessage(f"Clear failed: {exc}", 5000)
+            return
+
+        # Empty the active watchlist for the current mode so the agent
+        # has nothing carried over. We preserve the watchlist NAME so the
+        # user keeps their setup — just the tickers go.
+        try:
+            wl_key = self._watchlist_config_key()
+            active = self.config.get("active_watchlist") or "Default"
+            wl_root = self.config.setdefault(wl_key, {})
+            if isinstance(wl_root, dict):
+                wl_root[active] = []
+            self._save_config()
+        except Exception:
+            logging.getLogger(__name__).exception("clear watchlist failed")
+
+        self.state.chat_history.clear()
+        self.state.research_findings = []
+        self.state.agent_journal_tail = []
+        self.state.last_summary = ""
+        self.state.news_sentiment = {}
+        self.chat_panel.refresh_view(self.state)
+        self.news_panel.refresh_view(self.state)
+        self.agent_log_panel.refresh_view(self.state)
+        # Watchlist panel reads the config directly, so a full refresh
+        # picks up the empty tickers list.
+        try:
+            self._refresh_watchlist_panel()
+        except Exception:
+            pass
+
+        total = sum(counts.values())
+        self.statusBar().showMessage(
+            f"Cleared {total} rows + watchlist — AI has a blank slate.", 5000,
+        )
+
     def _watchlist_config_key(self) -> str:
         """Return the config key for the currently active mode's watchlists."""
         return "watchlists_paper" if self.state.agent_paper_mode else "watchlists"
@@ -1226,7 +1305,7 @@ class MainWindow(QMainWindow):
     def _start_scraper_runner(self) -> None:
         """Spin up the background scraper thread.
 
-        Needs ``self.history_manager`` to be live — if Claude/DB init
+        Needs ``self.history_manager`` to be live — if AI/DB init
         failed earlier we silently skip so the rest of the app still
         boots. The watchlist provider is a lambda so it reads the
         freshest ticker list on every cycle.
@@ -1297,6 +1376,36 @@ class MainWindow(QMainWindow):
         self.agent_pool.worker_spawned.connect(self._on_chat_worker_spawned)
         self.agent_pool.worker_finished.connect(self._on_chat_worker_finished)
 
+        # Research swarm — start the 24/7 research coordinator if enabled
+        # in config. Uses the same watchlist provider as the scraper runner
+        # so swarm agents know which tickers to prioritise.
+        self.agent_pool.set_watchlist_provider(self._get_active_tickers)
+        self.agent_pool.start_swarm()
+
+    # ── Persistent agent log ────────────────────────────────────────────
+
+    def _open_agent_log_file(self) -> None:
+        """Open (or create) the persistent agent log file in the data dir."""
+        try:
+            from desktop.paths import user_data_dir
+            log_dir = user_data_dir() / "logs"
+            log_dir.mkdir(parents=True, exist_ok=True)
+            log_path = log_dir / "agent.log"
+            self._agent_log_file = open(  # noqa: SIM115
+                log_path, "a", encoding="utf-8",
+            )
+            from datetime import datetime
+            self._agent_log_file.write(
+                f"\n{'=' * 60}\n"
+                f"Session started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+                f"{'=' * 60}\n",
+            )
+            self._agent_log_file.flush()
+            logger.info("Agent log file: %s", log_path)
+        except Exception:
+            logger.exception("Could not open agent log file")
+            self._agent_log_file = None
+
     # ── Agent signal slots — run on the GUI thread ───────────────────
 
     @Slot(bool)
@@ -1316,6 +1425,15 @@ class MainWindow(QMainWindow):
         if len(tail) > 1000:
             del tail[: len(tail) - 1000]
         self.agent_log_panel.append_line(line)
+        # Persist every log line to disk.
+        if self._agent_log_file is not None:
+            try:
+                from datetime import datetime
+                ts = datetime.now().strftime("%H:%M:%S")
+                self._agent_log_file.write(f"[{ts}] {line}\n")
+                self._agent_log_file.flush()
+            except Exception:
+                pass
 
     @Slot(str)
     def _on_agent_text_chunk(self, chunk: str) -> None:
@@ -1329,13 +1447,13 @@ class MainWindow(QMainWindow):
 
     @Slot(str, str)
     def _on_agent_iteration_finished(self, iteration_id: str, summary: str) -> None:
-        # Prefer the full agent text accumulated during streaming; fall back
-        # to the end_iteration summary if the buffer is empty.
-        full_text = "".join(self._agent_text_buffer).strip()
+        # Show the concise end_iteration summary in chat, not the full
+        # stream of every thought the agent had (which is unreadable).
+        # The full detail is already in the agent log panel.
         self._agent_text_buffer.clear()
-        message = full_text or summary
+        message = summary
         if message:
-            self.state.last_summary = summary or full_text
+            self.state.last_summary = summary
             self._add_chat_response(message)
         self._refresh_all_panels()
 
@@ -1581,7 +1699,7 @@ class MainWindow(QMainWindow):
 
         def do_search(query: str) -> None:
             self._run_background(
-                lambda: self._claude_client.search_tickers(query) if self._claude_client else [],
+                lambda: self._ai_client.search_tickers(query) if self._ai_client else [],
                 lambda results: dlg.populate_results(results) if dlg.isVisible() else None,
             )
 
@@ -1735,7 +1853,7 @@ class MainWindow(QMainWindow):
 
     def _require_ai(self, action_name: str = "This feature") -> bool:
         """Return True if the AI engine is available. Show message if not."""
-        if self._claude_client and getattr(self._claude_client, "available", False):
+        if self._ai_client and getattr(self._ai_client, "available", False):
             return True
         self.statusBar().showMessage(
             f"{action_name} requires the blank AI engine — see the setup wizard",
@@ -1841,7 +1959,7 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
 
-        # Shut the Claude agent pool down cleanly. cancel_all_chat_workers()
+        # Shut the agent pool down cleanly. cancel_all_chat_workers()
         # signals every live chat worker; kill_supervisor() soft-stops then
         # hard-terminates the supervisor if it doesn't exit within 2s.
         if self.agent_pool is not None:
@@ -1867,4 +1985,45 @@ class MainWindow(QMainWindow):
             except Exception:
                 logger.exception("closeEvent: update_service.stop failed")
 
+        # Close the persistent agent log file.
+        if self._agent_log_file is not None:
+            try:
+                self._agent_log_file.close()
+            except Exception:
+                pass
+
+        # Paper windows are ephemeral — once the user closes, the AI's
+        # memory for that session should vanish. We can't promise the
+        # OS has released the file handles yet (sqlite connections are
+        # per-call so they're closed already; the paper broker JSON is
+        # separate), so we best-effort delete the two paper DB files.
+        if self._forced_paper_mode:
+            self._wipe_paper_state()
+
         super().closeEvent(event)
+
+    def _wipe_paper_state(self) -> None:
+        """Delete the paper-mode DB files so nothing survives the close.
+
+        The paper window uses two separate sqlite files:
+        ``paper_history.db`` (agent pool) and ``paper_chat_history.db``
+        (chat + history manager). Both are safe to delete — live mode
+        uses the default DB and is untouched.
+        """
+        try:
+            from desktop.paths import db_path as _user_db_path
+        except Exception:
+            return
+        base = _user_db_path().parent
+        for name in ("paper_history.db", "paper_chat_history.db"):
+            target = base / name
+            try:
+                if target.exists():
+                    target.unlink()
+            except Exception:
+                # Windows may hold the file while Qt is still tearing
+                # down — not fatal. The next paper window will
+                # overwrite whatever survives on first write.
+                logging.getLogger(__name__).debug(
+                    "closeEvent: could not delete %s (will be overwritten)", target,
+                )

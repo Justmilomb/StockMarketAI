@@ -1,0 +1,16 @@
+{% extends "_layout.html.j2" %}
+{% block content %}
+<h1 style="font-size:28px;font-weight:200;letter-spacing:-0.01em;margin:0 0 16px;color:#ffffff;">Welcome to blank.</h1>
+<p style="color:rgba(255,255,255,0.7);font-size:15px;line-height:1.6;margin:0 0 20px;">
+Hi {{ name|e }}, your licence is active. Paste the key below into the setup wizard on first launch.
+</p>
+<div style="font-family:'JetBrains Mono',monospace;background:#000000;border:1px solid rgba(0,255,135,0.4);color:#00ff87;padding:14px 16px;font-size:14px;letter-spacing:0.08em;margin:0 0 24px;">
+{{ license_key|e }}
+</div>
+<p style="margin:0 0 20px;">
+<a href="{{ download_url|e }}" style="display:inline-block;background:#00ff87;color:#000000;text-decoration:none;font-family:'JetBrains Mono',monospace;font-size:13px;letter-spacing:0.06em;text-transform:uppercase;padding:12px 22px;border:1px solid #00ff87;">Download for Windows</a>
+</p>
+<p style="color:rgba(255,255,255,0.5);font-size:13px;line-height:1.6;">
+blank runs on a 45-second loop and trades your Trading 212 account — paper by default. Start in paper, watch for a few cycles, then switch to live when you're comfortable.
+</p>
+{% endblock %}

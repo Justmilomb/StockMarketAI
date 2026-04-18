@@ -11,7 +11,7 @@ news, compute Kelly sizing, place orders, etc.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│ desktop/app.py  (Qt MainWindow, Bloomberg-dark panels)              │
+│ desktop/app.py  (Qt MainWindow, terminal-dark panels)               │
 │                                                                     │
 │   ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐               │
 │   │ Chart    │ │ Positions│ │ News     │ │ Chat     │               │
@@ -63,13 +63,15 @@ news, compute Kelly sizing, place orders, etc.
 │ core/scrapers/runner.py  (background daemon thread)                 │
 │                                                                     │
 │   Every 5 min:                                                      │
-│     for scraper in SCRAPERS (9 sources):                            │
+│     for scraper in SCRAPERS (10 sources):                           │
 │       items = scraper.safe_fetch(tickers=watchlist)                 │
+│       items = [score_item(i) for i in items]  # VADER sentiment    │
 │       db.save_scraper_items(items)                                  │
 │     db.purge_old_scraper_items(keep_days=7)                         │
 │                                                                     │
 │   Sources: google_news, yahoo_finance, bbc, bloomberg,              │
-│            marketwatch, youtube, stocktwits, reddit, x (via gnews)  │
+│            marketwatch, youtube, youtube_transcripts (captions),    │
+│            stocktwits, reddit, x (via gnews)                        │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -120,6 +122,9 @@ core/
 │   ├── bloomberg.py
 │   ├── marketwatch.py
 │   ├── youtube.py
+│   ├── youtube_transcripts.py  — Haiku-summarised captions
+│   ├── _transcript_summariser.py — Haiku CLI + regex fallback
+│   ├── _sentiment.py           — VADER scorer
 │   ├── stocktwits.py
 │   ├── reddit.py
 │   └── x_via_gnews.py
@@ -134,7 +139,7 @@ desktop/
 ├── app.py                     — MainWindow, panel wiring, agent lifecycle
 ├── state.py                   — DEFAULT_CONFIG + init_state
 ├── main.py                    — shared bootstrap (license, wizard, launch)
-├── main_bloomberg.py          — Bloomberg edition entry point
+├── main_desktop.py            — desktop edition entry point
 ├── panels/
 │   ├── agent_log.py           — live log + start/stop/kill
 │   ├── chart.py
@@ -153,6 +158,14 @@ desktop/
   `core/agent/runner.py`, `config.json`, `requirements.txt`
 - **Tool bus (one module per concern):** `core/agent/tools/*.py`
 - **Scrapers (one file per source):** `core/scrapers/*.py`
+- **Forecasters (one file per model):** `core/forecasting/*.py` +
+  `core/kronos_forecaster.py`. See [docs/systems/forecasting.md](systems/forecasting.md).
+- **NLP:** `core/nlp/finbert.py`. See [docs/systems/nlp.md](systems/nlp.md).
+- **Alt-data:** `core/alt_data/` (analyst revisions), `core/scrapers/sec_insider.py`,
+  `core/scrapers/options_flow.py`.
+- **Execution:** `core/execution/vwap.py` (TWAP/VWAP planner).
+- **RL / fine-tune seams:** `core/rl/finrl_scaffold.py`,
+  `core/finetune/terminal_finetune.py`.
 - **Panels (one file per panel):** `desktop/panels/*.py`
 
 ## Config surface
@@ -161,7 +174,7 @@ desktop/
 {
   "agent": {
     "enabled": false,
-    "cadence_seconds": 90,
+    "cadence_seconds": 45,
     "max_tool_calls_per_iter": 40,
     "max_iter_seconds": 360,
     "paper_mode": true,
@@ -181,6 +194,60 @@ desktop/
   }
 }
 ```
+
+## Model routing + effort
+
+The agent runs on the Claude Agent SDK with per-role model + effort
+tiers. The supervisor is the assessor — there is no separate grader
+agent.
+
+| Role                        | Model                        | Effort   |
+|-----------------------------|------------------------------|----------|
+| Supervisor (runner loop)    | `claude-opus-4-7`            | `max`    |
+| Chat — decision tier        | `claude-opus-4-7`            | `high`   |
+| Chat — info tier            | `claude-sonnet-4-6`          | `medium` |
+| Research — deep tier        | `claude-opus-4-7`            | `high`   |
+| Research — quick tier       | `claude-haiku-4-5-20251001`  | `low`    |
+| Sentiment / summariser      | `claude-haiku-4-5-20251001`  | —        |
+
+All five slots are editable in `config.json` under the `ai` block
+(`model` / `model_complex` / `model_medium` / `model_simple` and the
+`effort_*` keys). The accessors live in
+`core/agent/model_router.py`; `effort` is plumbed straight into
+`ClaudeAgentOptions.effort` (SDK ≥ 0.1.59).
+
+## Research swarm
+
+Twenty-one specialised roles defined in
+`core/agent/research_roles.py`, rotated through a bounded worker pool
+by `core/agent/swarm.py`. Ten quick roles (Haiku, 2–3 min cadence)
+scan breaking news and social buzz; ten deep roles (Sonnet, 10–15 min
+cadence) do sector analysis, macro/geopolitical research, contrarian
+hunting and technical pattern work; the new `market_scanner` role
+(Sonnet) runs with `default_tickers=False` so it explicitly hunts
+catalysts *outside* the current watchlist. All findings land in
+`research_findings`; the Information panel surfaces the latest 20 in
+the AGENT RESEARCH section.
+
+## News pipeline
+
+```
+scraper.fetch()  →  score_item()  →  db.save_scraper_items()
+                    (VADER, ±0.1)      (sentiment cols stored)
+                                             │
+                                             ▼
+                       core/agent/tools/news_tools.get_news  (agent)
+                                             │
+                                             ▼
+                       desktop/panels/news.py  WATCHLIST SENTIMENT
+                                               AGENT RESEARCH
+                                               MARKET NEWS  [+0.42]
+```
+
+Every `scraper_items` row carries `sentiment_score` (compound float
+in `[-1,+1]`) and `sentiment_label` (`bullish`/`bearish`/`neutral`).
+The Information panel reads these on refresh; the agent sees them
+through `get_news`.
 
 ## What the agent cannot do (deliberately)
 

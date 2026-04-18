@@ -1,6 +1,6 @@
 """Free, rate-limited scrapers for news + social signal.
 
-Phase 5 of the Claude-native rebuild. Every scraper inherits from
+Phase 5 of the agent-native rebuild. Every scraper inherits from
 ``ScraperBase``, returns ``list[ScrapedItem]`` (or an empty list on
 failure), and never raises. The agent tool bus reads cached items from
 ``core.database`` via ``scraper_items``; a background worker refreshes
@@ -21,6 +21,8 @@ from core.scrapers.stocktwits import StockTwitsScraper
 from core.scrapers.x_via_gnews import XViaGoogleNewsScraper
 from core.scrapers.yahoo_finance import YahooFinanceScraper
 from core.scrapers.youtube import YouTubeScraper
+from core.scrapers.youtube_live_vision import YouTubeLiveVisionScraper
+from core.scrapers.youtube_transcripts import YouTubeTranscriptsScraper
 
 #: Every scraper wired into the tool bus. The background worker iterates
 #: this list; tools read the cached items the worker writes to sqlite.
@@ -31,6 +33,8 @@ SCRAPERS: list[ScraperBase] = [
     BloombergScraper(),
     MarketWatchScraper(),
     YouTubeScraper(),
+    YouTubeTranscriptsScraper(),
+    YouTubeLiveVisionScraper(),
     StockTwitsScraper(),
     RedditScraper(),
     XViaGoogleNewsScraper(),
@@ -49,4 +53,6 @@ __all__ = [
     "XViaGoogleNewsScraper",
     "YahooFinanceScraper",
     "YouTubeScraper",
+    "YouTubeLiveVisionScraper",
+    "YouTubeTranscriptsScraper",
 ]

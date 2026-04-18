@@ -1,7 +1,7 @@
-"""Integration tests for the Claude-native agent tool bus.
+"""Integration tests for the agent tool bus.
 
 These tests exercise the *plumbing* of the agent loop without
-spawning a real Claude Code subprocess. We:
+spawning a real AI engine subprocess. We:
 
 * round-trip ``init_agent_context`` / ``get_agent_context`` /
   ``clear_agent_context``,
@@ -16,7 +16,7 @@ spawning a real Claude Code subprocess. We:
 No real network, no subprocess, no broker keys — everything stays
 inside the test process. Together with ``test_browser_tools.py`` this
 gives us full coverage of the tool surface that ``AgentRunner`` will
-expose to a live Claude session.
+expose to a live AI session.
 """
 from __future__ import annotations
 

@@ -7,12 +7,12 @@ Claude is the decision-maker. The hand-rolled ML pipeline
 (ensembles, regime, consensus, auto-engine) was deleted in Phase 3 of
 the rebuild. Python is now a typed tool bus — a small set of
 MCP-registered functions Claude calls on demand. Live trading via
-Trading 212, paper-by-default via `LogBroker`, Bloomberg-dark PySide6
+Trading 212, paper-by-default via `LogBroker`, terminal-dark PySide6
 UI.
 
 ## Runtime lifecycle
 
-### Desktop (`python desktop/main_bloomberg.py`)
+### Desktop (`python desktop/main_desktop.py`)
 
 1. `desktop/main.py` — PyInstaller `freeze_support`, `.env` load,
    license check, setup wizard if needed, QSS apply.
@@ -73,7 +73,7 @@ core/news_agent         legacy panel sentiment helper
 
 desktop/app.py          MainWindow, panel wiring, agent lifecycle
 desktop/state.py        DEFAULT_CONFIG + init_state
-desktop/main_bloomberg  Bloomberg edition entry point
+desktop/main_desktop    desktop edition entry point
 desktop/panels/         agent_log, chart, chat, news, orders,
                         positions, settings, watchlist
 desktop/dialogs/        setup wizard, license, add ticker, trade…

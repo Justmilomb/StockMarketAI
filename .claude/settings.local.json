@@ -103,7 +103,18 @@
       "Bash(e:/Coding/StockMarketAI/.venv/Scripts/python.exe:*)",
       "Bash(e:/Coding/StockMarketAI/.venv/Scripts/pip.exe install:*)",
       "mcp__plugin_playwright_playwright__browser_resize",
-      "mcp__plugin_playwright_playwright__browser_navigate"
+      "mcp__plugin_playwright_playwright__browser_navigate",
+      "Bash(PYTHONIOENCODING=utf-8 python scripts/prepare_engine.py)",
+      "Bash(PYTHONPATH=core python -c \"from core.agent.mcp_server import ALL_TOOLS; names = {getattr\\(t,'name',''\\) for t in ALL_TOOLS}; assert 'submit_finding' in names; assert 'get_findings' in names; assert 'set_research_goal' in names; assert 'get_swarm_status' in names; assert 'query_grok' in names; print\\(f'OK: {len\\(ALL_TOOLS\\)} tools registered'\\)\")",
+      "Bash(PYTHONPATH=core python *)",
+      "Bash(where claude *)",
+      "Bash(C:/Users/milo/.local/bin/claude.exe *)",
+      "Bash(C:/Users/milo/AppData/Roaming/Python/Python314/site-packages/claude_agent_sdk/_bundled/claude.exe *)",
+      "Bash(e:/Coding/StockMarketAI/.venv/Scripts/python.exe *)",
+      "Bash(pip index *)",
+      "Bash(cmd.exe /c \"dir /s /b \\\\\"C:\\\\Users\\\\milo\\\\AppData\\\\Local\\\\Programs\\\\blank\\\\\" 2>nul\")",
+      "Bash(cmd.exe *)",
+      "Bash(powershell *)"
     ]
   }
 }

@@ -6,7 +6,9 @@
     <title>blank — admin</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@200;300;400;500;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@200;300;400;500;700&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/assets/css/theme.css">
+    <link rel="stylesheet" href="/assets/css/base.css">
     <style>
         *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -69,7 +71,12 @@
             inset: 0;
             z-index: 1;
             pointer-events: none;
-            background: radial-gradient(600px circle at var(--mx,50%) var(--my,50%), rgba(255,255,255,0.03), transparent 70%);
+            background: radial-gradient(
+                900px circle at var(--mx, 50%) var(--my, 50%),
+                rgba(0, 255, 135, 0.04),
+                rgba(0, 255, 135, 0.01) 45%,
+                transparent 65%
+            );
         }
 
         /* layout */
@@ -624,15 +631,114 @@
             to { opacity: 1; transform: translateY(0); }
         }
 
+        /* ── responsive ────────────────────────────────────────── */
+
+        /* tablet landscape — email panel: list sidebar + stacked right cols */
+        @media (max-width: 1000px) {
+            #email-tab {
+                grid-template-columns: 200px 1fr !important;
+            }
+            #email-tab > div:nth-child(3) {
+                grid-column: 1 / -1;
+            }
+        }
+
+        /* tablet portrait */
+        @media (max-width: 760px) {
+            .shell { padding: 1.5rem 1.25rem 3rem; }
+
+            /* horizontal-scroll tab bar — no wrapping */
+            .tabs {
+                flex-wrap: nowrap;
+                overflow-x: auto;
+                scrollbar-width: none;
+                -webkit-overflow-scrolling: touch;
+                padding-bottom: 2px;
+                gap: 0.125rem;
+            }
+            .tabs::-webkit-scrollbar { display: none; }
+            .tab {
+                white-space: nowrap;
+                flex-shrink: 0;
+                min-height: 2.5rem;
+                display: inline-flex;
+                align-items: center;
+            }
+
+            /* email panel — full single-column stack */
+            #email-tab {
+                grid-template-columns: 1fr !important;
+                min-height: 0 !important;
+            }
+            #email-list {
+                max-height: 200px !important;
+                border-bottom: 1px solid var(--border);
+            }
+            #email-preview { min-height: 280px !important; }
+
+            /* log entries — stack message below time+level */
+            .log-entry { flex-wrap: wrap; gap: 0.25rem; }
+            .log-time { min-width: unset; }
+            .log-level { min-width: unset; }
+            .log-msg { flex-basis: 100%; overflow-wrap: break-word; word-break: break-word; }
+        }
+
+        /* mobile */
+        @media (max-width: 600px) {
+            .shell { padding: 1.25rem 1rem 3rem; }
+
+            header { flex-wrap: wrap; gap: 0.5rem; padding-bottom: 1.25rem; margin-bottom: 1.25rem; }
+            .logo { font-size: 1rem; }
+            .status { font-size: 0.6875rem; }
+
+            /* 2-col stat cards */
+            .stats { grid-template-columns: repeat(2, 1fr); }
+            .stat { padding: 1rem; }
+            .stat-value { font-size: 1.5rem; }
+            .stat-label { margin-bottom: 0.5rem; }
+            .stat-change { font-size: 0.625rem; }
+
+            /* tables — tighter cells */
+            td, th { padding: 0.5625rem 0.75rem; font-size: 0.6875rem; white-space: nowrap; }
+
+            /* release form — stack the bottom inline row */
+            .form-row-inline { flex-direction: column; align-items: flex-start; gap: 0.75rem; }
+            #btn-publish { width: 100%; padding: 0.75rem; text-align: center; }
+
+            .release-form { padding: 1rem; }
+
+            /* auth input — override hardcoded 280px */
+            #auth-input { width: min(280px, 88vw) !important; }
+
+            /* modal inner box — override hardcoded 360px */
+            #modal-overlay > div { width: min(360px, 92vw) !important; padding: 1.5rem 1.25rem !important; }
+
+            /* chart */
+            .chart-labels span { font-size: 0.45rem; }
+            .bar-chart { gap: 2px; }
+
+            /* email send row */
+            #email-tick-btn { font-size: 0.625rem; padding: 0.4rem 0.7rem; }
+
+            /* log entries tighter */
+            .log-entry { padding: 0.5rem 1rem; }
+            .log-time { font-size: 0.5625rem; }
+        }
+
+        /* small mobile — single column stats, hide license key */
+        @media (max-width: 400px) {
+            .stats { grid-template-columns: 1fr; }
+            .stat-value { font-size: 1.875rem; }
+
+            /* hide the raw license key column — too wide at tiny sizes */
+            .table-wrap table th:nth-child(3),
+            .table-wrap table td:nth-child(3) { display: none; }
+        }
+
+        /* reduced motion */
         @media (prefers-reduced-motion: reduce) {
             body::before { animation: none; }
             header, .tabs, .section { opacity: 1; animation: none; }
-        }
-
-        @media (max-width: 480px) {
-            .shell { padding: 1.25rem 1rem 3rem; }
-            .tabs { flex-wrap: wrap; }
-            .stat-value { font-size: 1.5rem; }
         }
     </style>
 </head>
@@ -665,6 +771,7 @@
                 <button class="tab" data-tab="config">config</button>
                 <button class="tab" data-tab="releases">releases</button>
                 <button class="tab" data-tab="system">system</button>
+                <button class="tab" data-tab="emails">emails</button>
             </nav>
 
             <!-- overview — populated by JS -->
@@ -766,6 +873,46 @@
                 <p class="section-title">live logs</p>
                 <div class="log-viewer" id="log-viewer"></div>
             </div>
+
+            <!-- emails — populated by JS -->
+            <div class="section" data-section="emails">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+                    <p class="section-title" style="margin:0;">email library</p>
+                    <div style="display:flex;align-items:center;gap:10px;">
+                        <span id="email-tick-status" style="font-size:0.6875rem;color:var(--text-dim);"></span>
+                        <button id="email-tick-btn" style="background:var(--glow-dim);color:var(--glow);border:1px solid rgba(0,255,135,0.25);padding:0.5rem 0.9rem;font-family:'Outfit',sans-serif;font-size:0.6875rem;cursor:pointer;letter-spacing:0.08em;">run scheduled tick</button>
+                    </div>
+                </div>
+                <div id="email-tab" style="display:grid;grid-template-columns:260px 1fr 1fr;gap:1px;background:var(--border);border:1px solid var(--border);min-height:520px;">
+                    <div id="email-list" style="background:#050505;padding:12px 0;overflow-y:auto;max-height:640px;"></div>
+                    <div style="background:#050505;padding:20px;overflow-y:auto;max-height:640px;">
+                        <p style="font-size:0.625rem;color:var(--text-dim);letter-spacing:0.2em;text-transform:uppercase;margin-bottom:12px;">variables</p>
+                        <div id="email-form"></div>
+                        <div style="margin-top:20px;border-top:1px solid var(--border);padding-top:16px;">
+                            <p style="font-size:0.625rem;color:var(--text-dim);letter-spacing:0.2em;text-transform:uppercase;margin-bottom:10px;">audience</p>
+                            <label style="display:block;margin-bottom:6px;font-size:0.75rem;color:var(--text);cursor:pointer;">
+                                <input type="radio" name="email-audience" value="single" checked> single recipient
+                            </label>
+                            <label style="display:block;margin-bottom:6px;font-size:0.75rem;color:var(--text);cursor:pointer;">
+                                <input type="radio" name="email-audience" value="all_licensed"> all licensed users
+                            </label>
+                            <label style="display:block;margin-bottom:10px;font-size:0.75rem;color:var(--text);cursor:pointer;">
+                                <input type="radio" name="email-audience" value="all_waitlist"> all waitlist
+                            </label>
+                            <input id="email-single" type="email" placeholder="recipient@example.com"
+                                style="background:#000;color:var(--text);border:1px solid var(--border);padding:0.5rem 0.75rem;font-family:'Outfit',sans-serif;font-size:0.75rem;width:100%;outline:none;">
+                            <button id="email-send" style="margin-top:12px;width:100%;background:var(--glow-dim);color:var(--glow);border:1px solid rgba(0,255,135,0.25);padding:0.6rem;font-family:'Outfit',sans-serif;font-size:0.75rem;cursor:pointer;letter-spacing:0.08em;">send</button>
+                            <p id="email-status" style="margin-top:10px;font-size:0.6875rem;color:var(--text-dim);min-height:1em;"></p>
+                        </div>
+                    </div>
+                    <div style="background:#050505;padding:16px;overflow:hidden;display:flex;flex-direction:column;">
+                        <p style="font-size:0.625rem;color:var(--text-dim);letter-spacing:0.2em;text-transform:uppercase;margin-bottom:6px;">subject</p>
+                        <div id="email-subject" style="font-family:'JetBrains Mono',monospace;font-size:0.8125rem;color:var(--text);padding:8px 10px;background:#000;border:1px solid var(--border);margin-bottom:12px;min-height:1.4em;"></div>
+                        <p style="font-size:0.625rem;color:var(--text-dim);letter-spacing:0.2em;text-transform:uppercase;margin-bottom:6px;">preview</p>
+                        <iframe id="email-preview" style="flex:1;width:100%;border:1px solid var(--border);background:#000;min-height:420px;"></iframe>
+                    </div>
+                </div>
+            </div>
         </div><!-- /dashboard -->
     </div>
 
@@ -815,13 +962,23 @@
             return node;
         }
 
-        // spotlight
+        // spotlight (mouse + touch)
         const spot = document.querySelector('.spotlight');
         let mx = 0.5, my = 0.5, cx = 0.5, cy = 0.5;
         document.addEventListener('mousemove', e => {
             mx = e.clientX / window.innerWidth;
             my = e.clientY / window.innerHeight;
         });
+        document.addEventListener('touchmove', e => {
+            const t = e.touches[0];
+            mx = t.clientX / window.innerWidth;
+            my = t.clientY / window.innerHeight;
+        }, { passive: true });
+        document.addEventListener('touchstart', e => {
+            const t = e.touches[0];
+            mx = t.clientX / window.innerWidth;
+            my = t.clientY / window.innerHeight;
+        }, { passive: true });
         (function tick() {
             cx += (mx - cx) * 0.08;
             cy += (my - cy) * 0.08;
@@ -1231,6 +1388,7 @@
                 if (target === 'config') loadConfig();
                 if (target === 'releases') loadReleases();
                 if (target === 'system') loadLogs();
+                if (target === 'emails') loadEmailTemplates();
             });
         });
 
@@ -1283,6 +1441,198 @@
             if (!current || current.startsWith(URL_TEMPLATE_PREFIX)) {
                 urlInput.value = version ? URL_TEMPLATE_PREFIX + version + '/BlankSetup.exe' : '';
             }
+        });
+
+        /* ---------- email templates tab ---------- */
+        let EMAIL_TEMPLATES = [];
+        let EMAIL_CURRENT = null;
+        let EMAIL_PREVIEW_TIMER = null;
+
+        const TRIGGER_STYLE = {
+            event:     { bg: 'rgba(0,255,135,0.12)',  fg: '#00ff87', label: 'event' },
+            scheduled: { bg: 'rgba(255,176,32,0.14)', fg: '#ffb020', label: 'scheduled' },
+            manual:    { bg: 'rgba(255,255,255,0.08)', fg: 'var(--text-dim)', label: 'manual' },
+        };
+
+        function makeTriggerBadge(trig) {
+            const style = TRIGGER_STYLE[(trig && trig.kind) || 'manual'] || TRIGGER_STYLE.manual;
+            const span = document.createElement('span');
+            span.textContent = style.label;
+            span.title = (trig && trig.rule) || '';
+            span.style.cssText = 'display:inline-block;padding:1px 6px;font-size:0.5625rem;letter-spacing:0.08em;text-transform:uppercase;font-family:"JetBrains Mono",monospace;background:' + style.bg + ';color:' + style.fg + ';';
+            return span;
+        }
+
+        async function loadEmailTemplates() {
+            const res = await api('/api/admin/email-templates');
+            EMAIL_TEMPLATES = (res && res.templates) || [];
+            const list = document.getElementById('email-list');
+            while (list.firstChild) list.removeChild(list.firstChild);
+            EMAIL_TEMPLATES.forEach(t => {
+                const row = document.createElement('div');
+                row.className = 'email-row';
+                row.dataset.id = t.id;
+                row.style.cssText = 'padding:10px 16px;font-size:0.75rem;color:var(--text);cursor:pointer;border-bottom:1px solid var(--border);letter-spacing:0.02em;border-left:2px solid transparent;';
+                const topRow = document.createElement('div');
+                topRow.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:8px;';
+                const labelEl = document.createElement('div');
+                labelEl.style.cssText = 'color:var(--text);font-size:0.75rem;';
+                labelEl.textContent = t.label;
+                topRow.appendChild(labelEl);
+                topRow.appendChild(makeTriggerBadge(t.trigger));
+                const idEl = document.createElement('div');
+                idEl.style.cssText = "color:var(--text-dim);font-size:0.625rem;font-family:'JetBrains Mono',monospace;margin-top:2px;";
+                idEl.textContent = t.id;
+                row.appendChild(topRow);
+                row.appendChild(idEl);
+                row.addEventListener('click', () => selectEmailTemplate(t.id));
+                list.appendChild(row);
+            });
+            if (EMAIL_TEMPLATES.length) selectEmailTemplate(EMAIL_TEMPLATES[0].id);
+        }
+
+        function selectEmailTemplate(id) {
+            const spec = EMAIL_TEMPLATES.find(t => t.id === id);
+            if (!spec) return;
+            EMAIL_CURRENT = spec;
+            document.querySelectorAll('#email-list .email-row').forEach(r => {
+                r.style.background = r.dataset.id === id ? '#0a0a0a' : 'transparent';
+                r.style.borderLeft = r.dataset.id === id ? '2px solid var(--glow)' : '2px solid transparent';
+            });
+            const sendBtn = document.getElementById('email-send');
+            const sendStatus = document.getElementById('email-status');
+            const kind = (spec.trigger && spec.trigger.kind) || 'manual';
+            const autoFire = kind === 'event' || kind === 'scheduled';
+            sendBtn.disabled = autoFire;
+            sendBtn.style.opacity = autoFire ? '0.45' : '1';
+            sendBtn.style.cursor = autoFire ? 'not-allowed' : 'pointer';
+            sendStatus.textContent = autoFire
+                ? (kind + ' — fires automatically (' + ((spec.trigger && spec.trigger.rule) || '') + ')')
+                : '';
+            const form = document.getElementById('email-form');
+            while (form.firstChild) form.removeChild(form.firstChild);
+            (spec.required_vars || []).forEach(v => {
+                const wrap = document.createElement('div');
+                wrap.style.cssText = 'margin-bottom:10px;';
+                const label = document.createElement('label');
+                label.style.cssText = "display:block;font-size:0.6875rem;color:var(--text-dim);margin-bottom:4px;font-family:'JetBrains Mono',monospace;";
+                label.textContent = v;
+                const isList = /^(tips|highlights|features)$/.test(v);
+                const isLong = /(body|intro|summary|reason)/.test(v);
+                const input = document.createElement(isList || isLong ? 'textarea' : 'input');
+                if (!isList && !isLong) input.type = 'text';
+                input.dataset.var = v;
+                input.dataset.kind = isList ? 'list' : 'scalar';
+                input.placeholder = isList ? 'one item per line' : v;
+                input.style.cssText = "background:#000;color:var(--text);border:1px solid var(--border);padding:0.5rem 0.75rem;font-family:'Outfit',sans-serif;font-size:0.75rem;width:100%;outline:none;" + (isList || isLong ? 'min-height:70px;resize:vertical;' : '');
+                input.addEventListener('input', scheduleEmailPreview);
+                wrap.appendChild(label);
+                wrap.appendChild(input);
+                form.appendChild(wrap);
+            });
+            scheduleEmailPreview();
+        }
+
+        function collectEmailVars() {
+            const vars = {};
+            document.querySelectorAll('#email-form [data-var]').forEach(el => {
+                const name = el.dataset.var;
+                const raw = el.value;
+                if (el.dataset.kind === 'list') {
+                    vars[name] = raw.split('\n').map(s => s.trim()).filter(Boolean);
+                } else {
+                    vars[name] = raw;
+                }
+            });
+            return vars;
+        }
+
+        function scheduleEmailPreview() {
+            if (EMAIL_PREVIEW_TIMER) clearTimeout(EMAIL_PREVIEW_TIMER);
+            EMAIL_PREVIEW_TIMER = setTimeout(renderEmailPreview, 220);
+        }
+
+        async function renderEmailPreview() {
+            if (!EMAIL_CURRENT) return;
+            const body = { template_id: EMAIL_CURRENT.id, vars: collectEmailVars() };
+            try {
+                const res = await api('/api/admin/email-templates/preview', {
+                    method: 'POST',
+                    body: JSON.stringify(body),
+                });
+                const subj = document.getElementById('email-subject');
+                const frame = document.getElementById('email-preview');
+                if (res && res.error) {
+                    subj.textContent = '— ' + res.error;
+                    frame.srcdoc = '';
+                    return;
+                }
+                subj.textContent = res.subject || '';
+                frame.srcdoc = res.html || '';
+            } catch (e) {
+                document.getElementById('email-subject').textContent = '— error';
+            }
+        }
+
+        document.getElementById('email-tick-btn').addEventListener('click', async () => {
+            const status = document.getElementById('email-tick-status');
+            status.textContent = 'running…';
+            try {
+                const res = await api('/api/admin/emails/tick', { method: 'POST' });
+                if (!res || !res.counts) {
+                    status.textContent = 'tick failed';
+                    return;
+                }
+                const parts = [];
+                Object.entries(res.counts).forEach(([tpl, c]) => {
+                    parts.push(tpl + ': ' + c.sent + '/' + c.candidates + ' sent' +
+                        (c.skipped ? ' (' + c.skipped + ' dedup)' : '') +
+                        (c.errors ? ' (' + c.errors + ' err)' : ''));
+                });
+                status.textContent = parts.join(' · ') || 'tick ran — nothing to send';
+            } catch (e) {
+                status.textContent = 'tick error';
+            }
+        });
+
+        document.getElementById('email-send').addEventListener('click', async () => {
+            if (!EMAIL_CURRENT) return;
+            const kind = (EMAIL_CURRENT.trigger && EMAIL_CURRENT.trigger.kind) || 'manual';
+            if (kind !== 'manual') {
+                document.getElementById('email-status').textContent =
+                    kind + ' — fires automatically, no manual send';
+                return;
+            }
+            const audience = document.querySelector('input[name="email-audience"]:checked').value;
+            const single = document.getElementById('email-single').value.trim();
+            if (audience === 'single' && !single) {
+                document.getElementById('email-status').textContent = 'enter a recipient email';
+                return;
+            }
+            const recipients = audience === 'single' ? [single] : [audience];
+            const label = EMAIL_CURRENT.label;
+            const confirmMsg = audience === 'single'
+                ? 'Send "' + label + '" to ' + single + '?'
+                : 'Send "' + label + '" to ' + audience.replace('_', ' ') + '?';
+            if (!confirm(confirmMsg)) return;
+            document.getElementById('email-status').textContent = 'sending…';
+            const res = await api('/api/admin/email-templates/send', {
+                method: 'POST',
+                body: JSON.stringify({
+                    template_id: EMAIL_CURRENT.id,
+                    vars: collectEmailVars(),
+                    recipients: recipients,
+                }),
+            });
+            const sentList = (res && res.sent) || [];
+            const errs = (res && res.errors) || [];
+            const firstErr = errs.length
+                ? (errs[0].error
+                    ? (errs[0].recipient ? errs[0].recipient + ': ' + errs[0].error : errs[0].error)
+                    : JSON.stringify(errs[0]))
+                : '';
+            document.getElementById('email-status').textContent =
+                'sent ' + sentList.length + ', errors ' + errs.length + (firstErr ? ' — ' + firstErr : '');
         });
     </script>
 </body>

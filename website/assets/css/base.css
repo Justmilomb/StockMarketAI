@@ -1,0 +1,49 @@
+/* base.css — opt-in helper classes only.
+   This file intentionally contains NO global selectors. The existing
+   landing/coming-soon/admin pages have their own inline <style>
+   blocks; a site-wide reset here was breaking their layout (footer
+   alignment, toggle switches, section padding). Anything in here must
+   be class-scoped so a page has to ask for it. */
+
+.btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1.25rem;
+    background: transparent;
+    color: var(--fg-0);
+    border: 1px solid var(--border-1);
+    border-radius: 0;
+    font-family: var(--font-mono);
+    font-size: var(--step-0);
+    font-weight: 400;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: color var(--dur-fast) var(--ease-out),
+                background var(--dur-fast) var(--ease-out),
+                border-color var(--dur-fast) var(--ease-out);
+}
+.btn:hover { background: var(--bg-3); border-color: var(--fg-1); }
+
+.btn-primary {
+    background: var(--accent);
+    color: var(--bg-0);
+    border-color: var(--accent);
+}
+.btn-primary:hover {
+    background: var(--fg-0);
+    border-color: var(--fg-0);
+    color: var(--bg-0);
+}
+
+.kicker {
+    font-family: var(--font-mono);
+    font-size: var(--step-0);
+    color: var(--accent);
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+}
+
+.mono  { font-family: var(--font-mono); }
+.muted { color: var(--fg-2); }

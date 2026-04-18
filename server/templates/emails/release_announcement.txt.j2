@@ -1,0 +1,14 @@
+blank · release {{ version }}
+
+{{ headline }}
+
+{{ intro }}
+
+{% if highlights %}
+What's new:
+{% for item in highlights %}  - {{ item }}
+{% endfor %}
+{% endif %}
+Update: {{ download_url }}
+
+— Certified Random

@@ -14,7 +14,7 @@ handles the boring-but-important stuff:
 
 The rate-limiter + UA pool are lifted verbatim from the old
 ``core.news_agent`` helpers so we match behaviour that's already been
-proven on the Claude subscription tier.
+proven on the existing subscription tier.
 """
 from __future__ import annotations
 

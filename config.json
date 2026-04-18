@@ -33,13 +33,14 @@
   "capital": 10,
   "agent": {
     "enabled": true,
-    "cadence_seconds": 90,
+    "cadence_seconds": 45,
     "paper_mode": false,
     "daily_max_drawdown_pct": 3.0,
     "max_position_pct": 20.0,
     "max_trades_per_hour": 10,
     "max_chat_workers": 5,
-    "chat_model": "sonnet"
+    "chat_model": "sonnet",
+    "trader_personality_path": "data/trader_personality.json"
   },
   "paper_broker": {
     "state_path": "data/paper_state.json",
@@ -48,17 +49,17 @@
     "currency": "GBP"
   },
   "ai": {
-    "sklearn_weight": 0.5,
-    "ai_weight": 0.3,
-    "news_weight": 0.2,
-    "retrain_on_start": true,
-    "retrain_interval_hours": 24
-  },
-  "ai": {
-    "model": "claude-sonnet-4-20250514",
-    "model_complex": "claude-opus-4-6",
-    "model_medium": "claude-sonnet-4-20250514",
-    "model_simple": "claude-haiku-4-5-20251001"
+    "model": "claude-opus-4-7",
+    "model_complex": "claude-opus-4-7",
+    "model_medium": "claude-sonnet-4-6",
+    "model_simple": "claude-haiku-4-5-20251001",
+    "model_assessor": "claude-sonnet-4-6",
+    "effort_supervisor": "max",
+    "effort_decision": "high",
+    "effort_info": "medium",
+    "effort_research_deep": "high",
+    "effort_research_quick": "medium",
+    "effort_assessor": "medium"
   },
   "news": {
     "refresh_interval_minutes": 5,
@@ -66,6 +67,20 @@
     "yahoo_scrape_enabled": true,
     "finviz_enabled": true,
     "reddit_enabled": true
+  },
+  "scrapers": {
+    "youtube_live_vision": {
+      "enabled": true,
+      "max_calls_per_day": 500,
+      "auto_download_ffmpeg": true
+    }
+  },
+  "swarm": {
+    "enabled": true,
+    "max_concurrent_workers": 4,
+    "grok_enabled": true,
+    "grok_session_path": "data/grok_session",
+    "finding_retention_days": 30
   },
   "broker": {
     "type": "trading212",
@@ -263,10 +278,28 @@
     "theme": "default",
     "max_daily_loss": 0.05
   },
+  "forecasting": {
+    "ensemble_enabled": true,
+    "kronos_enabled": true,
+    "chronos_enabled": true,
+    "timesfm_enabled": true,
+    "tft_enabled": false,
+    "meta_model_path": "models/meta_learner.json",
+    "default_horizon_minutes": 60
+  },
+  "nlp": {
+    "finbert_enabled": true,
+    "finbert_model_id": "ProsusAI/finbert",
+    "max_texts_per_call": 32
+  },
+  "execution": {
+    "default_strategy": "market",
+    "vwap_slices_per_hour": 4,
+    "twap_slices_per_hour": 6
+  },
   "active_asset_class": "stocks",
   "enabled_asset_classes": [
-    "stocks",
-    "polymarket"
+    "stocks"
   ],
   "crypto": {
     "enabled": false,

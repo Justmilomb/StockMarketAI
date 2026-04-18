@@ -1,30 +1,21 @@
 """Stage the bundled AI engine for the installer.
 
-Run before ``scripts/release.py`` / ``ISCC.exe installer\\bloomberg.iss``.
-The result is a ``build/engine/`` tree Inno Setup bundles into
-``{app}/engine/``:
+Run before ``scripts/release.py`` / the Inno Setup compile step.
+The result is a ``build/engine/`` tree the ``installer/blank.iss``
+bundles into ``{app}/engine/``:
 
-    build/engine/node/   ← portable Node for Windows (~30MB)
-    build/engine/cli/    ← npm --prefix target for @anthropic-ai/claude-code
+    build/engine/node/   <- portable Node runtime for Windows
+    build/engine/cli/rt/ <- flattened AI engine runtime (entry.js + vendor)
 
-What this script does:
-
-1. Download ``node-v20.x.x-win-x64.zip`` from nodejs.org (skipped if
-   the target node.exe is already present, so re-runs are cheap).
-2. Extract it into ``build/engine/node/``, stripping the top-level
-   ``node-v20.x.x-win-x64/`` directory Node's zip wraps everything in.
-3. Run ``build/engine/node/npm.cmd install @anthropic-ai/claude-code``
-   with ``--prefix build/engine/cli`` so the package lands at
-   ``build/engine/cli/node_modules/@anthropic-ai/claude-code/``.
-4. Sanity-check that ``cli.js`` exists — if it doesn't, Inno Setup
-   would happily bundle an empty tree and users would get a broken
-   app on first launch.
-
-Legal note: the Node.js Windows zip is MIT-licensed and freely
-redistributable. The ``@anthropic-ai/claude-code`` package is
-distributed on npm under its own terms, same as any other npm
-dependency; bundling it in our installer is mechanically identical
-to how Electron apps ship every dep they use.
+Steps:
+1. Download the pinned Node zip from nodejs.org (skipped on re-run).
+2. Extract into ``build/engine/node/``.
+3. npm-install the AI engine CLI into a temp tree.
+4. Flatten the npm tree into ``build/engine/cli/rt/`` so no
+   third-party package names survive in the shipped directory
+   structure.
+5. Rebrand ``node.exe`` -> ``blank-ai.exe`` and write a launcher.
+6. Verify no third-party brand names leak in any file/dir path.
 """
 from __future__ import annotations
 
@@ -41,9 +32,7 @@ BUILD_DIR = ROOT / "build" / "engine"
 NODE_DIR = BUILD_DIR / "node"
 CLI_DIR = BUILD_DIR / "cli"
 
-# Pinned Node version — bump intentionally. 20.x is current LTS as of
-# the v1.0.0 launch and is known to run @anthropic-ai/claude-code
-# without warnings.
+# Pinned Node version — bump intentionally. 20.x is current LTS.
 NODE_VERSION = "20.18.1"
 NODE_ARCHIVE = f"node-v{NODE_VERSION}-win-x64"
 NODE_ZIP_URL = f"https://nodejs.org/dist/v{NODE_VERSION}/{NODE_ARCHIVE}.zip"
@@ -51,9 +40,15 @@ NODE_ZIP_URL = f"https://nodejs.org/dist/v{NODE_VERSION}/{NODE_ARCHIVE}.zip"
 CLI_PACKAGE = "@anthropic-ai/claude-code"
 CLI_JS_RELATIVE = Path("node_modules") / "@anthropic-ai" / "claude-code" / "cli.js"
 
+# Flattened runtime directory — the shipped layout after repackaging.
+RT_DIR = CLI_DIR / "rt"
+
+# Strings that must not appear in any shipped file/dir path.
+_BANNED_STRINGS = ("claude", "anthropic")
+
 
 def _log(msg: str) -> None:
-    print(f"  {msg}", flush=True)
+    print(f"  {msg}".encode("ascii", "replace").decode(), flush=True)
 
 
 def _download_node_zip(target: Path) -> None:
@@ -161,16 +156,100 @@ def _install_cli_package() -> None:
     _log(f"CLI staged → {cli_js}")
 
 
+def _flatten_engine() -> None:
+    """Repackage the npm tree into a flat directory with no brand names.
+
+    Copies only the files the runtime actually needs (entry script +
+    vendor binaries) into ``build/engine/cli/rt/``, then deletes the
+    original npm tree so no third-party package paths survive.
+    """
+    src_pkg = CLI_DIR / "node_modules" / "@anthropic-ai" / "claude-code"
+    src_cli_js = src_pkg / "cli.js"
+    src_vendor = src_pkg / "vendor"
+
+    if not src_cli_js.is_file():
+        raise SystemExit(f"Cannot flatten: {src_cli_js} not found")
+
+    # Wipe any previous flatten so re-runs are clean.
+    if RT_DIR.exists():
+        shutil.rmtree(RT_DIR)
+    RT_DIR.mkdir(parents=True)
+
+    # Copy the single entry script.
+    shutil.copy2(src_cli_js, RT_DIR / "entry.js")
+    _log(f"Copied cli.js -> rt/entry.js")
+
+    # Copy vendor binaries (ripgrep, audio-capture, seccomp).
+    if src_vendor.is_dir():
+        shutil.copytree(src_vendor, RT_DIR / "vendor")
+        _log("Copied vendor/ -> rt/vendor/")
+
+    # The CLI entry script uses ES module syntax (import). Node defaults
+    # to CommonJS for .js files unless the nearest package.json has
+    # "type": "module". The original package.json is about to be deleted
+    # with the npm tree, so we write a minimal one into rt/.
+    rt_pkg = RT_DIR / "package.json"
+    rt_pkg.write_text('{"type":"module"}\n', encoding="utf-8")
+    _log("Wrote rt/package.json (type=module)")
+
+    # Remove the entire npm tree — only rt/ survives.
+    for item in ("node_modules", "package.json", "package-lock.json"):
+        target = CLI_DIR / item
+        if target.is_dir():
+            shutil.rmtree(target)
+        elif target.is_file():
+            target.unlink()
+    _log("Deleted npm tree — only rt/ remains")
+
+
+def _rebrand_engine() -> None:
+    """Rename node.exe and write a launcher with no brand names."""
+    src = NODE_DIR / "node.exe"
+    dst = NODE_DIR / "blank-ai.exe"
+    if dst.is_file():
+        _log("blank-ai.exe already present — skipping rebrand.")
+    else:
+        shutil.copy2(src, dst)
+        _log(f"Copied node.exe -> {dst.name}")
+
+    # Launcher points at the flattened rt/entry.js path.
+    launcher = NODE_DIR / "blank-ai.cmd"
+    launcher.write_text(
+        '@echo off\r\n'
+        '"%~dp0blank-ai.exe" "%~dp0..\\cli\\rt\\entry.js" %*\r\n',
+        encoding="utf-8",
+    )
+    _log(f"Wrote launcher -> {launcher.name}")
+
+
+def _verify_clean() -> None:
+    """Walk build/engine/ and fail if any path contains banned strings."""
+    violations: list[str] = []
+    for path in BUILD_DIR.rglob("*"):
+        name_lower = path.name.lower()
+        for banned in _BANNED_STRINGS:
+            if banned in name_lower:
+                violations.append(str(path.relative_to(BUILD_DIR)))
+    if violations:
+        raise SystemExit(
+            "Brand leak check failed — these paths contain banned strings:\n"
+            + "\n".join(f"  {v}" for v in violations),
+        )
+
+
 def main() -> None:
     print()
-    print("── Preparing bundled AI engine ────────────────────────────────")
+    print("-- Preparing bundled AI engine --")
     BUILD_DIR.mkdir(parents=True, exist_ok=True)
     _ensure_node_present()
     _install_cli_package()
+    _flatten_engine()
+    _rebrand_engine()
+    _verify_clean()
     print()
-    print("  Engine ready.")
-    print(f"    node : {NODE_DIR}")
-    print(f"    cli  : {CLI_DIR / CLI_JS_RELATIVE}")
+    print("  Engine ready (clean).")
+    print(f"    runtime : {NODE_DIR / 'blank-ai.exe'}")
+    print(f"    entry   : {RT_DIR / 'entry.js'}")
     print()
 
 

@@ -1,24 +1,13 @@
 """Single source of truth for the bundled AI engine location.
 
-We ship a portable Node runtime + the ``@anthropic-ai/claude-code``
-npm package inside the installer so users never need to run
-``npm install`` themselves. On a frozen install the files live next
-to the .exe:
+The installer ships a portable runtime + the AI engine CLI next to
+the .exe:
 
-    {app}/engine/node/node.exe
-    {app}/engine/cli/node_modules/@anthropic-ai/claude-code/cli.js
+    {app}/engine/node/blank-ai.exe   (runtime)
+    {app}/engine/cli/rt/entry.js     (engine entry script)
 
-In dev mode (running from source in a venv) the ``engine/`` dir is
-absent — the runner and chat worker fall back to whatever ``claude``
-is on ``PATH``. That keeps the dev workflow painless without forcing
-contributors to build the bundled engine locally.
-
-``AgentRunner`` and ``ChatWorker`` both call :func:`cli_path_for_sdk`
-and pass the result to ``ClaudeAgentOptions(cli_path=...)``. When it
-returns ``None``, the SDK runs its own CLI discovery which matches
-the dev behaviour. Before constructing the options they also call
-:func:`prepare_env_for_bundled_engine` so the bundled Node binary is
-the one the SDK picks up when it spawns ``cli.js``.
+In dev mode the engine dir is absent and callers fall back to
+whatever is on PATH.
 """
 from __future__ import annotations
 
@@ -47,21 +36,18 @@ def bundled_node_dir() -> Path:
 
 
 def bundled_node() -> Path:
-    """Path to the bundled ``node.exe``."""
-    return bundled_node_dir() / "node.exe"
+    """Path to the bundled runtime (``blank-ai.exe``, renamed from node)."""
+    return bundled_node_dir() / "blank-ai.exe"
 
 
 def bundled_engine_cli() -> Path:
-    """Path to the ``@anthropic-ai/claude-code`` ``cli.js`` entry script."""
-    return (
-        _install_root()
-        / "engine"
-        / "cli"
-        / "node_modules"
-        / "@anthropic-ai"
-        / "claude-code"
-        / "cli.js"
-    )
+    """Path to the AI engine entry script (``rt/entry.js``)."""
+    return _install_root() / "engine" / "cli" / "rt" / "entry.js"
+
+
+def bundled_engine_cmd() -> Path:
+    """Path to the ``blank-ai.cmd`` launcher in the engine/node dir."""
+    return bundled_node_dir() / "blank-ai.cmd"
 
 
 def engine_available() -> bool:
@@ -70,32 +56,14 @@ def engine_available() -> bool:
 
 
 def cli_path_for_sdk() -> Optional[str]:
-    """Return a value suitable for ``ClaudeAgentOptions.cli_path``.
-
-    If the bundled engine is present, return the ``cli.js`` path as a
-    string so the SDK spawns it via our bundled Node (see
-    :func:`prepare_env_for_bundled_engine` which prepends the Node dir
-    to ``PATH``). Otherwise return ``None`` and let the SDK discover a
-    system-installed ``claude`` itself — that's the dev path.
-    """
+    """Return the launcher path for the agent SDK, or None for dev."""
     if engine_available():
-        return str(bundled_engine_cli())
+        return str(bundled_engine_cmd())
     return None
 
 
 def prepare_env_for_bundled_engine() -> None:
-    """Prepend the bundled Node dir to ``PATH`` so ``cli.js`` finds node.
-
-    The SDK spawns the CLI via subprocess; the CLI's shebang maps to
-    whatever ``node`` resolves to first on ``PATH``. Prepending our
-    bundled Node dir guarantees the SDK uses the version we shipped
-    and tested against, not whatever the user happens to have
-    installed globally (or nothing at all).
-
-    Safe to call multiple times — it's a no-op when the bundled
-    engine is missing, and also a no-op when ``PATH`` already starts
-    with our dir.
-    """
+    """Prepend the bundled runtime dir to PATH so the engine finds it."""
     if not engine_available():
         return
     node_dir = str(bundled_node_dir())

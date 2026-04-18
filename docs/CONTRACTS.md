@@ -111,7 +111,9 @@ manager, and config.
 | `url` | TEXT NULL | Link back to source |
 | `ts` | TEXT NULL | Publisher timestamp (ISO) if available |
 | `summary` | TEXT | Up to 500 chars |
-| `meta_json` | TEXT | Source-specific extras (upvotes, sentiment, etc.) |
+| `meta_json` | TEXT | Source-specific extras (upvotes, channel, etc.) |
+| `sentiment_score` | REAL NULL | VADER compound score in `[-1,+1]` |
+| `sentiment_label` | TEXT NULL | `bullish` / `bearish` / `neutral` |
 
 **Unique constraint:** `(source, url, title)` — `INSERT OR IGNORE`
 dedupes across cycles.
@@ -123,6 +125,16 @@ dedupes across cycles.
   (duplicates silently skipped).
 - `get_scraper_items` orders by `COALESCE(ts, fetched_at) DESC`.
 - `purge_old_scraper_items(keep_days=7)` is called on every cycle.
+- **Sentiment scoring.** `ScraperRunner._run_cycle` calls
+  `core.scrapers._sentiment.score_item` on every fetched item before
+  `save_scraper_items`. VADER is pure-Python and runs in microseconds
+  so it scales with the per-cycle item count; Haiku is reserved for
+  transcript summarisation (`_transcript_summariser.py`).
+- **Transcript source.** `YouTubeTranscriptsScraper` pulls captions
+  from the @markets channel and the 24/7 live stream via
+  `youtube-transcript-api`. Each video is summarised once (Haiku) and
+  cached in-process by `video_id`; the class name references the
+  data source only — UI copy never uses the brand.
 
 ---
 
@@ -137,12 +149,17 @@ dedupes across cycles.
 | `get_portfolio` | `get_account_info`, `get_positions` | Always re-fetched; no cache |
 | `get_pending_orders` | `get_orders` | |
 | `get_order_history` | `get_order_history(limit)` | |
-| `place_order` | `place_order(ticker, side, qty, ...)` | Re-fetches portfolio first to enforce ownership + cash checks |
+| `place_order` | `place_order(ticker, side, qty, ...)` | Re-fetches portfolio first; auto-adds to watchlist on BUY |
 | `cancel_order` | `cancel_order(order_id)` | |
 
 **Invariants:**
 - `place_order` is the **only** mutating broker call in the tool
   bus. Everything else is read-only.
+- **Watchlist auto-add on BUY.** When `place_order` succeeds with
+  `side="buy"`, the tool calls
+  `watchlist_tools.add_to_watchlist_sync` and attaches the result
+  under `watchlist_add` in the JSON payload. A watchlist failure
+  never blocks the order.
 - Paper-mode forces `broker.type="log"` via `_force_paper_config`
   in the runner; a `LogBroker` instance serves every read/write.
 
@@ -184,6 +201,37 @@ daemon or the broker.
 - Every attempt writes one row to `agent_journal` with
   `kind='browser_fetch'`, `tool='fetch_page'`, `tags='browser'` so
   the UI log can show fetches in real time.
+
+---
+
+## Research swarm ↔ HistoryManager
+
+**Access pattern:** Every worker in the research swarm writes findings
+through `research_tools.submit_finding`, which calls
+`db.save_research_finding`. The supervisor (and the Information
+panel, via `get_research_findings`) reads them back.
+
+**`submit_finding` inputs:**
+| Field | Type | Notes |
+|-------|------|-------|
+| `ticker` | `str` NULL | **Nullable.** `null` means market-wide signal; any other value is accepted, even if not on the current watchlist (discovery path) |
+| `finding_type` | `str` | One of `alert`, `sentiment`, `catalyst`, `thesis`, `pattern` |
+| `headline` | `str` | Required — short one-liner |
+| `confidence_pct` | `int` | Clamped to `[0, 100]`; discovery findings capped at 60 by prompt |
+| `detail` | `str` | Optional — free-form notes |
+| `source` | `str` | Optional — where it came from |
+| `methodology` | `str` | Optional |
+| `evidence` | `str` | Optional — stored as JSON-wrapped text |
+
+**Invariants:**
+- `ticker=null` is stored as `NULL`; the Information panel renders it
+  as `MKT` (market-wide).
+- Tickers outside the active watchlist are valid — the supervisor
+  decides whether to promote them via `add_to_watchlist`.
+- `role` is read from the agent's contextvars (`ctx.stats["research_role"]`)
+  so the worker can't spoof another role's attribution.
+- Findings never expire silently — `purge_old_research_data` runs
+  hourly from the swarm coordinator with `keep_days=30`.
 
 ---
 

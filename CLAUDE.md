@@ -1,6 +1,6 @@
 # StockMarketAI — AI Agent Entry Point
 
-AI-driven stock trading terminal combining scikit-learn ML predictions with Claude LLM analysis, rendered in a Bloomberg-style Textual TUI. Supports paper and live trading via Trading 212.
+AI-driven stock trading terminal combining scikit-learn ML predictions with Claude LLM analysis, rendered in a terminal-style Textual TUI. Supports paper and live trading via Trading 212.
 
 **Tech stack:** Python 3.12+, scikit-learn, Textual, Claude CLI, yfinance, pandas, numpy, PySide6
 **Platform:** Windows 10
@@ -39,57 +39,57 @@ AI-driven stock trading terminal combining scikit-learn ML predictions with Clau
 
 ## 4 — Architecture Quick Reference
 
+The legacy ML pipeline (ensemble / features / consensus / regime /
+forecaster / claude_personas / ai_service / backtesting / terminal TUI /
+polymarket / crypto) has been retired — the Claude Agent loop now owns
+every decision and the scraper runner owns every news signal.
+
 ```
-backtest.py / desktop/main_bloomberg.py  (entry points)
+desktop/main_desktop.py                (entry point)
   │
-  ├─ core/                   (all ML/AI/broker modules — on sys.path)
-  │   ├─ AiService           (ML ensemble + statistical + Claude orchestration)
-  │   ├─ data_loader         (yfinance OHLCV + CSV cache)
-  │   ├─ features            (base technical indicators)
-  │   ├─ features_advanced   (31 V2 features, 6 analyst groups)
-  │   ├─ ensemble            (12 ML models — quant desk)
-  │   ├─ timeframe           (1d/5d/20d multi-horizon ensembles)
-  │   ├─ regime              (market regime detector — macro strategist)
-  │   ├─ forecaster_statistical (ARIMA/ETS baselines)
-  │   ├─ consensus           (investment committee — signal aggregation)
-  │   ├─ claude_client       (Claude CLI: signals, news, chat)
-  │   ├─ claude_personas     (5 Claude analyst personas)
-  │   ├─ risk_manager        (portfolio risk desk — Kelly + ATR sizing)
-  │   ├─ strategy            (probability → buy/sell/hold)
-  │   ├─ BrokerService       (broker-agnostic facade)
-  │   ├─ AutoEngine          (signal → risk-managed order execution)
-  │   ├─ NewsAgent           (background RSS + batch Claude sentiment)
-  │   ├─ database            (SQLite persistence)
-  │   └─ PipelineTracker     (thread-safe progress tracking)
+  ├─ core/                              (everything on sys.path)
+  │   ├─ agent/                         (Claude Agent loop — the brain)
+  │   │   ├─ runner                     (supervisor iteration loop)
+  │   │   ├─ chat_worker                (user-facing chat)
+  │   │   ├─ research_worker            (swarm research roles)
+  │   │   ├─ assessor                   (post-iteration grader)
+  │   │   ├─ model_router               (tier + effort config)
+  │   │   ├─ mcp_server                 (in-process MCP tool bus)
+  │   │   └─ tools/                     (broker, market, news, risk, …)
+  │   ├─ scrapers/                      (RSS + social + TV caption feed)
+  │   │   ├─ runner                     (poll cycle + VADER sentiment)
+  │   │   ├─ youtube_transcripts        (@markets channel + live stream)
+  │   │   ├─ youtube_live_vision        (sampled-frame vision feed)
+  │   │   └─ reddit / x / bbc / …
+  │   ├─ paper_broker                   (ephemeral £100 GBP sandbox)
+  │   ├─ broker_service                 (Trading 212 facade)
+  │   ├─ risk_manager                   (Kelly + ATR sizing for tool bus)
+  │   ├─ database                       (SQLite — journal, findings, etc.)
+  │   ├─ config_schema                  (Pydantic AppConfig validator)
+  │   └─ types_shared                   (AssetClass + tool contracts)
   │
-  ├─ backtesting/            (walk-forward validation engine)
+  ├─ desktop/                           (PySide6 desktop app)
+  │   ├─ main.py                        (shared bootstrap: license, wizard, launch)
+  │   ├─ main_desktop.py                (desktop entry point)
+  │   ├─ app.py                         (MainWindow — terminal-dark panels)
+  │   ├─ state.py                       (AppState dataclass + config loader)
+  │   ├─ panels/                        (positions, watchlist, news, chat, …)
+  │   └─ dialogs/                       (modal dialogs incl. setup wizard)
   │
-  ├─ desktop/                (PySide6 desktop app — Bloomberg edition)
-  │   ├─ main.py             (shared bootstrap: license, wizard, launch)
-  │   ├─ main_bloomberg.py   (Bloomberg edition entry point)
-  │   ├─ app.py              (MainWindow — Bloomberg-dark panels)
-  │   ├─ panels/             (Bloomberg UI panels)
-  │   └─ dialogs/            (modal dialogs incl. setup wizard, license)
-  │
-  ├─ terminal/               (Textual TUI — dev-only)
-  │
-  ├─ server/                 (FastAPI license server + admin API)
-  │
-  ├─ website/                (landing page + admin panel HTML)
-  │
-  └─ installer/              (PyInstaller specs + Inno Setup scripts)
+  ├─ server/                            (FastAPI license + admin API)
+  ├─ website/                           (landing / coming-soon / admin HTML)
+  └─ installer/                         (PyInstaller specs + Inno Setup)
 ```
 
 ---
 
 ## 5 — Hub Files (BOSS ONLY — agents must not touch)
 
-- `terminal/app.py` — main TUI wiring, lifecycle, action handlers
 - `desktop/app.py` — main desktop window wiring, lifecycle, action handlers
 - `desktop/main.py` — shared app bootstrap (license, wizard, launch)
-- `core/ai_service.py` — orchestrates ML ensemble + statistical + Claude pipeline
-- `config.json` — all runtime configuration
-- `requirements.txt` — dependency manifest
+- `core/agent/runner.py` — supervisor loop, assessor hook, cadence control
+- `config.json` — all runtime configuration (validated by `core/config_schema.py`)
+- `requirements.txt` / `requirements-desktop.txt` — dependency manifests (lightweight web for Render / full desktop terminal)
 
 ---
 
@@ -169,25 +169,46 @@ CONSTRAINTS:
 - **Phase 3.0:** Backtesting engine (walk-forward, parallel folds, Sharpe/Sortino/Calmar) — **done**
 - **Phase 3.1:** Multi-asset expansion (stocks, crypto, polymarket) — **done**
 - **Phase 3.15:** Autoconfig — autonomous parameter optimisation, 23+ experiments — **done**
-- **Phase 3.2:** PySide6 desktop app (Bloomberg-dark GUI, build to exe) — **done**
+- **Phase 3.2:** PySide6 desktop app (terminal-dark GUI, build to exe) — **done**
 - **Phase 3.5:** Commercialisation — license server, setup wizard, admin panel, code signing — **done**
 - **Phase 3.6:** Root reorganisation — core/ package, installer — **done**
 - **Phase 4:** Production hardening, test coverage, monitoring — **in progress**
+- **Phase 4.9 (2026-04-16):** Opus 4.7 everywhere (supervisor `max`,
+  decision/deep research `high`, info/medium research `medium`, quick
+  research `low`); Haiku reserved for sentiment + transcript
+  summarisation. New YouTube transcript scraper (@markets channel +
+  24/7 live stream). VADER sentiment on every scraper item.
+  Information panel surfaces research findings + per-item sentiment
+  badges. Watchlist auto-add on BUY. 45 s default cadence. Small-capital
+  prompt tuning. Dead watchlist columns removed.
+- **Phase 5.0 (2026-04-17):** Legacy ML pipeline fully removed
+  (`terminal/`, `backtesting/`, `research/`, `polymarket/`, `crypto/`,
+  `core/ai_service.py`, `core/ai_client.py`, `core/news_agent.py` all
+  deleted). Pydantic `AppConfig` schema validates `config.json` at
+  startup. Website split into shared design-system CSS + polished
+  landing/coming-soon copy. Admin dashboard gains a 15-template email
+  library (Jinja2) with live preview. Post-iteration assessor agent
+  (Sonnet 4.6, `medium` effort) grades every supervisor iteration and
+  writes its review into `agent_journal`. Live finance-TV vision
+  scraper samples 3 frames per cycle from the 24/7 stream via
+  yt-dlp + ffmpeg + Haiku vision, capped to 500 calls/day.
 
 ---
 
 ## 9 — Dependency Management
 
 ```
-requirements.txt      ← production runtime deps (pinned with >=)
-requirements-dev.txt  ← dev + test + build deps (-r requirements.txt + extras)
+requirements.txt          ← Render server deploy only (fastapi, uvicorn, pydantic, …)
+requirements-desktop.txt  ← full desktop terminal (ML, UI, agent loop, tests, build)
 ```
 
 **Rules:**
-- `pytest`, `pytest-mock`, and `pyinstaller` belong in `requirements-dev.txt`, never `requirements.txt`
+- Never add desktop/ML/test dependencies to `requirements.txt` — it is the Render server manifest
+- All desktop deps (including `pytest`, `pytest-mock`, `pyinstaller`) belong in `requirements-desktop.txt`
 - Add a comment explaining any dependency whose purpose isn't obvious from its name
 - Update dependencies intentionally — review changelogs before bumping major versions
-- Run `pip install -r requirements-dev.txt` for local development; `pip install -r requirements.txt` for production installs
+- Install for local dev: `pip install -r requirements-desktop.txt`
+- Render uses `requirements.txt` automatically via its build command
 
 ---
 
@@ -206,9 +227,9 @@ config.json      ← committed: all runtime configuration (no secrets)
 **Rules:**
 - Secrets (API keys, broker credentials) come from environment variables — never from `config.json`
 - Runtime config (thresholds, model params, feature flags) lives in `config.json`
-- Always access config via `config.get("key", default)` — never `config["key"]` (KeyError = crash)
-- Never read `os.environ` directly in business logic; go through the config loader
-- Broker operations always default to paper/log mode unless `config.get("live_trading", False)` is explicitly `true`
+- `config.json` is validated at startup by `core/config_schema.py` (Pydantic `AppConfig`) — bad config fails fast before anything starts
+- Never read `os.environ` directly in business logic; go through `AppConfig` fields
+- Broker operations always default to paper/log mode unless the config field is explicitly `true`
 
 ---
 
@@ -228,7 +249,7 @@ config.json      ← committed: all runtime configuration (no secrets)
 - Run `pytest tests/ -v` before marking any task done
 
 ### Smoke Test Checklist
-- [ ] App starts without errors: `python desktop/main_bloomberg.py`
+- [ ] App starts without errors: `python desktop/main_desktop.py`
 - [ ] Signal pipeline produces a buy/sell/hold recommendation for a valid ticker
 - [ ] Broker defaults to paper mode — no real orders placed
 - [ ] No error-level logs during normal startup and one full analysis cycle

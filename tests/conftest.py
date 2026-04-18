@@ -90,8 +90,8 @@ def sample_universe_data(sample_ohlcv_df: pd.DataFrame) -> Dict[str, pd.DataFram
 
 
 @pytest.fixture
-def mock_claude_client() -> MagicMock:
-    """A mocked ClaudeClient that returns sensible defaults."""
+def mock_ai_client() -> MagicMock:
+    """A mocked AIClient that returns sensible defaults."""
     client = MagicMock()
     client.get_signal_for_ticker.return_value = {
         "p_up_ai": 0.6,
