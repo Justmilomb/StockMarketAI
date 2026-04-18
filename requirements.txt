@@ -1,74 +1,18 @@
-# Core data + HTTP.
-yfinance>=0.2.36
-pandas>=2.0.0
-numpy>=1.24.0
-requests>=2.31.0
-feedparser>=6.0.0
+# Web deploy requirements (Render license server).
+#
+# This file is deliberately minimal — it contains only what `server/app.py`
+# and its helpers (`server/email_templates.py`, `server/email_rules.py`)
+# actually import. The desktop terminal has heavier ML / UI dependencies
+# and uses `requirements-desktop.txt` instead.
+#
+# Render build command:
+#   pip install -r requirements.txt
+# Render start command:
+#   uvicorn server.app:app --host 0.0.0.0 --port $PORT
 
-# Desktop + server.
-PySide6>=6.6.0
-pyqtgraph>=0.13.0
-pyinstaller>=6.0.0
 fastapi>=0.110.0
 uvicorn>=0.27.0
-jinja2>=3.1.0
 pydantic>=2.5.0
-
-# Server-only — used by server/app.py on Render (PostgreSQL driver).
 psycopg2-binary>=2.9.0
-
-# Optional PyInstaller-satisfaction deps — keep to silence warnings.
-PyOpenGL>=3.1.0
-openpyxl>=3.1.0
-lxml>=5.0.0
-html5lib>=1.1
-psutil>=5.9.0
-orjson>=3.9.0
-chardet>=5.0.0
-
-# Tests.
-pytest>=7.0.0
-pytest-mock>=3.10.0
-
-# Claude Agent SDK — drives the autonomous trading loop.
-# Spawns a Claude Code CLI subprocess per iteration, uses the user's
-# existing subscription — no API key required. All tool calls flow
-# through an in-process MCP server defined in core/agent/mcp_server.py.
-claude-agent-sdk>=0.1.58
-
-# Playwright — headless Chromium for Grok AI / X browser automation.
-playwright>=1.44
-
-# VADER — pure-Python sentiment analyser used by the scraper runner to
-# tag every headline with a -1.0..+1.0 compound score before it hits the
-# scraper_items cache. Runs in microseconds, no API, finance-aware lexicon.
-vaderSentiment>=3.3.2
-
-# YouTube Transcript API — pulls auto-generated or manual captions for a
-# given video id. Used by the finance-TV transcript scraper to summarise
-# market commentary from major finance channels without pulling video.
-youtube-transcript-api>=0.6.2
-
-# yt-dlp + ffmpeg (ffmpeg binary is downloaded at first run, not pip) —
-# powers the live finance-TV vision scraper that samples frames from the
-# 24/7 stream and asks a vision model what's on screen.
-yt-dlp>=2024.10.7
-
-# Kronos financial-candlestick foundation model (vendored under
-# core/kronos/ from github.com/shiyu-coder/Kronos, MIT licensed).
-# einops is the only runtime dep not already pulled in by torch.
-einops>=0.8.0
-
-# Forecasting ensemble — Chronos-2 + TimesFM + TFT + XGBoost meta-learner.
-# All heavy deps are lazy-loaded so a missing package degrades one
-# forecaster rather than breaking the agent loop.
-xgboost>=2.0.0
-chronos-forecasting>=1.5.0
-timesfm>=1.2.0
-pytorch-forecasting>=1.0.0
-scikit-learn>=1.4.0
-
-# FinBERT + HuggingFace pipeline for financial sentiment. transformers
-# is also pulled in by chronos-forecasting but we pin it explicitly for
-# FinBERT which predates the chronos requirement.
-transformers>=4.40.0
+requests>=2.31.0
+jinja2>=3.1.0
