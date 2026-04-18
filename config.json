@@ -40,8 +40,7 @@
     "max_trades_per_hour": 10,
     "max_chat_workers": 5,
     "chat_model": "sonnet",
-    "min_hold_minutes": 30,
-    "soft_stop_loss_pct": 3.0
+    "trader_personality_path": "data/trader_personality.json"
   },
   "paper_broker": {
     "state_path": "data/paper_state.json",

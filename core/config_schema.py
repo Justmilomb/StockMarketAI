@@ -48,13 +48,10 @@ class AgentConfig(BaseModel):
     max_trades_per_hour: int = Field(default=10, ge=0)
     max_chat_workers: int = Field(default=5, ge=1)
     chat_model: str = "sonnet"
-    # Exit discipline — stops the agent panic-selling into temporary
-    # dips (see the JetBlue incident: bought, sold an hour later at
-    # -24p, price then recovered). ``min_hold_minutes`` is the floor
-    # a discretionary exit must clear unless the unrealised loss
-    # exceeds ``soft_stop_loss_pct`` or genuinely breaking news hits.
-    min_hold_minutes: int = Field(default=30, ge=0)
-    soft_stop_loss_pct: float = Field(default=3.0, ge=0.0)
+    # Path to the per-install trader personality JSON — stores the
+    # agent's unique seed, self-authored rules and lesson log. Never
+    # synced across installs.
+    trader_personality_path: str = "data/trader_personality.json"
 
 
 class BrokerConfig(BaseModel):

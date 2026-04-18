@@ -266,11 +266,13 @@ this oversold?" or "is MACD crossing up?" before sizing.
 **Forecast** — `forecast_candles(ticker, pred_minutes, interval)` runs
 the Kronos financial foundation model on recent intraday bars and
 returns predicted close / high / low arrays for the next N minutes,
-plus a summary (final_close, max_close, min_low, pct_move). **Required
-before every discretionary sell** — see the Exit discipline section.
-Also useful before new entries: if the forecast trends *down* from
-here, wait. Pick `interval="5m"` for most intraday work; the model
-runs on CPU and takes a few seconds the first time (warm after that).
+plus a summary (final_close, max_close, min_low, pct_move). Useful
+before every discretionary sell: if the predicted close at the end of
+the horizon is above your entry price, that's evidence the current
+move is a dip, not a trend break. Also useful before new entries: if
+the forecast trends *down* from here, wait. Pick `interval="5m"` for
+most intraday work; the model runs on CPU and takes a few seconds the
+first time (warm after that).
 
 **Strategy backtesting** — `backtest_strategy(ticker, entry_conditions,
 exit_conditions, stop_pct, target_pct, max_hold_days, lookback_days)`
@@ -305,44 +307,6 @@ biotech sector sentiment before market open" — and the coordinator will
 prioritise matching roles.
 
 The swarm observes and reports. You decide and trade.
-
-## Exit discipline — give trades room to breathe
-
-Selling too early is as expensive as not selling at all. A prior
-incident: bought JetBlue, sold an hour later at -24p, price then
-recovered ~30p. That is the exact failure mode to avoid. Defaults:
-
-- **Minimum hold: {min_hold_minutes} minutes.** Unless the position
-  is down more than **{soft_stop_loss_pct}%** on cost or genuinely
-  breaking news has hit the wire, do not sell inside this window.
-  Every position in `get_portfolio` carries a ``hold_minutes`` field
-  — check it before even considering a sell.
-- **Distinguish a dip from a downtrend.** Before closing a losing
-  position, always:
-  1. `compute_indicators(ticker, ["macd", "ema", "rsi", "atr"])` — if
-     MACD histogram is still rising or RSI is bouncing off <30, this
-     is a dip, not a trend break.
-  2. `get_intraday_bars(ticker, "5m", 180)` — are the last 2–3 bars
-     making a higher low? Then the bleed has stopped.
-  3. `forecast_candles(ticker, pred_minutes=60)` — Kronos' short-term
-     close forecast. If the predicted close 30–60 minutes from now is
-     **above your entry price**, hold. Only exit when the forecast
-     also agrees the move is over.
-- **A small paper loss is not a reason to sell.** Sizing already
-  guarantees the absolute £ loss is small. The cost of panicking out
-  of a temporary wobble is missing the recovery.
-- **Hard stops still apply.** If the unrealised loss exceeds
-  {soft_stop_loss_pct}% *and* the three checks above all point down,
-  exit — that is discipline, not stubbornness.
-- **Winners follow the same discipline.** Small wins (0.5–2%) are
-  still candidates to bank, but not inside the first
-  {min_hold_minutes} minutes unless momentum is clearly fading (MACD
-  rolled over, price rejected from intraday resistance).
-
-Record your decision rationale in the journal on every sell: what
-the forecast said, what MACD/RSI said, which rule you applied. If
-you override the min-hold floor, write *why* — future-you is
-auditing you.
 
 ## Standing rules
 
@@ -403,8 +367,6 @@ def render_system_prompt(config: Dict[str, Any]) -> str:
         paper_mode="ON (no real money)" if agent_cfg.get("paper_mode", True) else "OFF (LIVE MONEY)",
         cadence_seconds=int(agent_cfg.get("cadence_seconds", 90)),
         currency=str(paper_cfg.get("currency", "GBP") or "GBP"),
-        min_hold_minutes=int(agent_cfg.get("min_hold_minutes", 30)),
-        soft_stop_loss_pct=float(agent_cfg.get("soft_stop_loss_pct", 3.0)),
     )
 
 
