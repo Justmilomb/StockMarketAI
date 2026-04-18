@@ -234,22 +234,35 @@ class Trading212Broker(Broker):
             return {"items": [], "next_cursor": None}
 
     def get_order_history(self, limit: int = 50, cursor: Optional[str] = None) -> Dict[str, Any]:
-        """Historical completed orders with pagination."""
+        """Historical completed orders with pagination.
+
+        Derives ``side`` from the signed raw ``quantity`` first — a
+        cancelled order keeps its sign there even when
+        ``filledQuantity`` is 0. Falls back to signed filled qty when
+        raw is missing. Rows with no attributable side are skipped
+        entirely so they don't render as blank red "SELL" entries in
+        the orders panel.
+        """
         result = self._get_paginated("/equity/history/orders", limit, cursor)
-        result["items"] = [
-            {
+        cleaned: List[Dict[str, Any]] = []
+        for o in result["items"]:
+            raw_qty = o.get("quantity", 0) or 0
+            filled_qty = o.get("filledQuantity", 0) or 0
+            signed = raw_qty if raw_qty else filled_qty
+            if signed == 0:
+                continue
+            cleaned.append({
                 "id": o.get("id", ""),
                 "ticker": o.get("ticker", ""),
-                "side": "BUY" if o.get("filledQuantity", o.get("quantity", 0)) > 0 else "SELL",
-                "quantity": abs(o.get("filledQuantity", o.get("quantity", 0))),
+                "side": "BUY" if signed > 0 else "SELL",
+                "quantity": abs(filled_qty or raw_qty),
                 "fill_price": o.get("fillPrice", o.get("filledPrice", 0.0)),
                 "order_type": o.get("type", ""),
                 "status": o.get("status", ""),
                 "date": o.get("dateModified", o.get("dateCreated", "")),
                 "fill_cost": o.get("fillCost", 0.0),
-            }
-            for o in result["items"]
-        ]
+            })
+        result["items"] = cleaned
         return result
 
     def get_dividends(self, limit: int = 50, cursor: Optional[str] = None) -> Dict[str, Any]:
