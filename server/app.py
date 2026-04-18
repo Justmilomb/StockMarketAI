@@ -141,6 +141,9 @@ def _init_db(conn: psycopg2.extensions.connection) -> None:
             "ALTER TABLE releases ADD COLUMN IF NOT EXISTS scheduled_at TIMESTAMPTZ",
         )
         cur.execute(
+            "ALTER TABLE licenses ADD COLUMN IF NOT EXISTS password_hash TEXT",
+        )
+        cur.execute(
             "CREATE INDEX IF NOT EXISTS idx_releases_schedule ON releases(scheduled_at)",
         )
     conn.commit()
@@ -257,14 +260,12 @@ class LicenseCreateRequest(BaseModel):
 
 
 class SignupRequest(BaseModel):
-    """Public self-serve signup from the live landing page.
-
-    Only an email is collected; we auto-generate the licence key and
-    mail it out via Resend. ``name`` is optional but captured if the
-    form ever grows a second field.
-    """
+    """Public self-serve signup from the live landing page."""
     email: str
     name: str = ""
+    password: str = ""
+    agreed_terms: bool = False
+    agreed_risk: bool = False
 
 
 class LicenseUpdateRequest(BaseModel):
@@ -495,8 +496,14 @@ def admin_page() -> HTMLResponse:
 
 @app.get("/privacy", response_class=HTMLResponse)
 def privacy_page() -> HTMLResponse:
-    """Static privacy policy — linked from the landing page footer."""
     with open(os.path.join(WEBSITE_DIR, "privacy.html"), encoding="utf-8") as f:
+        html = f.read()
+    return HTMLResponse(content=html)
+
+
+@app.get("/terms", response_class=HTMLResponse)
+def terms_page() -> HTMLResponse:
+    with open(os.path.join(WEBSITE_DIR, "terms.html"), encoding="utf-8") as f:
         html = f.read()
     return HTMLResponse(content=html)
 
@@ -855,6 +862,17 @@ def public_signup(
     if not _is_valid_email(email):
         raise HTTPException(status_code=400, detail="please enter a valid email address")
 
+    if not body.agreed_terms:
+        raise HTTPException(
+            status_code=400,
+            detail="you must agree to the terms of service and privacy policy",
+        )
+    if not body.agreed_risk:
+        raise HTTPException(
+            status_code=400,
+            detail="you must acknowledge the risk disclosure",
+        )
+
     ip = request.client.host if request.client else "unknown"
     if not _signup_rate_ok(ip):
         raise HTTPException(
@@ -880,10 +898,17 @@ def public_signup(
         key = _generate_license_key()
         expires = datetime.now(timezone.utc) + timedelta(days=365)
         with conn.cursor() as cur:
+            password_hash: str | None = None
+            if body.password:
+                salt = secrets.token_hex(16)
+                raw = hashlib.pbkdf2_hmac(
+                    "sha256", body.password.encode(), salt.encode(), 260_000
+                ).hex()
+                password_hash = f"{salt}:{raw}"
             cur.execute(
-                "INSERT INTO licenses (key, email, name, status, expires_at) "
-                "VALUES (%s, %s, %s, 'active', %s)",
-                (key, email, (body.name or "").strip(), expires),
+                "INSERT INTO licenses (key, email, name, status, expires_at, password_hash) "
+                "VALUES (%s, %s, %s, 'active', %s, %s)",
+                (key, email, (body.name or "").strip(), expires, password_hash),
             )
         conn.commit()
 
@@ -1082,6 +1107,12 @@ def public_waitlist(
     email = (body.email or "").strip().lower()
     if not _is_valid_email(email):
         raise HTTPException(status_code=400, detail="please enter a valid email address")
+
+    if not body.agreed_terms:
+        raise HTTPException(
+            status_code=400,
+            detail="you must agree to the terms of service and privacy policy",
+        )
 
     ip = request.client.host if request.client else "unknown"
     if not _signup_rate_ok(ip):

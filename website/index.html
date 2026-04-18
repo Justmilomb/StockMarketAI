@@ -226,38 +226,63 @@
             animation: fadeUp 1s var(--ease-out) 0.75s forwards;
             display: flex;
             flex-direction: column;
-            align-items: center;
+            align-items: stretch;
             width: 100%;
-            max-width: 30rem;
+            max-width: 26rem;
         }
 
         .signup-form {
             display: flex;
-            gap: 0;
+            flex-direction: column;
+            gap: 0.5rem;
             width: 100%;
-            border: 1px solid var(--panel-border-strong);
-            transition: border-color 0.3s ease;
         }
 
-        .signup-form:focus-within {
-            border-color: var(--glow);
-        }
-
-        .signup-form input[type="email"] {
-            flex: 1;
+        .signup-form input[type="email"],
+        .signup-form input[type="password"] {
             background: transparent;
-            border: none;
+            border: 1px solid var(--panel-border-strong);
             outline: none;
             color: var(--text);
             font-family: var(--mono);
-            font-size: 0.75rem;
+            font-size: 1rem;
             letter-spacing: 0.04em;
             padding: 0.875rem 1rem;
+            transition: border-color 0.3s ease;
+            width: 100%;
         }
 
-        .signup-form input[type="email"]::placeholder {
-            color: var(--text-dim);
+        .signup-form input:focus { border-color: var(--glow); }
+        .signup-form input::placeholder { color: var(--text-dim); }
+
+        .check-row {
+            display: flex;
+            align-items: flex-start;
+            gap: 0.625rem;
+            cursor: pointer;
+            padding: 0.375rem 0;
         }
+
+        .check-row input[type="checkbox"] {
+            flex-shrink: 0;
+            width: 1rem;
+            height: 1rem;
+            margin-top: 0.15rem;
+            accent-color: var(--glow);
+            cursor: pointer;
+        }
+
+        .check-row span {
+            font-family: var(--mono);
+            font-size: 0.625rem;
+            letter-spacing: 0.03em;
+            color: var(--text-dim);
+            line-height: 1.6;
+            text-align: left;
+        }
+
+        .check-row span a { color: var(--glow); text-decoration: none; }
+        .check-row span a:hover { text-decoration: underline; }
 
         .signup-form button {
             background: var(--glow);
@@ -268,10 +293,11 @@
             font-weight: 500;
             letter-spacing: 0.12em;
             text-transform: uppercase;
-            padding: 0.875rem 1.5rem;
+            padding: 0.9375rem 1.5rem;
             cursor: pointer;
             transition: opacity 0.2s ease;
-            white-space: nowrap;
+            width: 100%;
+            margin-top: 0.25rem;
         }
 
         .signup-form button:hover { opacity: 0.85; }
@@ -283,6 +309,7 @@
             letter-spacing: 0.04em;
             margin-top: 0.75rem;
             min-height: 1.2em;
+            text-align: center;
         }
 
         .signup-note.ok { color: var(--glow); }
@@ -1018,8 +1045,17 @@
 
         <div class="signup-wrap">
             <form id="signup-form" class="signup-form" novalidate autocomplete="off">
-                <input type="email" name="email" id="signup-email" placeholder="enter your email and you'll get an access key" required spellcheck="false">
-                <button type="submit" id="signup-btn"><span>get access key</span></button>
+                <input type="email" name="email" id="signup-email" placeholder="email address" required spellcheck="false" autocomplete="email">
+                <input type="password" name="password" id="signup-password" placeholder="password (min 8 characters)" required minlength="8" autocomplete="new-password">
+                <label class="check-row">
+                    <input type="checkbox" id="check-terms">
+                    <span>I agree to the <a href="/terms">terms of service</a> and <a href="/privacy">privacy policy</a></span>
+                </label>
+                <label class="check-row">
+                    <input type="checkbox" id="check-risk">
+                    <span>I understand blank is an autonomous AI trading tool and that trading involves risk of financial loss</span>
+                </label>
+                <button type="submit" id="signup-btn"><span>create account</span></button>
             </form>
             <p class="signup-note" id="signup-note"></p>
         </div>
@@ -1353,7 +1389,9 @@
     <footer>
         <p class="credit">certified random</p>
         <p class="footer-links">
+            <a href="/terms">terms</a>
             <a href="/privacy">privacy</a>
+            <a href="mailto:milomilomilomb@gmail.com">contact</a>
         </p>
     </footer>
 
@@ -1390,10 +1428,13 @@
         // signup — POST /api/signup, show download button on success
         (function wireSignup() {
             var form = document.getElementById('signup-form');
-            var input = document.getElementById('signup-email');
+            var emailInput = document.getElementById('signup-email');
+            var pwInput = document.getElementById('signup-password');
+            var checkTerms = document.getElementById('check-terms');
+            var checkRisk = document.getElementById('check-risk');
             var btn = document.getElementById('signup-btn');
             var note = document.getElementById('signup-note');
-            if (!form || !input || !btn || !note) return;
+            if (!form || !emailInput || !btn || !note) return;
 
             function setNote(msg, kind) {
                 note.textContent = msg;
@@ -1403,28 +1444,46 @@
 
             form.addEventListener('submit', function(e) {
                 e.preventDefault();
-                var email = (input.value || '').trim();
+                var email = (emailInput.value || '').trim();
+                var password = (pwInput ? pwInput.value : '') || '';
+                var termsOk = checkTerms && checkTerms.checked;
+                var riskOk = checkRisk && checkRisk.checked;
+
                 if (!email || email.indexOf('@') < 0) {
                     setNote('please enter a valid email', 'err');
-                    input.focus();
+                    emailInput.focus();
                     return;
                 }
+                if (!password || password.length < 8) {
+                    setNote('password must be at least 8 characters', 'err');
+                    if (pwInput) pwInput.focus();
+                    return;
+                }
+                if (!termsOk) {
+                    setNote('please agree to the terms of service and privacy policy', 'err');
+                    return;
+                }
+                if (!riskOk) {
+                    setNote('please acknowledge the risk disclosure', 'err');
+                    return;
+                }
+
                 btn.disabled = true;
-                btn.querySelector('span').textContent = 'sending...';
+                btn.querySelector('span').textContent = 'creating account...';
                 setNote('', null);
 
                 fetch(window.location.origin + '/api/signup', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ email: email })
+                    body: JSON.stringify({ email: email, password: password, agreed_terms: true, agreed_risk: true })
                 }).then(function(r) {
                     return r.json().then(function(j) { return { ok: r.ok, body: j }; });
                 }).then(function(resp) {
                     if (resp.ok) {
-                        btn.querySelector('span').textContent = 'sent';
-                        setNote('check your inbox — your access key is on the way', 'ok');
-                        input.value = '';
-                        // show download button
+                        btn.querySelector('span').textContent = 'done';
+                        setNote('account created — check your inbox for your access key', 'ok');
+                        emailInput.value = '';
+                        if (pwInput) pwInput.value = '';
                         var wrap = document.querySelector('.signup-wrap');
                         if (wrap && !document.getElementById('download-btn')) {
                             var dl = document.createElement('a');
@@ -1436,13 +1495,13 @@
                         }
                     } else {
                         btn.disabled = false;
-                        btn.querySelector('span').textContent = 'get access key';
+                        btn.querySelector('span').textContent = 'create account';
                         var detail = (resp.body && resp.body.detail) || 'something went wrong — try again';
                         setNote(String(detail), 'err');
                     }
                 }).catch(function() {
                     btn.disabled = false;
-                    btn.querySelector('span').textContent = 'get access key';
+                    btn.querySelector('span').textContent = 'create account';
                     setNote('network error — try again', 'err');
                 });
             });

@@ -918,6 +918,36 @@
 
         .footer-links a:hover { color: var(--glow); }
 
+        .check-row {
+            display: flex;
+            align-items: flex-start;
+            gap: 0.625rem;
+            cursor: pointer;
+            max-width: 28rem;
+            margin: 0.75rem auto 0;
+            text-align: left;
+        }
+
+        .check-row input[type="checkbox"] {
+            flex-shrink: 0;
+            width: 1rem;
+            height: 1rem;
+            margin-top: 0.15rem;
+            accent-color: var(--glow);
+            cursor: pointer;
+        }
+
+        .check-row span {
+            font-family: var(--mono);
+            font-size: 0.625rem;
+            letter-spacing: 0.03em;
+            color: var(--text-dim);
+            line-height: 1.6;
+        }
+
+        .check-row span a { color: var(--glow); text-decoration: none; }
+        .check-row span a:hover { text-decoration: underline; }
+
         /* ── responsive ────────────────────────────────────────── */
 
         /* tablet landscape */
@@ -1277,6 +1307,10 @@
                     <input type="email" name="email" id="waitlist-email" placeholder="enter your email" required spellcheck="false">
                     <button type="submit" id="waitlist-btn"><span>join waitlist</span></button>
                 </form>
+                <label class="check-row">
+                    <input type="checkbox" id="waitlist-terms">
+                    <span>I agree to the <a href="/terms">terms of service</a> and <a href="/privacy">privacy policy</a></span>
+                </label>
                 <p class="waitlist-note" id="waitlist-note"></p>
             </div>
         </div>
@@ -1285,7 +1319,9 @@
     <footer>
         <p class="credit">certified random</p>
         <p class="footer-links">
+            <a href="/terms">terms</a>
             <a href="/privacy">privacy</a>
+            <a href="mailto:milomilomilomb@gmail.com">contact</a>
         </p>
     </footer>
 
@@ -1372,10 +1408,11 @@
         step();
         setInterval(step, 1000);
 
-        // waitlist form — POST /api/signup
+        // waitlist form — POST /api/waitlist
         (function wireWaitlist() {
             var form = document.getElementById('waitlist-form');
             var input = document.getElementById('waitlist-email');
+            var checkTerms = document.getElementById('waitlist-terms');
             var btn = document.getElementById('waitlist-btn');
             var note = document.getElementById('waitlist-note');
             if (!form || !input || !btn || !note) return;
@@ -1394,6 +1431,10 @@
                     input.focus();
                     return;
                 }
+                if (!checkTerms || !checkTerms.checked) {
+                    setNote('please agree to the terms of service and privacy policy', 'err');
+                    return;
+                }
                 btn.disabled = true;
                 btn.querySelector('span').textContent = 'sending...';
                 setNote('', null);
@@ -1401,7 +1442,7 @@
                 fetch(window.location.origin + '/api/waitlist', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ email: email })
+                    body: JSON.stringify({ email: email, agreed_terms: true })
                 }).then(function(r) {
                     return r.json().then(function(j) { return { ok: r.ok, body: j }; });
                 }).then(function(resp) {

@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>blank — terms of service</title>
+    <meta name="description" content="terms of service and end user licence agreement for blank by certified random.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@200;300;400;700&display=swap" rel="stylesheet">
+    <style>
+        *, *::before, *::after {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --bg: #000000;
+            --text: #ffffff;
+            --text-mid: rgba(255, 255, 255, 0.55);
+            --text-dim: rgba(255, 255, 255, 0.25);
+            --glow: #00ff87;
+            --rule: rgba(255, 255, 255, 0.08);
+        }
+
+        html { font-size: 16px; -webkit-font-smoothing: antialiased; }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: 'Outfit', sans-serif;
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        body::before {
+            content: '';
+            position: fixed;
+            inset: -50%;
+            z-index: 1000;
+            pointer-events: none;
+            opacity: 0.04;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 512 512' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+            background-repeat: repeat;
+            background-size: 256px 256px;
+        }
+
+        main {
+            position: relative;
+            z-index: 10;
+            max-width: 720px;
+            margin: 0 auto;
+            padding: calc(5rem + env(safe-area-inset-top, 0px)) 2rem 4rem;
+        }
+
+        .back {
+            display: inline-block;
+            font-size: 0.75rem;
+            color: var(--text-dim);
+            text-decoration: none;
+            letter-spacing: 0.1em;
+            text-transform: lowercase;
+            margin-bottom: 3rem;
+            transition: color 0.2s ease;
+        }
+
+        .back:hover { color: var(--glow); }
+
+        h1 {
+            font-size: 2.25rem;
+            font-weight: 200;
+            letter-spacing: 0.02em;
+            margin-bottom: 0.5rem;
+        }
+
+        .updated {
+            font-size: 0.75rem;
+            color: var(--text-dim);
+            letter-spacing: 0.08em;
+            margin-bottom: 3rem;
+        }
+
+        h2 {
+            font-size: 1rem;
+            font-weight: 400;
+            color: var(--glow);
+            letter-spacing: 0.04em;
+            text-transform: lowercase;
+            margin-top: 2.5rem;
+            margin-bottom: 0.75rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid var(--rule);
+        }
+
+        p, li {
+            font-size: 0.9375rem;
+            font-weight: 300;
+            line-height: 1.7;
+            color: var(--text-mid);
+            margin-bottom: 0.9rem;
+        }
+
+        p strong, li strong {
+            color: var(--text);
+            font-weight: 400;
+        }
+
+        ul {
+            margin-left: 1.25rem;
+            margin-bottom: 1rem;
+        }
+
+        li { margin-bottom: 0.4rem; }
+
+        a { color: var(--glow); text-decoration: none; }
+        a:hover { text-decoration: underline; }
+
+        .risk-box {
+            border: 1px solid rgba(255, 59, 59, 0.35);
+            background: rgba(255, 59, 59, 0.04);
+            padding: 1.25rem 1.5rem;
+            margin: 1.5rem 0;
+        }
+
+        .risk-box .risk-label {
+            font-size: 0.6875rem;
+            font-weight: 400;
+            letter-spacing: 0.2em;
+            text-transform: uppercase;
+            color: #ff3b3b;
+            margin-bottom: 0.75rem;
+        }
+
+        .risk-box p, .risk-box li {
+            font-size: 0.875rem;
+            color: rgba(255, 255, 255, 0.65);
+        }
+
+        footer {
+            position: relative;
+            z-index: 10;
+            padding: 2.5rem 2rem;
+            text-align: center;
+        }
+
+        .credit {
+            font-size: 0.6875rem;
+            font-weight: 300;
+            color: var(--text-dim);
+            letter-spacing: 0.08em;
+        }
+
+        .footer-links {
+            margin-top: 0.75rem;
+            font-size: 0.6875rem;
+            letter-spacing: 0.08em;
+        }
+
+        .footer-links a {
+            color: var(--text-dim);
+            margin: 0 0.5rem;
+        }
+
+        .footer-links a:hover { color: var(--glow); }
+
+        a, button { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+
+        @media (max-width: 720px) {
+            main { padding: 4.5rem 1.5rem 3rem; }
+            h1 { font-size: 1.875rem; }
+        }
+
+        @media (max-width: 600px) {
+            main {
+                padding: 4rem 1.25rem calc(3rem + env(safe-area-inset-bottom, 0px));
+            }
+            h1 { font-size: 1.625rem; margin-bottom: 0.375rem; }
+            h2 { font-size: 0.9375rem; margin-top: 2rem; }
+            p, li { font-size: 0.875rem; }
+            .back {
+                min-height: 44px;
+                display: inline-flex;
+                align-items: center;
+                padding: 0.5rem 0;
+                margin-bottom: 2rem;
+                font-size: 0.875rem;
+            }
+            footer {
+                padding: 1.5rem 1.25rem calc(1.5rem + env(safe-area-inset-bottom, 0px));
+            }
+        }
+
+        @media (max-width: 420px) {
+            main { padding: 3.5rem 1rem calc(2.5rem + env(safe-area-inset-bottom, 0px)); }
+            h1 { font-size: 1.5rem; }
+            ul { margin-left: 1rem; }
+        }
+    </style>
+</head>
+<body>
+    <main>
+        <a href="/" class="back">&larr; back</a>
+        <h1>terms of service</h1>
+        <p class="updated">last updated: 18 april 2026</p>
+
+        <p>
+            these terms govern your use of <strong>blank</strong>, the desktop trading terminal
+            published by <strong>certified random</strong>. by creating an account, downloading,
+            or using blank you agree to these terms in full. if you do not agree, do not use the software.
+        </p>
+
+        <h2>1. who we are</h2>
+        <p>
+            <strong>certified random</strong> is the publisher of blank. you can reach us at
+            <a href="mailto:milomilomilomb@gmail.com">milomilomilomb@gmail.com</a>.
+        </p>
+
+        <h2>2. your licence</h2>
+        <p>
+            subject to these terms, certified random grants you a personal, non-exclusive,
+            non-transferable, revocable licence to install and use blank on a single windows
+            computer that you own or control, for your own personal use.
+        </p>
+
+        <h2>3. what you may not do</h2>
+        <ul>
+            <li>copy, modify, adapt, or create derivative works of blank</li>
+            <li>reverse-engineer, decompile, disassemble, or attempt to extract the source code</li>
+            <li>sublicence, sell, rent, lease, or lend blank to any third party</li>
+            <li>share your licence key or account credentials with others</li>
+            <li>use blank for any unlawful purpose or in any way that violates applicable law</li>
+            <li>use blank to place trades you are not legally permitted to make</li>
+            <li>attempt to circumvent any technical protection or licence enforcement mechanism</li>
+        </ul>
+
+        <h2>4. risk disclosure</h2>
+
+        <div class="risk-box">
+            <div class="risk-label">important — please read carefully</div>
+            <p>
+                blank is an <strong>autonomous AI trading application</strong>. when connected to
+                a live brokerage account (trading 212 or any other broker), it places real buy and
+                sell orders using your funds without requiring your approval for each trade.
+            </p>
+            <p>
+                <strong>trading financial instruments carries significant risk, including:</strong>
+            </p>
+            <ul>
+                <li>loss of some or all of your invested capital</li>
+                <li>rapid and unexpected changes in market value</li>
+                <li>technical failures that may result in unintended orders or missed trades</li>
+                <li>decisions made by the AI that may not suit your financial situation or risk tolerance</li>
+                <li>broker outages, api errors, or connectivity problems that affect order execution</li>
+            </ul>
+            <p>
+                <strong>you should only trade with money you can afford to lose entirely.</strong>
+                the paper-trading simulator uses virtual money and carries no real financial risk;
+                live trading uses real funds and does. past performance of the paper-trading mode
+                is not indicative of future live-trading results.
+            </p>
+        </div>
+
+        <h2>5. no investment advice</h2>
+        <p>
+            blank is a software tool for informational and educational purposes only.
+            nothing the software does, outputs, or recommends constitutes investment advice,
+            financial advice, or a recommendation to buy or sell any financial instrument.
+            certified random is not authorised or regulated by the financial conduct authority (FCA),
+            the securities and exchange commission (SEC), or any other financial regulator.
+        </p>
+        <p>
+            you are solely responsible for all investment and trading decisions you make using blank.
+            before trading with real money, you should consider seeking independent financial advice.
+        </p>
+
+        <h2>6. account and licence key</h2>
+        <p>
+            you are responsible for maintaining the confidentiality of your account credentials
+            and licence key. notify us immediately at
+            <a href="mailto:milomilomilomb@gmail.com">milomilomilomb@gmail.com</a>
+            if you believe your account has been compromised.
+            we reserve the right to suspend or terminate accounts that show signs of misuse.
+        </p>
+
+        <h2>7. third-party services</h2>
+        <p>
+            blank connects to third-party services including trading 212, market data providers,
+            and news feeds. your use of those services is governed by their own terms and policies.
+            we are not responsible for the availability, accuracy, or actions of any third-party service.
+        </p>
+
+        <h2>8. no warranty</h2>
+        <p>
+            blank is provided <strong>"as is"</strong> and <strong>"as available"</strong> without
+            warranty of any kind, express or implied. we do not warrant that blank will be
+            error-free, uninterrupted, or accurate, or that it will produce profitable trading results.
+            we expressly disclaim all implied warranties of merchantability, fitness for a particular
+            purpose, and non-infringement.
+        </p>
+
+        <h2>9. limitation of liability</h2>
+        <p>
+            to the fullest extent permitted by applicable law, certified random and its contributors
+            shall not be liable for any direct, indirect, incidental, special, consequential, or
+            exemplary damages arising from your use of blank, including but not limited to:
+        </p>
+        <ul>
+            <li>trading losses or missed trading opportunities</li>
+            <li>broker errors, order failures, or execution delays</li>
+            <li>data loss, software bugs, or crashes</li>
+            <li>downtime of the licence server, update server, or any third-party dependency</li>
+        </ul>
+        <p>
+            in any case, our total liability to you for any claim arising out of or relating to
+            blank shall not exceed the amount you paid for your licence in the 12 months
+            preceding the claim.
+        </p>
+
+        <h2>10. data and privacy</h2>
+        <p>
+            your use of blank is also governed by our
+            <a href="/privacy">privacy policy</a>, which is incorporated into these terms by
+            reference. the key points: your trading data, broker credentials, and journal stay
+            on your own machine; only your licence key and basic activity reach our server.
+        </p>
+
+        <h2>11. updates to blank and these terms</h2>
+        <p>
+            we may update blank at any time and may push updates automatically.
+            we may also update these terms from time to time. the date at the top of this page
+            reflects the latest revision. if we make material changes we will post a notice
+            in the in-app update log. continued use of blank after an update constitutes your
+            acceptance of the revised terms.
+        </p>
+
+        <h2>12. termination</h2>
+        <p>
+            we may suspend or terminate your licence at any time if you breach these terms.
+            you may stop using blank at any time by deleting it from your computer.
+            on termination, all rights granted to you under these terms immediately cease.
+            sections 4, 5, 8, 9, 13, and 14 survive termination.
+        </p>
+
+        <h2>13. governing law</h2>
+        <p>
+            these terms are governed by and construed in accordance with the laws of
+            england and wales. any dispute arising out of or in connection with these terms
+            shall be subject to the exclusive jurisdiction of the courts of england and wales.
+        </p>
+
+        <h2>14. contact</h2>
+        <p>
+            questions about these terms? email us at
+            <a href="mailto:milomilomilomb@gmail.com">milomilomilomb@gmail.com</a>
+            and we will get back to you as soon as we can.
+        </p>
+    </main>
+
+    <footer>
+        <p class="credit">certified random</p>
+        <p class="footer-links">
+            <a href="/">home</a>
+            <a href="/terms">terms</a>
+            <a href="/privacy">privacy</a>
+            <a href="mailto:milomilomilomb@gmail.com">contact</a>
+        </p>
+    </footer>
+</body>
+</html>
