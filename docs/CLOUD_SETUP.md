@@ -69,7 +69,7 @@ cd ~/StockMarketAI
 # Python environment
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements-desktop.txt
 ```
 
 ### 4. Copy local files to the server

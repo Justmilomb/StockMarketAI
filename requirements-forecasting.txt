@@ -1,0 +1,16 @@
+# Optional forecasting backends for the desktop edition.
+#
+# These are NOT installed on the Render license server — they pull in a
+# large torch + transformers stack and timesfm is github-only. The
+# per-backend wrappers in core/forecasting/*.py lazy-import each module
+# and return {"error": ...} when missing, so the ensemble degrades
+# gracefully to whichever backends are present.
+#
+# Usage (after `pip install -r requirements-desktop.txt`):
+#   pip install -r requirements-forecasting.txt
+
+chronos-forecasting>=1.5.0
+pytorch-forecasting>=1.0.0
+
+# timesfm has no versioned PyPI wheel; install from Google's repo.
+timesfm @ git+https://github.com/google-research/timesfm.git
