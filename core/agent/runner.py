@@ -466,6 +466,13 @@ class AgentRunner(QThread):
                 )
             except Exception as e:
                 logger.warning("assessor stage failed: %s", e)
+            try:
+                await self._run_reflector(
+                    personality=trader_personality,
+                    config=effective_config,
+                )
+            except Exception as e:
+                logger.warning("reflector stage failed: %s", e)
             clear_agent_context()
             try:
                 os.unlink(prompt_file.name)
@@ -521,6 +528,29 @@ class AgentRunner(QThread):
                 )
         except Exception as e:
             logger.warning("failed to persist assessor review: %s", e)
+
+    async def _run_reflector(
+        self,
+        personality: Any,
+        config: Dict[str, Any],
+    ) -> None:
+        """Turn newly-closed trades into personality lessons.
+
+        Reads the paper-broker audit log, updates win/loss stats, and
+        (when the assessor model is configured) asks Claude for one
+        lesson per closed trade. Purely advisory — never blocks.
+        """
+        if personality is None:
+            return
+        paper_cfg = config.get("paper_broker", {}) or {}
+        audit_path = str(paper_cfg.get("audit_path") or "logs/paper_orders.jsonl")
+
+        from core.trade_reflector import reflect_on_closed_trades
+        written = await reflect_on_closed_trades(audit_path, personality, config)
+        if written:
+            self.log_line.emit(
+                f"[reflector] wrote {written} lesson(s) from closed trades",
+            )
 
     def _write_last_iteration_summary(
         self,
