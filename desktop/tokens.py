@@ -55,15 +55,17 @@ FONT_SANS_FAMILY = "Outfit"   # for QFont()
 FONT_MONO_FAMILY = "JetBrains Mono"
 
 # Size scale (px — QSS prefers px for pixel-perfect control)
-STEP_0 = "10px"     # small caption / mono metadata
-STEP_1 = "11px"     # kicker, dock titles
-STEP_2 = "12px"     # default body
-STEP_3 = "13px"     # table cell, chat body
-STEP_4 = "14px"     # input, primary button
-STEP_5 = "16px"     # emphasised body
-STEP_6 = "20px"     # card title
-STEP_7 = "28px"     # section heading
-STEP_8 = "44px"     # hero wordmark
+# Bumped one notch up from the original website-matched scale so ticker
+# names and key numbers stay legible at narrow default panel widths.
+STEP_0 = "11px"     # small caption / mono metadata
+STEP_1 = "12px"     # kicker, dock titles
+STEP_2 = "13px"     # default body
+STEP_3 = "14px"     # table cell, chat body
+STEP_4 = "15px"     # input, primary button
+STEP_5 = "17px"     # emphasised body
+STEP_6 = "22px"     # card title
+STEP_7 = "30px"     # section heading
+STEP_8 = "46px"     # hero wordmark
 
 # Letter spacing for the tracked-out mono kicker style
 TRACK_KICKER = "0.2em"

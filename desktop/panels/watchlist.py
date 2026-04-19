@@ -108,6 +108,7 @@ def _item(
     item.setTextAlignment(align | Qt.AlignVCenter)
     font = QFont(T.FONT_MONO_FAMILY)
     font.setStyleHint(QFont.Monospace)
+    font.setPixelSize(14)
     font.setWeight(QFont.Medium if bold else QFont.Normal)
     item.setFont(font)
     return item

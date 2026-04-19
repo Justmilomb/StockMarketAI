@@ -1,21 +1,17 @@
 """Interactive first-launch onboarding tour.
 
-Walks the user through every dockable panel with a spotlight overlay +
-a popover. The overlay dims the whole window, cuts a rectangular hole
-around the current target, and a floating card explains what the panel
-does with Next / Skip controls. Shown exactly once — a marker file in
-``user_data_dir()`` tracks completion.
+Walks the user through the app with a spotlight overlay + a popover.
+The overlay dims the whole window, cuts a rectangular hole around the
+current target, and a floating card explains the panel in plain
+English with Next / Back / Skip controls.
 
-Design notes:
+The tour is written for people whose only finance knowledge is "the
+stock market can make you money" — every sentence is short, every
+concept is introduced from zero. Kept to 4 steps (watchlist, chart,
+start/stop, chat) so new users aren't overwhelmed.
 
-* **Pure Qt widgets** so it works with the existing PySide6 stack and
-  respects Qt's DPI scaling out of the box.
-* The overlay is a top-level frameless widget parented to MainWindow.
-  We position it precisely over the window and let the main window
-  keep its size / keep events flowing; the overlay sits on top and
-  intercepts clicks on everything except its own buttons.
-* The popover auto-positions next to the target — right side first,
-  falling back to left or below if there isn't room.
+Shown on first launch (a marker file in ``user_data_dir()`` tracks
+completion) and can be replayed at any time via the Help menu.
 """
 from __future__ import annotations
 
@@ -24,7 +20,7 @@ from pathlib import Path
 from typing import Callable, List, Optional
 
 from PySide6.QtCore import QEvent, QPoint, QRect, Qt, QTimer
-from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath
+from PySide6.QtGui import QColor, QPainter, QPainterPath
 from PySide6.QtWidgets import (
     QApplication,
     QDockWidget,
@@ -40,7 +36,7 @@ from PySide6.QtWidgets import (
 from desktop import tokens as T
 
 
-# ── Marker so we only show the tour once ─────────────────────────────
+# ── Marker so the tour only auto-shows once ──────────────────────────
 
 def _tour_marker_path() -> Path:
     try:
@@ -73,90 +69,59 @@ class TourStep:
 
 
 def _build_steps(window: QMainWindow) -> List[TourStep]:
-    """Resolve steps against the MainWindow's dock widgets."""
-    def dock(name: str) -> Callable[[QMainWindow], Optional[QWidget]]:
-        def _resolve(win: QMainWindow) -> Optional[QWidget]:
-            return getattr(win, name, None)
-        return _resolve
+    """Resolve steps against the MainWindow's panels.
 
-    def panel(name: str) -> Callable[[QMainWindow], Optional[QWidget]]:
+    Only four steps — the absolute essentials. Anything more and new
+    users glaze over.
+    """
+    def attr(name: str) -> Callable[[QMainWindow], Optional[QWidget]]:
         def _resolve(win: QMainWindow) -> Optional[QWidget]:
             return getattr(win, name, None)
         return _resolve
 
     return [
         TourStep(
-            kicker="01 · WATCHLIST",
-            title="Your universe of tickers.",
+            kicker="STEP 1 OF 4",
+            title="This is your watchlist.",
             body=(
-                "Live prices, day change, and news sentiment for every ticker "
-                "you're tracking. The agent auto-adds anything it buys."
+                "A list of companies you want to follow. Each row shows "
+                "the current price and how much it moved today.\n\n"
+                "You add companies with the + button. Nothing is bought "
+                "until you say so."
             ),
-            target=dock("_watchlist_dock"),
+            target=attr("_watchlist_dock"),
         ),
         TourStep(
-            kicker="02 · CHART",
-            title="Candlesticks with a 20-day SMA.",
+            kicker="STEP 2 OF 4",
+            title="This is the price chart.",
             body=(
-                "Press G with a ticker selected to load its chart here. "
-                "A faint PAPER watermark over this panel is the only "
-                "signal that you're in paper mode."
+                "Pick a company in the watchlist and this shows how its "
+                "price has moved over time. Going up is good, going "
+                "down is bad. That's it."
             ),
-            target=panel("chart_panel"),
+            target=attr("chart_panel"),
         ),
         TourStep(
-            kicker="03 · POSITIONS",
-            title="What you own, live.",
+            kicker="STEP 3 OF 4",
+            title="Start and stop the AI here.",
             body=(
-                "Quantity, average entry, current price, and unrealised P/L "
-                "for every open position."
+                "Press START and the AI begins watching the market and "
+                "making trades for you. Press STOP and it stops.\n\n"
+                "You are always in control. Nothing runs on its own."
             ),
-            target=dock("_positions_dock"),
+            target=attr("_agent_dock"),
         ),
         TourStep(
-            kicker="04 · ORDERS",
-            title="Recent orders — pending, filled, cancelled.",
+            kicker="STEP 4 OF 4",
+            title="Ask the AI anything.",
             body=(
-                "Everything the agent and you have sent to the broker in the "
-                "last session."
+                "Type a question here — \"why did you buy Apple?\", "
+                "\"is Tesla a good buy?\", anything. The AI answers in "
+                "plain English.\n\n"
+                "You can open this tour again any time from the Help "
+                "menu at the top."
             ),
-            target=dock("_orders_dock"),
-        ),
-        TourStep(
-            kicker="05 · AGENT",
-            title="Start, stop, and watch the agent loop.",
-            body=(
-                "Click START to begin an autonomous trading cycle. The log "
-                "below streams every thought, tool call, and decision."
-            ),
-            target=dock("_agent_dock"),
-        ),
-        TourStep(
-            kicker="06 · CHAT",
-            title="Talk to the agent.",
-            body=(
-                "Ask questions, request research, or challenge its decisions. "
-                "The agent answers with live access to your account."
-            ),
-            target=dock("_chat_dock"),
-        ),
-        TourStep(
-            kicker="07 · INFORMATION",
-            title="News + research findings.",
-            body=(
-                "Curated market news, per-ticker sentiment, and the research "
-                "swarm's latest findings — all in one stream."
-            ),
-            target=dock("_news_dock"),
-        ),
-        TourStep(
-            kicker="08 · STATUS",
-            title="Account and agent snapshot.",
-            body=(
-                "Balance, invested, total, unrealised P/L, cadence, and time "
-                "since the agent's last iteration."
-            ),
-            target=dock("_settings_dock"),
+            target=attr("_chat_dock"),
         ),
     ]
 
@@ -198,6 +163,13 @@ class _SpotlightOverlay(QWidget):
             )
 
 
+# Popover geometry — keep it comfortably smaller than the smallest
+# supported window (MainWindow.setMinimumSize(1280, 720)) so we can
+# always find room for it.
+_POPOVER_WIDTH = 360
+_POPOVER_MAX_HEIGHT = 440
+
+
 class _PopoverCard(QFrame):
     """Floating info card pinned next to the spotlight."""
 
@@ -208,16 +180,17 @@ class _PopoverCard(QFrame):
             f"QFrame#TourPopover {{ background: {T.BG_0};"
             f" border: 1px solid {T.BORDER_1}; }}"
         )
-        self.setFixedWidth(340)
+        self.setFixedWidth(_POPOVER_WIDTH)
+        self.setMaximumHeight(_POPOVER_MAX_HEIGHT)
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(22, 18, 22, 18)
+        root.setContentsMargins(24, 20, 24, 20)
         root.setSpacing(0)
 
         self._kicker = QLabel()
         self._kicker.setStyleSheet(
             f"color: {T.ACCENT_HEX}; font-family: {T.FONT_MONO};"
-            f" font-size: 10px; letter-spacing: 2px;"
+            f" font-size: 11px; letter-spacing: 2px;"
         )
         root.addWidget(self._kicker)
 
@@ -225,8 +198,8 @@ class _PopoverCard(QFrame):
         self._title.setWordWrap(True)
         self._title.setStyleSheet(
             f"color: {T.FG_0}; font-family: {T.FONT_SANS};"
-            f" font-size: 18px; font-weight: 500;"
-            f" letter-spacing: -0.01em; padding: 6px 0 10px 0;"
+            f" font-size: 22px; font-weight: 500;"
+            f" letter-spacing: -0.01em; padding: 8px 0 12px 0;"
         )
         root.addWidget(self._title)
 
@@ -234,18 +207,18 @@ class _PopoverCard(QFrame):
         self._body.setWordWrap(True)
         self._body.setStyleSheet(
             f"color: {T.FG_1_HEX}; font-family: {T.FONT_SANS};"
-            f" font-size: 12px; line-height: 1.6;"
+            f" font-size: 14px; line-height: 1.6;"
         )
         root.addWidget(self._body)
 
-        root.addSpacing(14)
+        root.addSpacing(16)
 
         rule = QFrame()
         rule.setFixedHeight(1)
         rule.setStyleSheet(f"background: {T.BORDER_0};")
         root.addWidget(rule)
 
-        root.addSpacing(12)
+        root.addSpacing(14)
 
         foot = QHBoxLayout()
         foot.setSpacing(8)
@@ -286,10 +259,13 @@ class _PopoverCard(QFrame):
 class OnboardingTour:
     """Orchestrates the spotlight + popover over a MainWindow."""
 
-    def __init__(self, window: QMainWindow) -> None:
+    def __init__(self, window: QMainWindow, *, mark_complete: bool = True) -> None:
         self._window = window
         self._steps = _build_steps(window)
         self._index = 0
+        # When False (replay from Help menu), don't overwrite the marker
+        # — it's already set.
+        self._mark_complete = mark_complete
 
         self._overlay = _SpotlightOverlay(window)
         self._overlay.setGeometry(window.rect())
@@ -342,42 +318,83 @@ class OnboardingTour:
 
     def _target_rect_in_window(self, target: QWidget) -> QRect:
         top_left = target.mapTo(self._window, QPoint(0, 0))
-        return QRect(top_left, target.size())
+        rect = QRect(top_left, target.size())
+        # Clip to window so the spotlight border never paints outside
+        # the visible area (e.g. a dock that extends past the edge on
+        # odd layouts).
+        return rect.intersected(self._window.rect())
 
     def _position_popover(self, target_rect: QRect) -> None:
+        """Place the popover so it never clips off-screen.
+
+        Strategy:
+        1. Try the four sides of the spotlight (right, left, below,
+           above). Pick the first one that fits fully inside the
+           window without overlapping the target.
+        2. If none fit — the target is huge (chart panel on a small
+           window, etc.) — float the popover in the window's nearest
+           empty corner and let it overlap the spotlight. An
+           always-visible popover beats a "clean" but invisible one.
+        """
         win_rect = self._window.rect()
-        pop_size = self._popover.size()
         margin = 16
 
+        # Bound popover size to window first — shrinks on small windows
+        # so the "does it fit" test can ever succeed.
+        max_w = max(240, win_rect.width() - 2 * margin)
+        max_h = max(200, win_rect.height() - 2 * margin)
+        self._popover.setFixedWidth(min(_POPOVER_WIDTH, max_w))
+        self._popover.setMaximumHeight(min(_POPOVER_MAX_HEIGHT, max_h))
+        self._popover.adjustSize()
+
+        pop_size = self._popover.size()
+
+        def centred_y() -> int:
+            return target_rect.top() + (target_rect.height() - pop_size.height()) // 2
+
+        def centred_x() -> int:
+            return target_rect.left() + (target_rect.width() - pop_size.width()) // 2
+
         candidates = [
-            # Right of target
-            QPoint(
-                target_rect.right() + margin,
-                target_rect.top() + (target_rect.height() - pop_size.height()) // 2,
-            ),
-            # Left of target
-            QPoint(
-                target_rect.left() - pop_size.width() - margin,
-                target_rect.top() + (target_rect.height() - pop_size.height()) // 2,
-            ),
-            # Below target
-            QPoint(
-                target_rect.left() + (target_rect.width() - pop_size.width()) // 2,
-                target_rect.bottom() + margin,
-            ),
-            # Above target
-            QPoint(
-                target_rect.left() + (target_rect.width() - pop_size.width()) // 2,
-                target_rect.top() - pop_size.height() - margin,
-            ),
+            QPoint(target_rect.right() + margin, centred_y()),
+            QPoint(target_rect.left() - pop_size.width() - margin, centred_y()),
+            QPoint(centred_x(), target_rect.bottom() + margin),
+            QPoint(centred_x(), target_rect.top() - pop_size.height() - margin),
         ]
 
-        def fits(p: QPoint) -> bool:
+        def fits_in_window(p: QPoint) -> bool:
             r = QRect(p, pop_size)
-            return win_rect.contains(r) and not r.intersects(target_rect)
+            return win_rect.contains(r)
 
-        chosen = next((p for p in candidates if fits(p)), candidates[0])
-        # Clamp to the window so it never paints off-screen.
+        def clear_of_target(p: QPoint) -> bool:
+            return not QRect(p, pop_size).intersects(target_rect)
+
+        chosen = None
+        for p in candidates:
+            if fits_in_window(p) and clear_of_target(p):
+                chosen = p
+                break
+
+        if chosen is None:
+            # Nothing clean — park the popover in whichever window
+            # corner is furthest from the spotlight centre. Always
+            # visible, always tappable.
+            tc_x = target_rect.center().x()
+            tc_y = target_rect.center().y()
+            right = tc_x < win_rect.width() / 2
+            bottom = tc_y < win_rect.height() / 2
+            x = (
+                win_rect.width() - pop_size.width() - margin
+                if right else margin
+            )
+            y = (
+                win_rect.height() - pop_size.height() - margin
+                if bottom else margin
+            )
+            chosen = QPoint(x, y)
+
+        # Final clamp so the popover is always fully on-screen, even
+        # if a candidate just barely spilled over.
         x = max(margin, min(chosen.x(), win_rect.width() - pop_size.width() - margin))
         y = max(margin, min(chosen.y(), win_rect.height() - pop_size.height() - margin))
         self._popover.move(x, y)
@@ -396,7 +413,8 @@ class OnboardingTour:
         self._render_current()
 
     def _finish(self) -> None:
-        _mark_tour_complete()
+        if self._mark_complete:
+            _mark_tour_complete()
         self._overlay.hide()
         self._popover.hide()
         self._overlay.deleteLater()
@@ -415,23 +433,27 @@ class _ResizeForwarder:
         return False
 
 
-# ── Entry point ─────────────────────────────────────────────────────
+# ── Entry points ────────────────────────────────────────────────────
 
 _ACTIVE_TOUR: Optional[OnboardingTour] = None
 
 
 def maybe_start_tour(window: QMainWindow) -> None:
     """Show the first-launch onboarding tour, or no-op if already run."""
-    global _ACTIVE_TOUR
     if _tour_has_run():
         return
     # Wait one event-loop tick so the window has finished laying out.
-    QTimer.singleShot(250, lambda: _start_tour(window))
+    QTimer.singleShot(250, lambda: _start_tour(window, mark_complete=True))
 
 
-def _start_tour(window: QMainWindow) -> None:
+def start_tour(window: QMainWindow) -> None:
+    """Start the tour unconditionally (menu-triggered replay)."""
+    _start_tour(window, mark_complete=False)
+
+
+def _start_tour(window: QMainWindow, *, mark_complete: bool) -> None:
     global _ACTIVE_TOUR
     app = QApplication.instance()
     if app is None:
         return
-    _ACTIVE_TOUR = OnboardingTour(window)
+    _ACTIVE_TOUR = OnboardingTour(window, mark_complete=mark_complete)

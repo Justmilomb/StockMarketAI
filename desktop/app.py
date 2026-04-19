@@ -242,6 +242,12 @@ class MainWindow(QMainWindow):
             "Clear All Chats && History", self._on_clear_history,
         )
 
+        help_menu = menu_bar.addMenu("&Help")
+        help_menu.addAction("Show Tour", self._on_show_tour)
+        help_menu.addAction("Help...", self.action_show_help)
+        help_menu.addSeparator()
+        help_menu.addAction("About", self.action_show_about)
+
         mode_str = "AUTO" if self.state.mode == "full_auto_limited" else "ADVISOR"
         asset_str = self.state.active_asset_class.upper()
         self._header_label = QLabel(
@@ -476,9 +482,8 @@ class MainWindow(QMainWindow):
 
         QTimer.singleShot(100, self.action_refresh_data)
 
-        # Auto-start the agent when the app launches in AUTO mode.
-        if self.state.mode == "full_auto_limited":
-            QTimer.singleShot(1500, self._on_agent_start)
+        # The agent never auto-starts — the user must explicitly press
+        # START from the Agent panel or menu. Nothing runs on its own.
 
     def _init_update_service(self) -> None:
         """Create the UpdateService and wire its signals to the banner.
@@ -919,6 +924,15 @@ class MainWindow(QMainWindow):
         dlg.open()
 
     @Slot()
+    def _on_show_tour(self) -> None:
+        """Replay the onboarding tour on demand from the Help menu."""
+        try:
+            from desktop.onboarding import start_tour
+            start_tour(self)
+        except Exception:
+            logging.getLogger(__name__).exception("Failed to start onboarding tour")
+
+    @Slot()
     def _update_header(self) -> None:
         mode_str = "AUTO" if self.state.mode == "full_auto_limited" else "ADVISOR"
         self.setWindowTitle("blank")
@@ -1140,8 +1154,9 @@ class MainWindow(QMainWindow):
     def _on_reset_paper_account(self) -> None:
         """Wipe the paper account and restart at the config starting cash.
 
-        Only does anything when the stocks broker is a ``PaperBroker`` —
-        in a live window this is a no-op with a status toast so the
+        Resets cash + positions + orders in the paper broker AND empties
+        the active paper watchlist so the user gets a truly clean slate.
+        In a live window this is a no-op with a status toast so the
         menu item is harmless if the user clicks it by mistake.
         """
         from PySide6.QtWidgets import QMessageBox
@@ -1149,7 +1164,8 @@ class MainWindow(QMainWindow):
             self,
             "Reset Paper Account",
             "Wipe all paper positions, pending orders, and cash back to "
-            "the config starting cash?\n\nThis cannot be undone.",
+            "the starting cash, and clear the watchlist?"
+            "\n\nThis cannot be undone.",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
@@ -1160,14 +1176,31 @@ class MainWindow(QMainWindow):
             ok = bool(self.broker_service.reset_paper())
         except Exception as e:
             logging.getLogger(__name__).warning("reset_paper failed: %s", e)
-        if ok:
-            self.statusBar().showMessage(
-                "Paper account reset to starting cash.", 3000,
-            )
-        else:
+        if not ok:
             self.statusBar().showMessage(
                 "Reset skipped — not a paper broker.", 3000,
             )
+            return
+
+        # Broker wipe succeeded — now empty the active paper watchlist.
+        # Keep the watchlist NAME (e.g. "Default") so the user's setup
+        # survives; only the tickers go. Config is persisted so the
+        # next open doesn't re-seed.
+        try:
+            active = self.config.get("active_watchlist") or "Default"
+            wl_root = self.config.setdefault("watchlists_paper", {})
+            if isinstance(wl_root, dict):
+                wl_root[active] = []
+            self._save_config()
+            self.state.active_watchlist_tickers = []
+            self._refresh_watchlist_panel()
+        except Exception:
+            logging.getLogger(__name__).exception("clear paper watchlist failed")
+
+        self.statusBar().showMessage(
+            "Paper account reset — cash, positions, and watchlist cleared.",
+            3000,
+        )
 
     def _on_clear_history(self) -> None:
         """Wipe every agent-visible memory table and reset in-memory state.
