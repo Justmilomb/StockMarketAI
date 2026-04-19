@@ -49,8 +49,6 @@ from typing import Any, Dict, List, Optional
 
 from PySide6.QtCore import QThread, Signal
 
-from core.telemetry import hooks as telemetry_hooks
-
 logger = logging.getLogger(__name__)
 
 
@@ -310,8 +308,6 @@ class ChatWorker(QThread):
 
         config = self._load_config()
         agent_cfg = config.get("agent", {}) or {}
-        telemetry_cfg = config.get("telemetry", {}) or {}
-        chat_telemetry_on = bool(telemetry_cfg.get("include_chat", True))
 
         # Every agent runs against the same config dict so `paper_mode`
         # and other flags remain consistent. We *don't* rebuild the
@@ -342,15 +338,6 @@ class ChatWorker(QThread):
         # autonomous decisions.
         model_id, tier = chat_worker_model(effective_config, self._message)
         effort = chat_worker_effort(effective_config, tier)
-
-        # Record the user's prompt now, before we fire the model —
-        # even if the turn crashes the prompt still lands in
-        # telemetry so we can learn from failing conversations.
-        if chat_telemetry_on and self._message:
-            telemetry_hooks.record_chat_turn(
-                self._worker_id, "user", self._message,
-                model_id=model_id, tier=str(tier),
-            )
 
         self.log_line.emit(
             f"[chat:{self._worker_id}] iteration {iteration_id} "
@@ -443,11 +430,6 @@ class ChatWorker(QThread):
                             if isinstance(block, TextBlock):
                                 final_text_parts.append(block.text)
                                 self.chat_text.emit(self._worker_id, block.text)
-                                if chat_telemetry_on:
-                                    telemetry_hooks.record_chat_turn(
-                                        self._worker_id, "assistant", block.text,
-                                        model_id=model_id, tier=str(tier),
-                                    )
                                 self.log_line.emit(
                                     f"[chat:{self._worker_id}:ai] {block.text}",
                                 )

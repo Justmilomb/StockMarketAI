@@ -8,27 +8,36 @@ calls whenever it wants: fetch prices, read news, size positions, place
 orders.
 
 Terminal-dark panels, paper-mode by default, live broker support via
-Trading 212, and a 24/7 scraper daemon pulling from 9 news and social
-sources.
+Trading 212, and a 24/7 scraper daemon pulling from 12 news and social
+sources. A 21-role research swarm runs in parallel, continuously filing
+findings for the supervisor to act on.
 
 ## How it works
 
 ```
-Qt MainWindow ──▶ AgentRunner (QThread)
+Qt MainWindow ──▶ AgentPool
                      │
-                     ▼ one fresh Claude Code subprocess per iteration
-                claude-agent-sdk.query(prompt, options)
+                     ├─ AgentRunner (supervisor QThread)
+                     │    └─ one fresh Claude subprocess per iteration
+                     │         claude-agent-sdk.query(prompt, options)
+                     │                │
+                     │                ▼ in-process MCP tools
+                     │         core/agent/tools/*.py
+                     │                │
+                     │                ▼
+                     │         broker / market / risk / news / social / memory
                      │
-                     ▼ in-process MCP tools
-                core/agent/tools/*.py
+                     ├─ ChatWorker QThreads (one per user message)
+                     │    └─ same tool bus, same broker, same SQLite memory
                      │
-                     ▼
-                broker / market / risk / news / social / memory
+                     └─ SwarmCoordinator (daemon thread)
+                          └─ ResearchWorker QThreads rotating through
+                             21 specialised roles (quick / deep research)
 ```
 
-Every iteration:
+Every supervisor iteration:
 
-1. Runner spawns a fresh Claude Code subprocess via `claude-agent-sdk`.
+1. AgentPool spawns a fresh Claude subprocess via `claude-agent-sdk`.
 2. System prompt tells Claude it is an autonomous PM with strict risk
    rules and kill conditions.
 3. Claude calls MCP tools (`mcp__blank__get_portfolio`,
@@ -36,12 +45,15 @@ Every iteration:
    no Read, no Write. The allowed-tools list is hard-capped.
 4. Tool calls stream back to the UI as Qt signals — chart, positions,
    orders, agent log all update live.
-5. Runner sleeps for the configured cadence (default 90s, floor 30s)
+5. A post-iteration assessor (Sonnet tier) grades the iteration and
+   writes its review to `agent_journal`.
+6. Runner sleeps for the configured cadence (default 45 s, floor 30 s)
    and loops.
 
-Hard caps per iteration: **40 tool calls, 360 s wall clock**. Kill switch
-on the Agent menu sets a soft-stop flag and waits 3 seconds before
-terminating the thread.
+Kill switch on the Agent menu sets a soft-stop flag and waits 3 seconds
+before terminating the thread. The earlier per-iteration hard caps (40
+tool calls, 360 s) were removed so the supervisor is not cut off
+mid-thought; the cadence floor is the only enforced governor.
 
 ## Quick start
 
@@ -76,24 +88,43 @@ transcript streamed to stdout. Useful for smoke-testing tool wiring.
 ```
 core/
 ├── agent/                  Claude Agent SDK runner + tool bus
-│   ├── runner.py           AgentRunner QThread
+│   ├── runner.py           AgentRunner QThread (supervisor loop)
+│   ├── pool.py             AgentPool — owns supervisor + chat workers + swarm
+│   ├── chat_worker.py      one-shot QThread per user chat message
+│   ├── swarm.py            SwarmCoordinator daemon (20-role research pool)
+│   ├── research_worker.py  one QThread per research task
+│   ├── research_roles.py   20 role definitions (quick / deep tiers)
+│   ├── assessor.py         post-iteration Sonnet grader
+│   ├── model_router.py     model + effort selection per role
 │   ├── mcp_server.py       create_sdk_mcp_server wiring
 │   ├── prompts.py          autonomous PM system prompt
 │   ├── context.py          per-iteration context
 │   └── tools/              broker, market, risk, memory, watchlist,
-│                           news, social, flow — one file per concern
+│                           news, social, flow, backtest, browser,
+│                           ensemble, sentiment, insider, alt_data,
+│                           execution, rl — one file per concern
 ├── scrapers/               24/7 background news + social feeds
 │   ├── base.py             ScraperBase (rate-limit, UA rotation, safe-fail)
-│   ├── runner.py           daemon thread, cycles every 5 min
-│   └── <9 source files>    google_news, yahoo_finance, bbc, bloomberg,
-│                           marketwatch, youtube, stocktwits, reddit, x
+│   ├── runner.py           daemon thread, cycles every 5 min, VADER scoring
+│   ├── youtube_transcripts.py   @markets channel + live-stream captions
+│   ├── youtube_live_vision.py   sampled-frame vision feed via yt-dlp + ffmpeg
+│   ├── sec_insider.py      SEC Form 4 insider-trade feed
+│   ├── options_flow.py     unusual options activity heuristic
+│   └── <9 headline scrapers>    google_news, yahoo_finance, bbc, bloomberg,
+│                                marketwatch, youtube, stocktwits, reddit, x
+├── forecasting/            Chronos-2, TimesFM, TFT + XGBoost meta-learner
+├── nlp/                    FinBERT compound sentiment scorer
+├── alt_data/               analyst revision momentum
+├── execution/              TWAP / VWAP slice planner
+├── rl/                     FinRL scaffold (regime-aware cold-start allocator)
 ├── broker_service.py       broker facade (Trading 212 / LogBroker)
+├── paper_broker.py         ephemeral £100 GBP sandbox
 ├── trading212.py           Trading 212 REST client
-├── risk_manager.py         Kelly + ATR sizing (size_position tool)
+├── risk_manager.py         Kelly + ATR sizing (regime-aware)
 ├── data_loader.py          yfinance daily OHLCV cache
 ├── database.py             sqlite persistence (agent_memory, agent_journal,
-│                           scraper_items)
-└── news_agent.py           legacy panel sentiment helper
+│                           scraper_items, research_findings)
+└── config_schema.py        Pydantic AppConfig validator
 
 desktop/
 ├── app.py                  MainWindow, panel wiring, agent lifecycle
@@ -102,10 +133,11 @@ desktop/
 ├── state.py                DEFAULT_CONFIG + init_state
 ├── panels/
 │   ├── agent_log.py        live log + start/stop/kill
-│   ├── chat.py             user messages → running agent loop
+│   ├── chat.py             user messages → agent pool
+│   ├── exchanges.py        13-venue market-hours status panel
 │   ├── chart.py / orders.py / positions.py / news.py / watchlist.py
 │   └── settings.py         account + agent status readout
-└── dialogs/                setup wizard, license, etc.
+└── dialogs/                setup wizard, license, trade, add ticker, etc.
 ```
 
 See `docs/ARCHITECTURE.md` for the full system diagram and
@@ -119,17 +151,24 @@ All runtime config lives in `config.json`. The agent-relevant sections:
 {
   "agent": {
     "enabled": false,
-    "cadence_seconds": 90,
-    "max_tool_calls_per_iter": 40,
-    "max_iter_seconds": 360,
+    "cadence_seconds": 45,
     "paper_mode": true,
     "daily_max_drawdown_pct": 3.0,
     "max_position_pct": 20.0,
-    "max_trades_per_hour": 10
+    "max_trades_per_hour": 10,
+    "max_chat_workers": 5
+  },
+  "ai": {
+    "model_complex": "claude-opus-4-7",
+    "model_medium": "claude-sonnet-4-6",
+    "model_simple": "claude-haiku-4-5-20251001",
+    "effort_supervisor": "max",
+    "effort_decision": "high",
+    "effort_info": "medium"
   },
   "news": {
     "refresh_interval_minutes": 5,
-    "scraper_cadence_seconds": 300
+    "scrapers_enabled": true
   },
   "broker": {
     "type": "log",
@@ -143,6 +182,10 @@ All runtime config lives in `config.json`. The agent-relevant sections:
 `agent.paper_mode = true` always forces `broker.type = "log"` at
 runtime, so live trading only kicks in when you explicitly flip the
 Paper/Live toggle **and** configure a real broker.
+
+Model and effort tiers are all editable under the `ai` block. The
+supervisor always runs at `max` effort; chat workers switch between
+`high` (decision) and `medium` (info) based on the message content.
 
 Broker secrets live in `.env` (see `.env.example`).
 
@@ -160,8 +203,9 @@ Broker secrets live in `.env` (see `.env.example`).
 - **Every read is a tool call.** `place_order` re-fetches the broker
   portfolio before submitting, so the "sell 0 owned" class of bug is
   impossible by construction.
-- **Hard caps.** 40 tool calls and 360 s per iteration; kill switch
-  stops the loop within 3 s.
+- **Cadence floor.** The agent cannot run more than once every 30 s,
+  regardless of config, to protect the AI subscription quota. Kill
+  switch stops the loop within 3 s.
 - **Scrapers never raise.** A broken source returns `[]` and increments
   a health counter — the runner keeps going.
 

@@ -149,23 +149,6 @@ class ExecutionConfig(BaseModel):
     twap_slices_per_hour: int = 6
 
 
-class TelemetryConfig(BaseModel):
-    """Anonymised event collection for future model training.
-
-    When disabled, no local DB is created and every ``emit`` call is a
-    no-op — no uploader thread is started.
-    """
-
-    model_config = ConfigDict(extra="allow")
-
-    enabled: bool = True
-    upload_hour: int = Field(default=3, ge=0, le=23)
-    endpoint: str = "https://api.useblank.ai/api/telemetry"
-    max_queue_size: int = Field(default=100_000, ge=1000)
-    batch_size: int = Field(default=500, ge=1)
-    include_chat: bool = True
-
-
 class AppConfig(BaseModel):
     """Top-level config shape. Unknown keys pass through untouched."""
 
@@ -189,7 +172,6 @@ class AppConfig(BaseModel):
     forecasting: ForecastingConfig = Field(default_factory=ForecastingConfig)
     nlp: NlpConfig = Field(default_factory=NlpConfig)
     execution: ExecutionConfig = Field(default_factory=ExecutionConfig)
-    telemetry: TelemetryConfig = Field(default_factory=TelemetryConfig)
 
     active_asset_class: str = "stocks"
     enabled_asset_classes: List[str] = Field(default_factory=lambda: ["stocks"])

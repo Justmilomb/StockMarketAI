@@ -33,7 +33,6 @@ from typing import Any, Callable, Dict, List, Optional
 from core.database import HistoryManager
 from core.scrapers import SCRAPERS, ScrapedItem, ScraperBase
 from core.scrapers._sentiment import score_item
-from core.telemetry import hooks as telemetry_hooks
 
 logger = logging.getLogger(__name__)
 
@@ -136,13 +135,6 @@ class ScraperRunner(threading.Thread):
                 # to_dict uses "meta" key, database.save_scraper_items
                 # also accepts "meta" via json.dumps fallback.
                 new = self._db.save_scraper_items(rows)
-                # Telemetry: only ship newly-inserted rows (dedup is
-                # done inside save_scraper_items). We approximate by
-                # taking the tail ``new`` rows — identical IDs the
-                # database already held will be filtered out.
-                if new:
-                    for r in rows[-new:]:
-                        telemetry_hooks.record_scraper_item(r)
             except Exception as exc:
                 logger.debug("[scraper-runner] save %s failed: %s", name, exc)
                 new = 0

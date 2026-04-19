@@ -216,7 +216,7 @@ class SetupWizard(QDialog):
             "blank uses a local AI engine to power signals, news sentiment, "
             "and the chat assistant. The engine ships with the installer. "
             "If this check is failing, the install may be corrupted.\n\n"
-            "Try RE-CHECK. If it still fails, see help.useblank.ai/setup "
+            "Try RE-CHECK. If it still fails, see help.blank.app/setup "
             "or reinstall.\n\n"
             "You can skip to use blank without AI features (charts and broker "
             "still work)."
@@ -231,7 +231,7 @@ class SetupWizard(QDialog):
         open_btn.setProperty("variant", "ghost")
         open_btn.setCursor(Qt.PointingHandCursor)
         open_btn.clicked.connect(
-            lambda: webbrowser.open("https://help.useblank.ai/setup"),
+            lambda: webbrowser.open("https://help.blank.app/setup"),
         )
         btn_row.addWidget(open_btn)
 

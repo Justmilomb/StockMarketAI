@@ -1,8 +1,8 @@
 # StockMarketAI — AI Agent Entry Point
 
-AI-driven stock trading terminal combining scikit-learn ML predictions with Claude LLM analysis, rendered in a terminal-style Textual TUI. Supports paper and live trading via Trading 212.
+Desktop trading terminal where Claude is the decision-maker. Python is a typed tool bus of MCP-registered functions; the Claude Agent SDK drives an autonomous supervisor loop, a concurrent chat service, and a 21-role research swarm. Supports paper and live trading via Trading 212.
 
-**Tech stack:** Python 3.12+, scikit-learn, Textual, Claude CLI, yfinance, pandas, numpy, PySide6
+**Tech stack:** Python 3.12+, Claude Agent SDK, PySide6, yfinance, pandas, numpy, scikit-learn (forecasting meta-learner only)
 **Platform:** Windows 10
 **Language(s):** English British
 
@@ -49,22 +49,39 @@ desktop/main_desktop.py                (entry point)
   │
   ├─ core/                              (everything on sys.path)
   │   ├─ agent/                         (Claude Agent loop — the brain)
-  │   │   ├─ runner                     (supervisor iteration loop)
-  │   │   ├─ chat_worker                (user-facing chat)
-  │   │   ├─ research_worker            (swarm research roles)
-  │   │   ├─ assessor                   (post-iteration grader)
-  │   │   ├─ model_router               (tier + effort config)
+  │   │   ├─ pool                       (AgentPool — owns supervisor + chat workers + swarm)
+  │   │   ├─ runner                     (AgentRunner QThread — supervisor iteration loop)
+  │   │   ├─ chat_worker                (one QThread per user chat message)
+  │   │   ├─ swarm                      (SwarmCoordinator daemon — 21-role research pool)
+  │   │   ├─ research_worker            (one QThread per research task)
+  │   │   ├─ research_roles             (20 role definitions — quick/deep tiers)
+  │   │   ├─ assessor                   (post-iteration Sonnet grader)
+  │   │   ├─ model_router               (model + effort selection per role)
   │   │   ├─ mcp_server                 (in-process MCP tool bus)
-  │   │   └─ tools/                     (broker, market, news, risk, …)
+  │   │   ├─ prompts / prompts_research (system prompts)
+  │   │   ├─ context                    (per-iteration AgentContext)
+  │   │   └─ tools/                     (broker, market, news, risk, memory,
+  │   │                                  watchlist, flow, backtest, browser,
+  │   │                                  ensemble, sentiment, insider, alt_data,
+  │   │                                  execution, rl, …)
   │   ├─ scrapers/                      (RSS + social + TV caption feed)
-  │   │   ├─ runner                     (poll cycle + VADER sentiment)
-  │   │   ├─ youtube_transcripts        (@markets channel + live stream)
-  │   │   ├─ youtube_live_vision        (sampled-frame vision feed)
-  │   │   └─ reddit / x / bbc / …
+  │   │   ├─ runner                     (poll cycle + VADER sentiment scoring)
+  │   │   ├─ youtube_transcripts        (@markets channel + live-stream captions)
+  │   │   ├─ youtube_live_vision        (sampled-frame vision via yt-dlp + ffmpeg)
+  │   │   ├─ sec_insider                (SEC Form 4 Atom feed)
+  │   │   ├─ options_flow               (unusual options activity heuristic)
+  │   │   └─ google_news / yahoo / bbc / bloomberg / marketwatch /
+  │   │      stocktwits / reddit / x_via_gnews / youtube
+  │   ├─ forecasting/                   (Chronos-2, TimesFM, TFT + XGBoost meta-learner)
+  │   ├─ nlp/                           (FinBERT compound sentiment)
+  │   ├─ alt_data/                      (analyst revision momentum)
+  │   ├─ execution/                     (TWAP / VWAP slice planner)
+  │   ├─ rl/                            (FinRL scaffold — regime-aware cold-start)
   │   ├─ paper_broker                   (ephemeral £100 GBP sandbox)
-  │   ├─ broker_service                 (Trading 212 facade)
-  │   ├─ risk_manager                   (Kelly + ATR sizing for tool bus)
-  │   ├─ database                       (SQLite — journal, findings, etc.)
+  │   ├─ broker_service                 (Trading 212 / LogBroker facade)
+  │   ├─ risk_manager                   (Kelly + ATR sizing, regime-aware)
+  │   ├─ data_loader                    (yfinance daily OHLCV cache)
+  │   ├─ database                       (SQLite — journal, findings, scraper_items)
   │   ├─ config_schema                  (Pydantic AppConfig validator)
   │   └─ types_shared                   (AssetClass + tool contracts)
   │
@@ -73,10 +90,11 @@ desktop/main_desktop.py                (entry point)
   │   ├─ main_desktop.py                (desktop entry point)
   │   ├─ app.py                         (MainWindow — terminal-dark panels)
   │   ├─ state.py                       (AppState dataclass + config loader)
-  │   ├─ panels/                        (positions, watchlist, news, chat, …)
-  │   └─ dialogs/                       (modal dialogs incl. setup wizard)
+  │   ├─ panels/                        (positions, watchlist, news, chat,
+  │   │                                  agent_log, chart, orders, exchanges, …)
+  │   └─ dialogs/                       (setup wizard, license, trade, add_ticker, …)
   │
-  ├─ server/                            (FastAPI license + admin API)
+  ├─ server/                            (FastAPI license + admin API — deployed to Render)
   ├─ website/                           (landing / coming-soon / admin HTML)
   └─ installer/                         (PyInstaller specs + Inno Setup)
 ```
@@ -87,6 +105,7 @@ desktop/main_desktop.py                (entry point)
 
 - `desktop/app.py` — main desktop window wiring, lifecycle, action handlers
 - `desktop/main.py` — shared app bootstrap (license, wizard, launch)
+- `core/agent/pool.py` — AgentPool: owns supervisor, chat workers, and swarm coordinator
 - `core/agent/runner.py` — supervisor loop, assessor hook, cadence control
 - `config.json` — all runtime configuration (validated by `core/config_schema.py`)
 - `requirements.txt` / `requirements-desktop.txt` — dependency manifests (lightweight web for Render / full desktop terminal)
@@ -100,6 +119,18 @@ desktop/main_desktop.py                (entry point)
 | **Boss / Orchestrator** | opus | Plans, owns hub files, integrates, reviews | Hub files, architecture decisions |
 | **Feature Agent** | sonnet | Implements one system at a time (2-6 files) | Leaf system files |
 | **Support Agent** | haiku | Docs, review checklists, boilerplate, search | `docs/systems/*.md`, changelogs |
+
+The runtime agent fleet inside the application uses separate model assignments:
+
+| Runtime role | Model (config key) | Effort |
+|---|---|---|
+| Supervisor (AgentRunner) | `model_complex` (Opus) | `max` |
+| Chat — decision tier | `model_complex` (Opus) | `high` |
+| Chat — info tier | `model_medium` (Sonnet) | `medium` |
+| Research — deep tier | `model_medium` (Sonnet) | `high` |
+| Research — quick tier | `model_simple` (Haiku) | `low` |
+| Post-iteration assessor | `model_assessor` (Sonnet) | `medium` |
+| Sentiment / transcripts | `model_simple` (Haiku) | — |
 
 ### Dispatch Protocol
 

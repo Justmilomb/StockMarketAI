@@ -1769,7 +1769,7 @@ SEC EDGAR exposes a free Atom feed for insider filings:
 
     https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&type=4&dateb=&owner=include&count=40&output=atom&CIK={TICKER}
 
-User-Agent is required by SEC. We use `"Blank Research contact@certifiedrandom.com"` as the descriptive UA.
+User-Agent is required by SEC. We use `"Blank Research contact@certifiedrandom.studios"` as the descriptive UA.
 
 - [ ] **Step 1: Write failing test for parser**
 
@@ -1833,7 +1833,7 @@ EDGAR_SEARCH_TEMPLATE: str = (
 )
 
 # SEC requires a descriptive, contact-bearing User-Agent for programmatic access.
-SEC_USER_AGENT: str = "Blank Research contact@certifiedrandom.com"
+SEC_USER_AGENT: str = "Blank Research contact@certifiedrandom.studios"
 
 
 def parse_form4_atom(xml_text: str, ticker: str) -> List[Dict[str, Any]]:

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 48" width="320" height="48">
+  <rect width="320" height="48" fill="#07070f"></rect>
+  
+  <rect x="8" y="7" width="34" height="34" rx="8" fill="#c4ff3c"></rect>
+  <text x="25" y="29" text-anchor="middle" font-family="&#39;Syne&#39;, sans-serif" font-size="15" font-weight="800" fill="#07070f">CR</text>
+  
+  <text x="54" y="30" font-family="&#39;Outfit&#39;, sans-serif" font-size="18" font-weight="400" fill="#edeae4">certified random</text>
+</svg>

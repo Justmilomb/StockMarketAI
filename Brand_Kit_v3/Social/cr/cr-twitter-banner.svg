@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1500 500" preserveAspectRatio="xMidYMid meet" width="100%" height="100%">
+  <rect width="1500" height="500" fill="#07070f"></rect>
+  <text x="64" y="92" font-family="&#39;JetBrains Mono&#39;, monospace" font-size="13" letter-spacing="3" fill="#c4ff3c">— STUDIO / EST. 2026 / LONDON</text>
+  <text x="64" y="230" font-family="&#39;Syne&#39;, sans-serif" font-size="76" font-weight="800" fill="#edeae4" letter-spacing="-2.5">we build software</text>
+  <text x="64" y="322" font-family="&#39;Instrument Serif&#39;, serif" font-style="italic" font-weight="400" font-size="96" fill="#c4ff3c" letter-spacing="-1">quietly, well</text>
+  <text x="64" y="420" font-family="&#39;JetBrains Mono&#39;, monospace" font-size="13" letter-spacing="3" fill="#48485c">certifiedrandom.studios  •  ai / web / desktop</text>
+  <defs><path id="m9" d="M 1260,250 m -122.99999999999999,0 a 122.99999999999999,122.99999999999999 0 1,1 245.99999999999997,0 a 122.99999999999999,122.99999999999999 0 1,1 -245.99999999999997,0"></path></defs>
+  <circle cx="1260" cy="250" r="150" fill="none" stroke="#c4ff3c" stroke-width="1.2" stroke-dasharray="4.2 3" opacity="0.5"></circle>
+  <circle cx="1260" cy="250" r="132.75" fill="none" stroke="#c4ff3c" stroke-width="0.825" opacity="0.3"></circle>
+  <text font-family="&#39;JetBrains Mono&#39;, monospace" font-weight="400" font-size="15.75" fill="#c4ff3c" letter-spacing="4.2"><textPath href="#m9">CERTIFIED RANDOM STUDIOS • EST. 2026 • </textPath></text>
+  <text x="1260" y="242.5" text-anchor="middle" font-family="&#39;Syne&#39;, sans-serif" font-size="45" font-weight="800" fill="#c4ff3c">CR</text>
+  <line x1="1218" y1="277" x2="1302" y2="277" stroke="#c4ff3c" stroke-width="1.2" opacity="0.4"></line>
+  <text x="1260" y="322" text-anchor="middle" font-family="&#39;JetBrains Mono&#39;, monospace" font-weight="400" font-size="12.750000000000002" letter-spacing="6" fill="#c4ff3c" opacity="0.55">STUDIOS</text>
+</svg>

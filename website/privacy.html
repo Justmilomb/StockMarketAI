@@ -169,7 +169,7 @@
         </p>
 
         <h2>what we collect on the server</h2>
-        <p>the backend at <code>api.useblank.ai</code> stores:</p>
+        <p>the backend at <code>blan-api.onrender.com</code> stores:</p>
         <ul>
             <li>
                 <strong>licence data</strong> — your licence key, a hashed
@@ -195,25 +195,6 @@
                 timestamp can refresh inside ~60 seconds. these pings include
                 the licence key and the installed version; nothing else.
             </li>
-            <li>
-                <strong>anonymised app events (telemetry)</strong> — once a
-                night the app packages up an anonymised record of what
-                happened that session and uploads it to us. that record
-                includes: news items the app scraped and their sentiment
-                scores, the agent's decisions and tool calls, market snapshots
-                at the moment of each decision, forecaster outputs, paper
-                and live trade fills, personality lessons the agent wrote,
-                error logs, and chat transcripts between you and the agent.
-                before anything leaves your pc we scrub emails, api keys,
-                names, hostnames, usernames, and trading 212 account ids.
-                each event is tagged with a stable hashed install id (not
-                your name, email, or ip) so we can stitch one machine's
-                history together for model training. you can switch this
-                off in <code>config.json</code> by setting
-                <code>telemetry.enabled</code> to <code>false</code>; chat
-                transcripts specifically can be turned off separately via
-                <code>telemetry.include_chat</code>.
-            </li>
         </ul>
 
         <h2>what stays on your machine</h2>
@@ -225,12 +206,7 @@
             <li>your trading 212 api keys and any broker credentials</li>
             <li>your portfolio, positions, orders, and trade history</li>
             <li>your watchlist and strategy configuration</li>
-            <li>
-                agent journals and memory scratchpads. chat history stays
-                local too, but an anonymised copy of each chat turn is
-                included in the nightly telemetry upload above unless you
-                set <code>telemetry.include_chat</code> to <code>false</code>.
-            </li>
+            <li>agent journals, memory scratchpads, and chat history</li>
             <li>the sqlite database the app writes in its user-data folder</li>
             <li>any notes, tags, or protected-ticker lists you set</li>
         </ul>
@@ -292,13 +268,6 @@
             <li>
                 crash logs are kept for up to 90 days. you can request
                 earlier deletion by emailing us.
-            </li>
-            <li>
-                telemetry events are kept for up to 24 months so we have
-                enough signal to train successor models on real trading
-                behaviour. you can request deletion tied to your install id
-                by emailing us. a local copy of shipped events is retained
-                for 30 days on your pc, then purged automatically.
             </li>
         </ul>
 

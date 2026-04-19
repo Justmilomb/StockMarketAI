@@ -57,8 +57,6 @@ from broker import Broker
 from fx import fx_rate, ticker_currency
 from market_hours import exchange_for_ticker, status
 
-from core.telemetry import hooks as telemetry_hooks
-
 logger = logging.getLogger(__name__)
 
 # How long a price lookup is reused before we fetch it again. yfinance
@@ -545,12 +543,6 @@ class PaperBroker(Broker):
             "status": "FILLED",
             "cash_free_after": self._state.cash_free,
         })
-        telemetry_hooks.record_trade_fill(
-            ticker, side, qty, fill_price,
-            paper_mode=True,
-            currency=native_ccy,
-            realised_pnl=realised_pnl_acct,
-        )
 
     # ── helpers ──────────────────────────────────────────────────────
 

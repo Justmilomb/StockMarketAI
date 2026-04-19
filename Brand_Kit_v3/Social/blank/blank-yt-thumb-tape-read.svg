@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" preserveAspectRatio="xMidYMid meet" width="100%" height="100%">
+  <rect width="1280" height="720" fill="#000000"></rect>
+  <text x="60" y="90" font-family="&#39;JetBrains Mono&#39;, monospace" font-size="18" letter-spacing="5" fill="#00ff87">— TAPE READ</text>
+  <text x="60" y="360" font-family="&#39;Outfit&#39;, sans-serif" font-size="220" font-weight="700" fill="#ffffff" letter-spacing="-9">NVDA</text>
+  <text x="60" y="520" font-family="&#39;Outfit&#39;, sans-serif" font-size="140" font-weight="500" fill="#00ff87" letter-spacing="-5">+6.88%</text>
+  <line x1="60" y1="640" x2="1220" y2="640" stroke="rgba(255,255,255,0.08)" stroke-width="1"></line>
+  <text x="60" y="685" font-family="&#39;JetBrains Mono&#39;, monospace" font-size="16" letter-spacing="4" fill="rgba(255,255,255,0.32)">useblank.ai  •  a product of certified random</text>
+</svg>

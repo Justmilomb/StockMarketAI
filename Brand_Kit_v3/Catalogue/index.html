@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>media package — certified random / blank</title>
+<link rel="stylesheet" href="styles.css?v=3">
+</head>
+<body>
+<div class="grain"></div>
+
+<header class="topbar" style="--accent:#c4ff3c">
+  <div class="topbar-inner">
+    <div class="topbar-left">
+      <span class="dot"></span>
+      <span class="topbar-kicker">— MEDIA PACKAGE</span>
+      <span>v1 / 2026.04</span>
+    </div>
+    <div class="topbar-right">
+      <a href="index.html" class="is-active">index</a>
+      <a href="certified-random.html">certified random</a>
+      <a href="blank.html">blank</a>
+    </div>
+  </div>
+</header>
+
+<section class="page-head" style="--accent:#c4ff3c">
+  <div class="page-label">TWO BRANDS / ONE KIT</div>
+  <h1 class="page-title">media <span class="accent-word" style="color:#c4ff3c">package.</span></h1>
+  <p class="page-sub">every logo, every size, every surface a brand may need. both kits. strictly on-brand. two catalogues below.</p>
+</section>
+
+<section class="cat-section" style="padding-top:40px">
+  <div class="cat-grid cat-grid--hero" style="grid-template-columns:repeat(auto-fill,minmax(480px,1fr));gap:24px">
+
+    <!-- CR card -->
+    <a href="certified-random.html" class="cat-card" style="--accent:#c4ff3c;--bg-raised:#07070f;--border:rgba(255,255,255,0.07);--border-mid:rgba(255,255,255,0.12)">
+      <div class="cat-card-canvas cat-card-canvas--square" style="background:#07070f;aspect-ratio:5/3">
+        <div class="cat-card-size" style="color:#c4ff3c">studio</div>
+        <div id="cr-hero" class="cat-card-preview" style="max-width:none;max-height:none;width:100%;height:100%"></div>
+      </div>
+      <div class="cat-card-meta" style="background:#0c0c1a;padding:20px 22px 22px">
+        <div class="cat-card-name" style="color:#edeae4;font-size:20px;font-family:'Syne',sans-serif;font-weight:700;letter-spacing:-0.02em">certified random →</div>
+        <div class="cat-card-spec" style="color:#8a8a9e">47 assets · 9 categories · syne + outfit</div>
+      </div>
+    </a>
+
+    <!-- Blank card -->
+    <a href="blank.html" class="cat-card" style="--accent:#00ff87;--bg-raised:#000;--border:rgba(255,255,255,0.08);--border-mid:rgba(255,255,255,0.16)">
+      <div class="cat-card-canvas cat-card-canvas--square" style="background:#000;aspect-ratio:5/3">
+        <div class="cat-card-size" style="color:#00ff87">product</div>
+        <div id="blank-hero" class="cat-card-preview" style="max-width:none;max-height:none;width:100%;height:100%"></div>
+      </div>
+      <div class="cat-card-meta" style="background:#050505;padding:20px 22px 22px">
+        <div class="cat-card-name" style="color:#fff;font-size:20px;font-family:'Outfit',sans-serif;font-weight:700;letter-spacing:-0.02em">blank →</div>
+        <div class="cat-card-spec" style="color:rgba(255,255,255,0.6)">39 assets · 8 categories · outfit</div>
+      </div>
+    </a>
+
+  </div>
+</section>
+
+<section class="cat-section">
+  <div class="cat-section-head">
+    <div class="cat-section-title">Quick reference</div>
+    <div class="cat-section-count">both brands</div>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:18px;font-family:var(--font-mono);font-size:12px;letter-spacing:1.2px;color:var(--text-mid)">
+    <div style="border:1px solid var(--border);padding:20px;background:#0c0c1a">
+      <div style="color:#c4ff3c;margin-bottom:10px">— CERTIFIED RANDOM</div>
+      <div style="line-height:2;text-transform:uppercase">
+        accent — <b style="color:#c4ff3c">#c4ff3c</b><br>
+        bg — <b style="color:#edeae4">#07070f</b><br>
+        text — <b style="color:#edeae4">#edeae4</b><br>
+        display — syne 800<br>
+        body — outfit<br>
+        mono — jetbrains mono
+      </div>
+    </div>
+    <div style="border:1px solid var(--border);padding:20px;background:#000">
+      <div style="color:#00ff87;margin-bottom:10px">— BLANK</div>
+      <div style="line-height:2;text-transform:uppercase;color:rgba(255,255,255,0.6)">
+        accent — <b style="color:#00ff87">#00ff87</b><br>
+        bg — <b style="color:#fff">#000000</b><br>
+        text — <b style="color:#fff">#ffffff</b><br>
+        display — outfit 700<br>
+        body — outfit<br>
+        mono — jetbrains mono
+      </div>
+    </div>
+    <div style="border:1px solid var(--border);padding:20px;background:var(--bg-raised)">
+      <div style="color:var(--text);margin-bottom:10px">— SHARED RULES</div>
+      <div style="line-height:2;text-transform:uppercase">
+        dark-first. always.<br>
+        single accent per brand.<br>
+        border-radius 0 default.<br>
+        1px hairlines at 8–16%.<br>
+        no shadows. no gradients.<br>
+        no emoji in product chrome.<br>
+        names — always lowercase.
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer class="foot">
+  <span>media package v1</span>
+  <span>certified random — dark-first / single-accent</span>
+  <span>2026.04</span>
+</footer>
+
+<script src="marks.js"></script>
+<script>
+// Hero previews — use the OG cards as 'covers'
+document.getElementById('cr-hero').innerHTML = Marks.crOg();
+document.getElementById('blank-hero').innerHTML = Marks.blankOg();
+</script>
+</body>
+</html>

@@ -110,10 +110,6 @@ a = Analysis(
         'core.agent.prompts_research',
         'core.agent.tools.research_tools', 'core.agent.tools.grok_tools',
         'playwright', 'playwright.async_api',
-        # Telemetry pipeline (Phase 5.1)
-        'core.telemetry', 'core.telemetry.collector',
-        'core.telemetry.uploader', 'core.telemetry.machine_id',
-        'core.telemetry.hooks',
         # Scraper daemon (Phase 5)
         'core.scrapers', 'core.scrapers.base', 'core.scrapers.runner',
         'core.scrapers.google_news', 'core.scrapers.yahoo_finance',

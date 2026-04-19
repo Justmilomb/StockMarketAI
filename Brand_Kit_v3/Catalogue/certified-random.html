@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>certified random — media package</title>
+<link rel="stylesheet" href="styles.css?v=5">
+</head>
+<body class="cr-theme">
+<div class="grain"></div>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="topbar-left">
+      <span class="dot"></span>
+      <span class="topbar-kicker">— MEDIA PACKAGE</span>
+      <span>v2 / 2026.04</span>
+    </div>
+    <div class="topbar-right">
+      <a href="index.html">index</a>
+      <a href="certified-random.html" class="is-active">certified random</a>
+      <a href="blank.html">blank</a>
+    </div>
+  </div>
+</header>
+
+<section class="page-head">
+  <div class="page-label">STUDIO / PARENT BRAND</div>
+  <h1 class="page-title">certified <span class="ed-italic">random</span></h1>
+  <p class="page-sub">one mark per purpose. every asset fills its canvas. lime <code style="font-family:var(--font-mono);color:var(--accent)">#c4ff3c</code> on deep dark <code style="font-family:var(--font-mono);color:var(--accent)">#07070f</code>.</p>
+</section>
+
+<div class="page-meta">
+  <span><b>accent</b> #c4ff3c</span>
+  <span><b>bg</b> #07070f</span>
+  <span><b>display</b> syne 800</span>
+  <span><b>body</b> outfit</span>
+  <span><b>mono</b> jetbrains mono</span>
+</div>
+
+<!-- PRIMARY MARKS -->
+<section class="cat-section">
+  <div class="cat-section-head">
+    <div class="cat-section-title">01 / Primary marks</div>
+    <div class="cat-section-count">4 items</div>
+  </div>
+  <p class="cat-section-note">One variant per job. The badge is the hero. The lockup is running chrome. The wordmark is text-only contexts. The logomark is sub-64px.</p>
+  <div class="cat-grid cat-grid--hero" id="primary-grid"></div>
+</section>
+
+<!-- APP ICONS -->
+<section class="cat-section">
+  <div class="cat-section-head">
+    <div class="cat-section-title">02 / App icons</div>
+    <div class="cat-section-count">5 items</div>
+  </div>
+  <p class="cat-section-note">Same canonical icon, rendered at every required size. iOS mask radius (22%).</p>
+  <div class="cat-grid" id="app-grid"></div>
+</section>
+
+<!-- FAVICONS -->
+<section class="cat-section">
+  <div class="cat-section-head">
+    <div class="cat-section-title">03 / Favicons</div>
+    <div class="cat-section-count">5 items</div>
+  </div>
+  <div class="cat-grid" id="favicon-grid"></div>
+</section>
+
+<!-- SOCIAL AVATARS -->
+<section class="cat-section">
+  <div class="cat-section-head">
+    <div class="cat-section-title">04 / Social avatars</div>
+    <div class="cat-section-count">4 items</div>
+  </div>
+  <p class="cat-section-note">One avatar, rendered at every platform's native size. Circular-safe.</p>
+  <div class="cat-grid" id="avatar-grid"></div>
+</section>
+
+<!-- BANNERS -->
+<section class="cat-section">
+  <div class="cat-section-head">
+    <div class="cat-section-title">05 / Banners & headers</div>
+    <div class="cat-section-count">3 items</div>
+  </div>
+  <div class="cat-grid cat-grid--wide" id="banner-grid"></div>
+</section>
+
+<!-- OG -->
+<section class="cat-section">
+  <div class="cat-section-head">
+    <div class="cat-section-title">06 / Open Graph card</div>
+    <div class="cat-section-count">1 item</div>
+  </div>
+  <div class="cat-grid cat-grid--wide" id="og-grid"></div>
+</section>
+
+<!-- YT THUMBS -->
+<section class="cat-section">
+  <div class="cat-section-head">
+    <div class="cat-section-title">07 / YouTube thumbnails</div>
+    <div class="cat-section-count">3 items</div>
+  </div>
+  <p class="cat-section-note">Template: kicker / title / tail. Swap copy per episode.</p>
+  <div class="cat-grid cat-grid--wide" id="yt-grid"></div>
+</section>
+
+<!-- STATIONERY -->
+<section class="cat-section">
+  <div class="cat-section-head">
+    <div class="cat-section-title">08 / Stationery</div>
+    <div class="cat-section-count">2 items</div>
+  </div>
+  <div class="cat-grid cat-grid--wide" id="stat-grid"></div>
+</section>
+
+<footer class="foot">
+  <span>certified random — media package v2</span>
+  <span>one variant per purpose</span>
+  <span>2026.04</span>
+</footer>
+
+<script src="marks.js?v=11"></script>
+<script>
+function card({ render, name, spec, tag, canvasClass = '', sizeLabel, aspect }) {
+  const c = document.createElement('div');
+  c.className = 'cat-card';
+  c.innerHTML = `
+    <div class="cat-card-canvas ${canvasClass}"${aspect ? ` style="aspect-ratio:${aspect}"` : ''}>
+      ${sizeLabel ? `<div class="cat-card-size">${sizeLabel}</div>` : ''}
+      <div class="cat-card-preview"></div>
+    </div>
+    <div class="cat-card-meta">
+      <div class="cat-card-name">${name}</div>
+      <div class="cat-card-spec">${spec}</div>
+      ${tag ? `<div class="cat-card-tag">${tag}</div>` : ''}
+    </div>`;
+  c.querySelector('.cat-card-preview').innerHTML = render();
+  return c;
+}
+
+// 01 Primary
+const primary = document.getElementById('primary-grid');
+primary.append(
+  card({ render: () => Marks.crBadge(), name: 'cr badge — primary', spec: 'SVG / signature mark', tag: 'primary', sizeLabel: '1:1', aspect: '1/1' }),
+  card({ render: () => Marks.crLockup(), name: 'cr lockup', spec: 'wordmark + seal + strapline · formal sign-off', tag: 'signature', sizeLabel: '25:11', aspect: '25/11' }),
+  card({ render: () => Marks.crWordmark(), name: 'cr wordmark', spec: 'type-only · ui chrome, nav, end-cards', sizeLabel: '25:5', aspect: '25/5' }),
+  card({ render: () => Marks.crLogomark(), name: 'cr logomark', spec: 'sub-64px contexts', sizeLabel: '1:1', aspect: '1/1' }),
+);
+
+// 02 App icons
+const appGrid = document.getElementById('app-grid');
+[1024, 512, 256, 128, 64].forEach(s => {
+  appGrid.append(card({
+    render: () => Marks.crAppIcon(),
+    name: `app icon — ${s}px`, spec: `ios · macos · ${s}×${s}`,
+    sizeLabel: `${s}×${s}`, aspect: '1/1',
+  }));
+});
+
+// 03 Favicons
+const favGrid = document.getElementById('favicon-grid');
+[16, 32, 48, 64, 128].forEach(s => {
+  favGrid.append(card({
+    render: () => Marks.crFavicon(),
+    name: `favicon ${s}×${s}`, spec: `browser tab / bookmark`,
+    sizeLabel: `${s}×${s}`, aspect: '1/1',
+  }));
+});
+
+// 04 Avatars
+const avatarGrid = document.getElementById('avatar-grid');
+[
+  { label: 'twitter / x', px: 400 },
+  { label: 'linkedin', px: 300 },
+  { label: 'instagram', px: 320 },
+  { label: 'github', px: 460 },
+].forEach(({ label, px }) => {
+  avatarGrid.append(card({
+    render: () => Marks.crAvatar(),
+    name: `avatar — ${label}`, spec: `${px}×${px} · circular-safe`,
+    sizeLabel: `${px}×${px}`, aspect: '1/1',
+  }));
+});
+
+// 05 Banners
+const bannerGrid = document.getElementById('banner-grid');
+bannerGrid.append(
+  card({ render: () => Marks.crTwitterBanner(), name: 'twitter / x header', spec: '1500×500', sizeLabel: '1500×500', aspect: '3/1' }),
+  card({ render: () => Marks.crLinkedInBanner(), name: 'linkedin banner', spec: '1584×396', sizeLabel: '1584×396', aspect: '4/1' }),
+  card({ render: () => Marks.crYoutubeBanner(), name: 'youtube channel art', spec: '2560×1440', sizeLabel: '2560×1440', aspect: '16/9' }),
+);
+
+// 06 OG
+const ogGrid = document.getElementById('og-grid');
+ogGrid.append(
+  card({ render: () => Marks.crOg(), name: 'open graph / twitter card', spec: '1200×630', sizeLabel: '1200×630', aspect: '1200/630' }),
+);
+
+// 07 YT thumbs
+const ytGrid = document.getElementById('yt-grid');
+ytGrid.append(
+  card({ render: () => Marks.crYtThumb(), name: 'yt thumb — default', spec: '1280×720', sizeLabel: '1280×720', aspect: '16/9' }),
+  card({ render: () => Marks.crYtThumb({ kicker: 'FIELD NOTES', title: 'what we', tail: 'ship next.' }), name: 'yt thumb — field notes', spec: '1280×720', sizeLabel: '1280×720', aspect: '16/9' }),
+  card({ render: () => Marks.crYtThumb({ kicker: 'DEVLOG', title: 'week 012.', tail: 'shipped.' }), name: 'yt thumb — devlog', spec: '1280×720', sizeLabel: '1280×720', aspect: '16/9' }),
+);
+
+// 08 Stationery
+const statGrid = document.getElementById('stat-grid');
+statGrid.append(
+  card({ render: () => Marks.crBusinessCard(), name: 'business card', spec: '85×55mm · 1050×600 @ 300dpi', sizeLabel: '1050×600', aspect: '1050/600' }),
+  card({ render: () => Marks.crEmailSig(), name: 'email signature', spec: '600×140', sizeLabel: '600×140', aspect: '600/140' }),
+);
+</script>
+</body>
+</html>

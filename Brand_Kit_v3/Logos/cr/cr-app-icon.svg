@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" preserveAspectRatio="xMidYMid meet" width="100%" height="100%">
+  <rect width="1024" height="1024" fill="#07070f"></rect>
+  <g><defs><path id="m6" d="M 512,512 m -302.28479999999996,0 a 302.28479999999996,302.28479999999996 0 1,1 604.5695999999999,0 a 302.28479999999996,302.28479999999996 0 1,1 -604.5695999999999,0"></path></defs>
+  <circle cx="512" cy="512" r="368.64" fill="none" stroke="#c4ff3c" stroke-width="2.9491199999999997" stroke-dasharray="10.32192 7.3728" opacity="0.5"></circle>
+  <circle cx="512" cy="512" r="326.2464" fill="none" stroke="#c4ff3c" stroke-width="2.02752" opacity="0.3"></circle>
+  <text font-family="&#39;JetBrains Mono&#39;, monospace" font-weight="400" font-size="38.7072" fill="#c4ff3c" letter-spacing="10.32192"><textPath href="#m6">CERTIFIED RANDOM STUDIOS • EST. 2026 • </textPath></text>
+  <text x="512" y="493.568" text-anchor="middle" font-family="&#39;Syne&#39;, sans-serif" font-size="110.592" font-weight="800" fill="#c4ff3c">CR</text>
+  <line x1="408.7808" y1="578.3552" x2="615.2192" y2="578.3552" stroke="#c4ff3c" stroke-width="2.9491199999999997" opacity="0.4"></line>
+  <text x="512" y="688.9472" text-anchor="middle" font-family="&#39;JetBrains Mono&#39;, monospace" font-weight="400" font-size="31.334400000000002" letter-spacing="14.7456" fill="#c4ff3c" opacity="0.55">STUDIOS</text></g>
+</svg>

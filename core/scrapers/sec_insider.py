@@ -25,7 +25,7 @@ EDGAR_SEARCH_TEMPLATE: str = (
 )
 
 # SEC requires a descriptive, contact-bearing User-Agent for programmatic access.
-SEC_USER_AGENT: str = "Blank Research contact@certifiedrandom.com"
+SEC_USER_AGENT: str = "Blank Research contact@certifiedrandom.studios"
 
 
 def parse_form4_atom(xml_text: str, ticker: str) -> List[Dict[str, Any]]:

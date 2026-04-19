@@ -49,7 +49,7 @@ logger = logging.getLogger(__name__)
 #: ``/api/heartbeat`` endpoint in ``server/app.py`` — a POST that
 #: returns the same manifest as ``/api/version`` *and* updates
 #: ``licenses.last_active`` for the caller's licence key.
-DEFAULT_MANIFEST_URL = "https://api.useblank.ai/api/heartbeat"
+DEFAULT_MANIFEST_URL = "https://blan-api.onrender.com/api/heartbeat"
 
 #: Default polling interval in seconds. The launch-day spec pins
 #: this at 60s so a published release or a flipped maintenance toggle

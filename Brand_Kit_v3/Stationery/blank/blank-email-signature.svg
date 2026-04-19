@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 140" preserveAspectRatio="xMidYMid meet" width="100%" height="100%">
+  <rect width="600" height="140" fill="#000000"></rect>
+  <text x="24" y="74" font-family="&#39;Outfit&#39;, sans-serif" font-size="52" font-weight="700" fill="#ffffff" letter-spacing="-2">blank</text>
+  <rect x="24.00" y="80.24" width="106.60" height="2.08" fill="#00ff87"></rect>
+  <line x1="200" y1="30" x2="200" y2="110" stroke="rgba(255,255,255,0.1)" stroke-width="1"></line>
+  <text x="224" y="55" font-family="&#39;Outfit&#39;, sans-serif" font-size="20" font-weight="500" fill="#ffffff">Jane Doe</text>
+  <text x="224" y="78" font-family="&#39;Instrument Serif&#39;, serif" font-style="italic" font-weight="400" font-size="17" fill="rgba(255,255,255,0.9)">trader</text>
+  <text x="278" y="78" font-family="&#39;Outfit&#39;, sans-serif" font-size="13" font-weight="300" fill="rgba(255,255,255,0.6)">in residence</text>
+  <text x="224" y="108" font-family="&#39;JetBrains Mono&#39;, monospace" font-size="11" letter-spacing="2.4" fill="rgba(255,255,255,0.32)">USEBLANK.AI / NEVER LOOK UP</text>
+</svg>

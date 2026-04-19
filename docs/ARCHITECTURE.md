@@ -92,48 +92,79 @@ news, compute Kelly sizing, place orders, etc.
 4. **Scrapers never raise.** `ScraperBase.safe_fetch` wraps every
    source in a try/except; a broken endpoint returns `[]`, increments
    the health counter, and never kills the runner.
-5. **Hard caps.** Per-iteration: 40 tool calls, 360s wall clock.
-   Cadence floor: 30s. Kill switch in the Agent menu.
+5. **Cadence floor.** 30 s minimum between iterations. The earlier
+   per-iteration caps (40 tool calls, 360 s) were removed so the
+   supervisor is not cut off mid-thought. Kill switch in the Agent
+   menu exits within 3 s.
 
 ## Directory layout
 
 ```
 core/
 ├── agent/
-│   ├── runner.py              — AgentRunner QThread
+│   ├── pool.py                — AgentPool: supervisor + chat workers + swarm
+│   ├── runner.py              — AgentRunner QThread (supervisor loop)
+│   ├── chat_worker.py         — one-shot QThread per user chat message
+│   ├── swarm.py               — SwarmCoordinator daemon (20-role research pool)
+│   ├── research_worker.py     — one QThread per research task
+│   ├── research_roles.py      — 20 role definitions (quick / deep tiers)
+│   ├── assessor.py            — post-iteration Sonnet grader
+│   ├── model_router.py        — model + effort selection per role
 │   ├── mcp_server.py          — create_sdk_mcp_server wiring
 │   ├── prompts.py             — autonomous PM system prompt
-│   ├── context.py             — per-iteration context
+│   ├── prompts_research.py    — research worker system prompts
+│   ├── context.py             — per-iteration AgentContext
 │   └── tools/
 │       ├── broker_tools.py
 │       ├── market_tools.py
+│       ├── market_hours_tools.py
 │       ├── risk_tools.py
 │       ├── memory_tools.py
 │       ├── watchlist_tools.py
 │       ├── news_tools.py
 │       ├── social_tools.py
-│       └── flow_tools.py
+│       ├── flow_tools.py
+│       ├── backtest_tools.py
+│       ├── browser_tools.py
+│       ├── ensemble_tools.py
+│       ├── sentiment_tools.py
+│       ├── insider_tools.py
+│       ├── alt_data_tools.py
+│       ├── execution_tools.py
+│       └── rl_tools.py
 ├── scrapers/
 │   ├── base.py                — ScraperBase + ScrapedItem
-│   ├── runner.py              — background daemon
+│   ├── runner.py              — background daemon, VADER-scores every item
+│   ├── youtube_transcripts.py — Haiku-summarised captions
+│   ├── youtube_live_vision.py — sampled-frame vision via yt-dlp + ffmpeg
+│   ├── sec_insider.py         — SEC Form 4 Atom feed
+│   ├── options_flow.py        — unusual options activity heuristic
+│   ├── _transcript_summariser.py — Haiku CLI + regex fallback
+│   ├── _sentiment.py          — VADER scorer
+│   ├── _vision_summariser.py  — Haiku vision summariser
 │   ├── google_news.py
 │   ├── yahoo_finance.py
 │   ├── bbc.py
 │   ├── bloomberg.py
 │   ├── marketwatch.py
 │   ├── youtube.py
-│   ├── youtube_transcripts.py  — Haiku-summarised captions
-│   ├── _transcript_summariser.py — Haiku CLI + regex fallback
-│   ├── _sentiment.py           — VADER scorer
 │   ├── stocktwits.py
 │   ├── reddit.py
 │   └── x_via_gnews.py
+├── forecasting/               — Chronos-2, TimesFM, TFT + XGBoost meta-learner
+├── nlp/                       — FinBERT compound sentiment scorer
+├── alt_data/                  — analyst revision momentum
+├── execution/                 — TWAP / VWAP slice planner
+├── rl/                        — FinRL scaffold (regime-aware cold-start allocator)
 ├── broker_service.py          — broker facade (T212 / LogBroker)
+├── paper_broker.py            — ephemeral £100 GBP sandbox
 ├── trading212.py              — Trading 212 REST client
-├── risk_manager.py            — Kelly + ATR sizing (tool-exposed)
+├── risk_manager.py            — Kelly + ATR sizing (regime-aware)
 ├── data_loader.py             — yfinance daily OHLCV cache
-├── database.py                — sqlite persistence
-└── news_agent.py              — legacy RSS agent (still used for panel sentiment)
+├── database.py                — sqlite persistence (agent_memory, agent_journal,
+│                                scraper_items, research_findings)
+├── config_schema.py           — Pydantic AppConfig validator
+└── market_hours.py            — 13-exchange registry + status helper
 
 desktop/
 ├── app.py                     — MainWindow, panel wiring, agent lifecycle
@@ -147,9 +178,10 @@ desktop/
 │   ├── news.py
 │   ├── orders.py
 │   ├── positions.py
+│   ├── exchanges.py           — 13-venue market-hours status panel
 │   ├── settings.py            — account + agent status readout
 │   └── watchlist.py
-└── dialogs/                   — setup wizard, license, etc.
+└── dialogs/                   — setup wizard, license, trade, add_ticker, etc.
 ```
 
 ## Key files (by owner)
@@ -175,16 +207,27 @@ desktop/
   "agent": {
     "enabled": false,
     "cadence_seconds": 45,
-    "max_tool_calls_per_iter": 40,
-    "max_iter_seconds": 360,
     "paper_mode": true,
     "daily_max_drawdown_pct": 3.0,
     "max_position_pct": 20.0,
-    "max_trades_per_hour": 10
+    "max_trades_per_hour": 10,
+    "max_chat_workers": 5
+  },
+  "ai": {
+    "model_complex": "claude-opus-4-7",
+    "model_medium": "claude-sonnet-4-6",
+    "model_simple": "claude-haiku-4-5-20251001",
+    "model_assessor": "claude-sonnet-4-6",
+    "effort_supervisor": "max",
+    "effort_decision": "high",
+    "effort_info": "medium",
+    "effort_research_deep": "high",
+    "effort_research_quick": "medium",
+    "effort_assessor": "medium"
   },
   "news": {
     "refresh_interval_minutes": 5,
-    "scraper_cadence_seconds": 300
+    "scrapers_enabled": true
   },
   "broker": {
     "type": "log",
@@ -198,21 +241,23 @@ desktop/
 ## Model routing + effort
 
 The agent runs on the Claude Agent SDK with per-role model + effort
-tiers. The supervisor is the assessor — there is no separate grader
-agent.
+tiers. A separate post-iteration assessor (`core/agent/assessor.py`)
+runs on the Sonnet tier after each supervisor iteration and writes its
+`good/mediocre/bad` review into `agent_journal`.
 
 | Role                        | Model                        | Effort   |
 |-----------------------------|------------------------------|----------|
 | Supervisor (runner loop)    | `claude-opus-4-7`            | `max`    |
 | Chat — decision tier        | `claude-opus-4-7`            | `high`   |
 | Chat — info tier            | `claude-sonnet-4-6`          | `medium` |
-| Research — deep tier        | `claude-opus-4-7`            | `high`   |
+| Research — deep tier        | `claude-sonnet-4-6`          | `high`   |
 | Research — quick tier       | `claude-haiku-4-5-20251001`  | `low`    |
+| Post-iteration assessor     | `claude-sonnet-4-6`          | `medium` |
 | Sentiment / summariser      | `claude-haiku-4-5-20251001`  | —        |
 
-All five slots are editable in `config.json` under the `ai` block
-(`model` / `model_complex` / `model_medium` / `model_simple` and the
-`effort_*` keys). The accessors live in
+All slots are editable in `config.json` under the `ai` block
+(`model_complex` / `model_medium` / `model_simple` / `model_assessor`
+and the `effort_*` keys). The accessors live in
 `core/agent/model_router.py`; `effort` is plumbed straight into
 `ClaudeAgentOptions.effort` (SDK ≥ 0.1.59).
 
