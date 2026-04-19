@@ -160,7 +160,7 @@ class TelemetryConfig(BaseModel):
 
     enabled: bool = True
     upload_hour: int = Field(default=3, ge=0, le=23)
-    endpoint: str = "https://stockmarketai-3qhs.onrender.com/api/telemetry"
+    endpoint: str = "https://api.useblank.ai/api/telemetry"
     max_queue_size: int = Field(default=100_000, ge=1000)
     batch_size: int = Field(default=500, ge=1)
     include_chat: bool = True

@@ -16,7 +16,7 @@ logger = logging.getLogger("blank.license")
 LICENSE_FILE = Path.home() / ".blank" / "license.key"
 # Hardcoded so a stale config.json from a previous install cannot point us at a
 # dead URL. Override for dev via BLANK_SERVER_URL env var.
-DEFAULT_SERVER = "https://blan-api.onrender.com"
+DEFAULT_SERVER = "https://api.useblank.ai"
 
 
 def _read_server_url() -> str:

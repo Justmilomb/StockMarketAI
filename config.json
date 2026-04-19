@@ -300,7 +300,7 @@
   "telemetry": {
     "enabled": true,
     "upload_hour": 3,
-    "endpoint": "https://stockmarketai-3qhs.onrender.com/api/telemetry",
+    "endpoint": "https://api.useblank.ai/api/telemetry",
     "max_queue_size": 100000,
     "batch_size": 500,
     "include_chat": true
