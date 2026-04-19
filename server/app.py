@@ -1100,9 +1100,10 @@ def public_waitlist(
 ) -> dict[str, Any]:
     """Pre-launch waitlist: email only, no access key.
 
-    Stores the email in the waitlist table and sends a welcome email
-    about monthly updates and who we are. If the email is already on
-    the list we just return success without re-sending.
+    First signup: stores the email and sends a welcome email.
+    Repeat signup: sends the enthusiastic "we see you" email on every
+    re-submission — no dedup, because the user clearly wants to hear
+    from us. Always returns success so the form never shows an error.
     """
     email = (body.email or "").strip().lower()
     if not _is_valid_email(email):
@@ -1128,14 +1129,21 @@ def public_waitlist(
     launch_date = "01 July 2026"
 
     if existing:
-        ok, _info = send_template_once(
-            conn,
-            "waitlist_repeat",
-            {"name": "there", "launch_date": launch_date},
-            recipient=email,
-            reason_key="repeat",
-        )
-        return {"status": "ok", "sent": ok, "already_joined": True}
+        # Always send on re-signup — no idempotency, so they get the
+        # eager email every time they re-submit the form.
+        from server.email_templates import render as render_tpl
+        sent = False
+        try:
+            subject, html, text = render_tpl(
+                "waitlist_repeat",
+                {"name": "there", "launch_date": launch_date},
+                recipient=email,
+            )
+            _send_email_raw(email, subject, html, text)
+            sent = bool(RESEND_API_KEY)
+        except Exception:
+            logger.error("waitlist_repeat render error for %s", email)
+        return {"status": "ok", "sent": sent, "already_joined": True}
 
     with conn.cursor() as cur:
         cur.execute("INSERT INTO waitlist (email) VALUES (%s)", (email,))
@@ -1760,11 +1768,12 @@ def send_template_once(
         return False, f"render: {e}"
 
     if not RESEND_API_KEY:
-        # No API key — typical dev runs. Treat as "held": leave the
-        # ledger row so we don't spam dev mailboxes on repeated ticks,
-        # but log loudly so nobody thinks prod is silently dropping.
+        # Release the slot so the mail is retried the first time a
+        # real API key is present — claiming and abandoning it would
+        # permanently suppress delivery.
+        _release_email_slot(conn, addr, template_id, reason_key)
         logger.warning(
-            "RESEND_API_KEY unset — would have sent %s to %s (%s)",
+            "RESEND_API_KEY unset — skipping %s to %s (%s)",
             template_id, addr, reason_key,
         )
         return False, "no_api_key"
@@ -2259,7 +2268,8 @@ def _run_sweep(
         try:
             ctx = build_ctx(row)
             reason_key = build_reason_key(row)
-        except Exception:
+        except Exception as e:
+            logger.error("_run_sweep build error for %s/%s: %s", template_id, recipient, e)
             counts["errors"] += 1
             continue
         ok, info = send_template_once(
@@ -2269,9 +2279,10 @@ def _run_sweep(
         )
         if ok:
             counts["sent"] += 1
-        elif info == "already_sent":
+        elif info in ("already_sent", "no_api_key"):
             counts["skipped"] += 1
         else:
+            logger.warning("_run_sweep send error for %s/%s: %s", template_id, recipient, info)
             counts["errors"] += 1
     return counts
 
