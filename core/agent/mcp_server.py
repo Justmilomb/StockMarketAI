@@ -9,6 +9,14 @@ Phase 8 tool coverage:
     watchlist_tools, flow_tools, news_tools, social_tools,
     browser_tools, market_hours_tools, backtest_tools,
     indicator_tools, strategy_backtest_tools, performance_tools
+
+Alt-data tool coverage (each requires its config flag to be enabled):
+    fundamentals_tools  — Alpha Vantage company overview + earnings history;
+                          FMP financial ratios + DCF valuation
+    macro_tools         — FRED macro snapshot + arbitrary series lookup
+    news_api_tools      — News API structured headline search
+    alt_data_extended_tools — SEC EDGAR 13F holders; EarningsWhispers;
+                              OpenInsider cluster summary
 """
 from __future__ import annotations
 
@@ -39,6 +47,10 @@ from core.agent.tools.insider_tools import INSIDER_TOOLS
 from core.agent.tools.alt_data_tools import ALT_DATA_TOOLS
 from core.agent.tools.execution_tools import EXECUTION_TOOLS
 from core.agent.tools.rl_tools import RL_TOOLS
+from core.agent.tools.fundamentals_tools import FUNDAMENTALS_TOOLS
+from core.agent.tools.macro_tools import MACRO_TOOLS
+from core.agent.tools.news_api_tools import NEWS_API_TOOLS
+from core.agent.tools.alt_data_extended_tools import ALT_DATA_EXTENDED_TOOLS
 
 # query_grok is disabled — it drives Playwright/Chromium which is blocked
 # on some client machines and crashes the app when invoked. Keep the
@@ -71,6 +83,10 @@ ALL_TOOLS: List[Any] = [
     *EXECUTION_TOOLS,
     *RL_TOOLS,
     *PERSONALITY_TOOLS,
+    *FUNDAMENTALS_TOOLS,
+    *MACRO_TOOLS,
+    *NEWS_API_TOOLS,
+    *ALT_DATA_EXTENDED_TOOLS,
 ]
 
 
