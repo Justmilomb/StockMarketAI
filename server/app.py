@@ -1553,6 +1553,216 @@ def admin_inspect_license(
     }
 
 
+# ── Admin: training data export ─────────────────────────────────────────
+
+@app.get("/api/admin/training-data/stats")
+def admin_training_stats(
+    _: str = Depends(require_admin),
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> Dict[str, Any]:
+    """Return pending event count and last-export metadata for the admin UI."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT value FROM config WHERE key = 'last_export_at'")
+        row = cur.fetchone()
+        last_export_at_str: str = row["value"] if row else ""
+
+        if last_export_at_str:
+            cur.execute(
+                "SELECT COUNT(*) AS c, MIN(uploaded_at) AS first_at, MAX(uploaded_at) AS last_at "
+                "FROM telemetry_events WHERE uploaded_at > %s::timestamptz",
+                (last_export_at_str,),
+            )
+        else:
+            cur.execute(
+                "SELECT COUNT(*) AS c, MIN(uploaded_at) AS first_at, MAX(uploaded_at) AS last_at "
+                "FROM telemetry_events",
+            )
+        stats = cur.fetchone()
+
+        cur.execute(
+            "SELECT id, exported_at, event_count, file_size_bytes, date_range_start, date_range_end "
+            "FROM training_exports ORDER BY exported_at DESC LIMIT 20"
+        )
+        history_rows = cur.fetchall()
+
+    pending = int(stats["c"]) if stats else 0
+    # rough estimate: ~2 KB per event after compression
+    est_bytes = pending * 2048
+
+    history = []
+    for r in history_rows:
+        history.append({
+            "id": r["id"],
+            "exported_at": r["exported_at"].isoformat() if r["exported_at"] else None,
+            "event_count": r["event_count"],
+            "file_size_bytes": r["file_size_bytes"],
+            "date_range_start": r["date_range_start"].isoformat() if r["date_range_start"] else None,
+            "date_range_end": r["date_range_end"].isoformat() if r["date_range_end"] else None,
+        })
+
+    return {
+        "last_export_at": last_export_at_str or None,
+        "pending_events": pending,
+        "date_range_start": stats["first_at"].isoformat() if stats and stats["first_at"] else None,
+        "date_range_end": stats["last_at"].isoformat() if stats and stats["last_at"] else None,
+        "estimated_bytes": est_bytes,
+        "history": history,
+    }
+
+
+@app.get("/api/admin/export-training-data")
+def admin_export_training_data(
+    _: str = Depends(require_admin),
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> Response:
+    """Build and download a .json.gz training-data archive.
+
+    Contains all telemetry snapshots since the last export (or all time on
+    first run), grouped by licence key. Updates last_export_at and records
+    an entry in training_exports after packaging the file.
+    """
+    with conn.cursor() as cur:
+        cur.execute("SELECT value FROM config WHERE key = 'last_export_at'")
+        row = cur.fetchone()
+        last_export_at_str: str = row["value"] if row else ""
+
+    with conn.cursor() as cur:
+        if last_export_at_str:
+            cur.execute(
+                "SELECT license_key, snapshot, uploaded_at FROM telemetry_events "
+                "WHERE uploaded_at > %s::timestamptz ORDER BY uploaded_at ASC",
+                (last_export_at_str,),
+            )
+        else:
+            cur.execute(
+                "SELECT license_key, snapshot, uploaded_at FROM telemetry_events "
+                "ORDER BY uploaded_at ASC",
+            )
+        rows = cur.fetchall()
+
+    exported_at = datetime.now(timezone.utc)
+    total_events = len(rows)
+
+    # Group snapshots by licence key and extract typed fields
+    by_licence: Dict[str, Dict[str, List[Any]]] = {}
+    date_range_start: Optional[datetime] = None
+    date_range_end: Optional[datetime] = None
+
+    for r in rows:
+        key = r["license_key"]
+        snap_raw = r["snapshot"]
+        snap: Dict[str, Any] = snap_raw if isinstance(snap_raw, dict) else json.loads(snap_raw)
+        ts: Optional[datetime] = r["uploaded_at"]
+
+        if ts:
+            if date_range_start is None or ts < date_range_start:
+                date_range_start = ts
+            if date_range_end is None or ts > date_range_end:
+                date_range_end = ts
+
+        if key not in by_licence:
+            by_licence[key] = {
+                "trades": [],
+                "reasoning": [],
+                "chat_transcripts": [],
+                "research": [],
+                "sentiment": [],
+                "forecasts": [],
+                "personality_snapshots": [],
+                "errors": [],
+            }
+        bucket = by_licence[key]
+
+        # trades — deduplicate by (side, ticker, ts)
+        for t in (snap.get("trades") or []):
+            sig = (t.get("side"), t.get("ticker"), t.get("ts"))
+            if sig not in {(x.get("side"), x.get("ticker"), x.get("ts")) for x in bucket["trades"]}:
+                bucket["trades"].append(t)
+
+        # reasoning — agent journal lines
+        for line in (snap.get("log") or []):
+            s = str(line).strip()
+            if s and s not in bucket["reasoning"]:
+                bucket["reasoning"].append(s)
+
+        # sentiment — store per-snapshot entry with timestamp
+        sent = snap.get("sentiment")
+        if sent:
+            bucket["sentiment"].append({
+                "ts": snap.get("ts") or (ts.isoformat() if ts else None),
+                "scores": sent,
+            })
+
+        # personality — one snapshot per unique seed/state
+        pers = snap.get("personality")
+        if pers:
+            bucket["personality_snapshots"].append({
+                "ts": snap.get("ts") or (ts.isoformat() if ts else None),
+                "data": pers,
+            })
+
+    # Fetch server-side error logs for each licence key in this range
+    if rows and date_range_start:
+        with conn.cursor() as cur:
+            keys = list(by_licence.keys())
+            placeholders = ",".join(["%s"] * len(keys))
+            cur.execute(
+                f"SELECT license_key, level, message, created_at FROM logs "
+                f"WHERE license_key IN ({placeholders}) "
+                f"AND created_at >= %s "
+                f"ORDER BY created_at ASC",
+                (*keys, date_range_start),
+            )
+            for lr in cur.fetchall():
+                k = lr["license_key"]
+                if k in by_licence and lr["level"] in ("error", "warning"):
+                    by_licence[k]["errors"].append({
+                        "level": lr["level"],
+                        "message": lr["message"],
+                        "at": lr["created_at"].isoformat() if lr["created_at"] else None,
+                    })
+
+    payload = {
+        "export_meta": {
+            "exported_at": exported_at.isoformat(),
+            "date_range": [
+                date_range_start.isoformat() if date_range_start else None,
+                date_range_end.isoformat() if date_range_end else None,
+            ],
+            "total_events": total_events,
+            "unique_keys": len(by_licence),
+        },
+        "by_licence": by_licence,
+    }
+
+    json_bytes = json.dumps(payload, indent=2).encode("utf-8")
+    gz_bytes = gzip.compress(json_bytes, compresslevel=6)
+    file_size = len(gz_bytes)
+
+    # Record the export before returning so a network failure during
+    # download doesn't permanently lose the timestamp advance.
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO training_exports "
+            "(exported_at, event_count, file_size_bytes, date_range_start, date_range_end) "
+            "VALUES (%s, %s, %s, %s, %s)",
+            (exported_at, total_events, file_size, date_range_start, date_range_end),
+        )
+        cur.execute(
+            "INSERT INTO config (key, value, updated_at) VALUES ('last_export_at', %s, NOW()) "
+            "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()",
+            (exported_at.isoformat(),),
+        )
+    conn.commit()
+
+    filename = f"blank_training_{exported_at.strftime('%Y%m%d_%H%M%S')}.json.gz"
+    return Response(
+        content=gz_bytes,
+        media_type="application/gzip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 # ── Admin: config ────────────────────────────────────────────────────────
 
 @app.get("/api/admin/config")
