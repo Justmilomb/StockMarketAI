@@ -827,6 +827,29 @@ class MainWindow(QMainWindow):
                 errors.append(f"Prices: {e}")
 
         result["live_data"] = live_data
+
+        # Fetch sentiment and news from DB on the background thread so the
+        # main thread is never blocked by SQLite I/O during panel refresh.
+        if self.history_manager:
+            try:
+                result["scraper_sentiment"] = self.history_manager.get_ticker_sentiment(
+                    list(tickers),
+                )
+            except Exception:
+                result["scraper_sentiment"] = {}
+            try:
+                result["market_news"] = self.history_manager.get_scraper_items(
+                    kinds=["news"], since_minutes=240, limit=15,
+                )
+            except Exception:
+                result["market_news"] = []
+            try:
+                result["research_findings"] = self.history_manager.get_research_findings(
+                    since_minutes=360, limit=20,
+                )
+            except Exception:
+                result["research_findings"] = []
+
         result["_errors"] = errors
         return result
 
@@ -843,6 +866,14 @@ class MainWindow(QMainWindow):
             self.state.live_data.update(result["live_data"])
         if result.get("recent_orders") is not None:
             self.state.recent_orders = result["recent_orders"]
+        if result.get("scraper_sentiment"):
+            self.state.news_sentiment = {
+                **self.state.news_sentiment, **result["scraper_sentiment"],
+            }
+        if result.get("market_news") is not None:
+            self.state.market_news = result["market_news"]
+        if result.get("research_findings") is not None:
+            self.state.research_findings = result["research_findings"]
 
         self._calculate_pnl()
         self._refresh_all_panels()
@@ -869,7 +900,8 @@ class MainWindow(QMainWindow):
         self.state.unrealised_pnl = upnl
 
     def _refresh_all_panels(self) -> None:
-        """Refresh all panels."""
+        """Refresh all panels. All DB/IO work has already been done on the
+        background thread and applied to state before this is called."""
         self.settings_panel.refresh_view(self.state)
         self.chat_panel.refresh_view(self.state)
         self.chart_panel.refresh_view(self.state)
@@ -888,32 +920,6 @@ class MainWindow(QMainWindow):
         self.orders_panel.refresh_view(self.state)
         if self.news_agent and self.news_agent.news_data:
             self.state.news_sentiment = self.news_agent.news_data
-        if self.history_manager:
-            try:
-                tickers = list(self.state.active_watchlist_tickers or [])
-                if tickers:
-                    scraper_sent = self.history_manager.get_ticker_sentiment(tickers)
-                    if scraper_sent:
-                        self.state.news_sentiment = {
-                            **self.state.news_sentiment, **scraper_sent
-                        }
-            except Exception:
-                pass
-            try:
-                self.state.market_news = self.history_manager.get_scraper_items(
-                    kinds=["news"], since_minutes=240, limit=15,
-                )
-            except Exception:
-                self.state.market_news = []
-            # Surface the latest research swarm findings so the agent's
-            # per-iteration work is visible in the Information panel —
-            # otherwise the swarm feels invisible to the user.
-            try:
-                self.state.research_findings = self.history_manager.get_research_findings(
-                    since_minutes=360, limit=20,
-                )
-            except Exception:
-                self.state.research_findings = []
         # Feed the swarm status into state so the news panel can show
         # "running (N workers)" vs "offline" when findings are empty.
         try:

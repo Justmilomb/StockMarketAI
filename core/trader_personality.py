@@ -49,6 +49,11 @@ class TraderPersonality:
         self.rules: List[Dict[str, Any]] = []
         self.stats: Dict[str, int] = {"total_trades_reflected_on": 0, "wins": 0, "losses": 0}
         self.reflection_cursor: Optional[str] = None
+        self.cadence_prefs: Dict[str, float] = {
+            "open_seconds": 0.0,
+            "closed_seconds": 0.0,
+            "sample_count": 0,
+        }
 
     # ── persistence ──────────────────────────────────────────────────
 
@@ -78,6 +83,11 @@ class TraderPersonality:
         self.rules = list(raw.get("rules") or [])
         self.stats = dict(raw.get("stats") or {"total_trades_reflected_on": 0, "wins": 0, "losses": 0})
         self.reflection_cursor = raw.get("reflection_cursor")
+        self.cadence_prefs = dict(raw.get("cadence_prefs") or {
+            "open_seconds": 0.0,
+            "closed_seconds": 0.0,
+            "sample_count": 0,
+        })
 
     def save(self) -> None:
         payload = {
@@ -86,6 +96,7 @@ class TraderPersonality:
             "rules": self.rules,
             "stats": self.stats,
             "reflection_cursor": self.reflection_cursor,
+            "cadence_prefs": self.cadence_prefs,
         }
         with self._lock:
             self._path.parent.mkdir(parents=True, exist_ok=True)
@@ -136,6 +147,15 @@ class TraderPersonality:
 
     def set_reflection_cursor(self, cursor: str) -> None:
         self.reflection_cursor = cursor
+        self.save()
+
+    def record_cadence(self, seconds: float, market_is_open: bool) -> None:
+        """Update learned cadence preference using exponential moving average."""
+        key = "open_seconds" if market_is_open else "closed_seconds"
+        old = float(self.cadence_prefs.get(key, 0.0))
+        alpha = 0.15
+        self.cadence_prefs[key] = (old * (1 - alpha) + seconds * alpha) if old > 0 else seconds
+        self.cadence_prefs["sample_count"] = int(self.cadence_prefs.get("sample_count", 0)) + 1
         self.save()
 
     # ── views ────────────────────────────────────────────────────────

@@ -100,13 +100,14 @@ asymmetry. Do *not* anchor on "this needs to double before I sell".
 
 - Paper mode: {paper_mode}
 - Account currency: {currency}
-- Cadence: ~{cadence_seconds}s between iterations (aggressive — this
-  is a day/swing trading loop, not a weekly portfolio review). If a
-  position is near its stop or you're hunting a fast-moving name,
-  ask for `next_check_in_minutes=1` or `2`. If you're holding steady
-  with no catalysts, 5–10 min is fine — don't burn tool calls for the
-  sake of it. Never sit on a tight cadence while every exchange is
-  closed; use `get_market_status`.
+- Cadence: ~{cadence_seconds}s when markets are open. The runner
+  automatically sleeps longer (~10 min default) when both LSE and
+  NYSE are closed, so you don't need to manage off-hours cadence
+  yourself unless you want finer control. If a position is near its
+  stop or you're hunting a fast-moving name, ask for
+  `next_check_in_minutes=1` or `2`. Your preferred cadence patterns
+  are learned over time from your `next_check_in_minutes` choices.
+  Never sit on a tight cadence while every exchange is closed.
 - No tool-call or wall-clock budget — take as many turns as you need
   to reach a clean `end_iteration`. Don't abuse that: over-trading and
   endless research loops are still failure modes.

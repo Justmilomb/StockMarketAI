@@ -68,6 +68,10 @@ DEFAULT_WAKE_PROMPT: str = (
 #: regardless of config, to protect the AI subscription quota.
 CADENCE_FLOOR_SECONDS: int = 30
 
+#: Default cadence when all major markets are closed and no agent
+#: preference has been learned yet. 10 minutes.
+CADENCE_MARKET_CLOSED_DEFAULT: int = 600
+
 #: Upper bound on how many journal-tail lines we keep in memory so the
 #: panel doesn't grow unbounded over a long session.
 JOURNAL_TAIL_MAX: int = 500
@@ -110,6 +114,11 @@ class AgentRunner(QThread):
 
         # Lifetime iteration counter (increments each iteration).
         self._iter_count: int = 0
+
+        # Cached personality reference so market-aware cadence can read
+        # learned timing preferences between iterations. Set at the start
+        # of each iteration; None before the first iteration completes.
+        self._cached_personality: Optional[Any] = None
 
     # ── public API ───────────────────────────────────────────────────
 
@@ -173,9 +182,13 @@ class AgentRunner(QThread):
 
             if self._stop_requested:
                 break
-            await self._sleep_with_interrupt(
-                self._compute_wait_seconds(self._agent_requested_wait_minutes),
+            wait_secs = self._compute_wait_seconds(self._agent_requested_wait_minutes)
+            market_open = self._any_market_open()
+            label = "market open" if market_open else "market closed"
+            self.log_line.emit(
+                f"[runner] next check-in in {wait_secs:.0f}s ({label})",
             )
+            await self._sleep_with_interrupt(wait_secs)
 
     # ── iteration plumbing ───────────────────────────────────────────
 
@@ -186,20 +199,67 @@ class AgentRunner(QThread):
         return self._pool._load_config()
 
     def _compute_wait_seconds(self, agent_requested_minutes: int = 0) -> float:
-        """Compute sleep duration, respecting the agent's end_iteration request.
+        """Compute sleep duration with market-aware fallback.
 
-        If the agent called end_iteration(next_check_in_minutes=N), that
-        value is used (converted to seconds and clamped to the cadence
-        floor). Otherwise falls back to the configured cadence_seconds.
+        Priority order:
+        1. Agent's explicit next_check_in_minutes (highest trust — AI knows its state).
+        2. Market-aware default: short cadence when open, longer when closed.
+           The closed cadence uses learned personality preferences once enough
+           samples have been collected, else CADENCE_MARKET_CLOSED_DEFAULT.
+
+        The config cadence_seconds is used as the open-market default.
         """
+        market_open = self._any_market_open()
         if agent_requested_minutes > 0:
-            return float(max(CADENCE_FLOOR_SECONDS, agent_requested_minutes * 60))
+            secs = float(max(CADENCE_FLOOR_SECONDS, agent_requested_minutes * 60))
+            self._learn_cadence(secs, market_open)
+            return secs
+        if market_open:
+            try:
+                cfg = self._load_config()
+                cadence = int(cfg.get("agent", {}).get("cadence_seconds", 90))
+            except Exception:
+                cadence = 90
+            return float(max(CADENCE_FLOOR_SECONDS, cadence))
+        # Market closed: use learned preference or default 10 min
+        return float(max(CADENCE_FLOOR_SECONDS, self._closed_market_cadence()))
+
+    def _any_market_open(self) -> bool:
+        """Return True if LSE or NYSE/Nasdaq is currently in regular session."""
         try:
-            cfg = self._load_config()
-            cadence = int(cfg.get("agent", {}).get("cadence_seconds", 90))
+            from datetime import datetime, timezone
+            from core.market_hours import get_exchange, status as mh_status
+            now = datetime.now(tz=timezone.utc)
+            for code in ("LSE", "US"):
+                ex = get_exchange(code)
+                if ex and mh_status(ex, now)["is_open"]:
+                    return True
         except Exception:
-            cadence = 90
-        return float(max(CADENCE_FLOOR_SECONDS, cadence))
+            pass
+        return False
+
+    def _closed_market_cadence(self) -> float:
+        """Return cadence seconds to use when all major markets are closed."""
+        try:
+            p = self._cached_personality
+            if p is not None:
+                prefs = getattr(p, "cadence_prefs", {})
+                learned = float(prefs.get("closed_seconds", 0.0))
+                samples = int(prefs.get("sample_count", 0))
+                if learned > 0 and samples >= 3:
+                    return min(learned, 900.0)  # cap at 15 min
+        except Exception:
+            pass
+        return float(CADENCE_MARKET_CLOSED_DEFAULT)
+
+    def _learn_cadence(self, seconds: float, market_open: bool) -> None:
+        """Record the agent's chosen wait to the personality cadence prefs."""
+        try:
+            p = self._cached_personality
+            if p is not None:
+                p.record_cadence(seconds, market_open)
+        except Exception:
+            pass
 
     async def _sleep_with_interrupt(self, seconds: float) -> None:
         """Sleep in short ticks so stop / chat can interrupt quickly."""
@@ -279,6 +339,7 @@ class AgentRunner(QThread):
         )
         trader_personality = TraderPersonality(personality_path)
         trader_personality.load()
+        self._cached_personality = trader_personality
 
         iteration_id = f"iter-{uuid.uuid4().hex[:8]}"
         init_agent_context(

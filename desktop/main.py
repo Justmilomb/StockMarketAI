@@ -157,6 +157,10 @@ def launch(mode: str | None = None) -> None:
     from PySide6.QtWidgets import QApplication, QSplashScreen
     from desktop.theme import DARK_TERMINAL_QSS
 
+    # Request native OpenGL for hardware-accelerated rendering. Must be
+    # set before QApplication is created. Falls back to software renderer
+    # automatically if the GPU/driver doesn't support it.
+    QApplication.setAttribute(Qt.AA_UseDesktopOpenGL, True)
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
 

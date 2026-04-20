@@ -12,7 +12,7 @@ import logging
 from typing import Any
 
 import numpy as np
-from PySide6.QtCore import Qt, QEvent
+from PySide6.QtCore import Qt, QEvent, QTimer
 from PySide6.QtGui import QFont, QPainter, QColor
 from PySide6.QtWidgets import QGroupBox, QLabel, QVBoxLayout, QWidget
 
@@ -119,6 +119,13 @@ class ChartPanel(QGroupBox):
             self._paper_watermark = _PaperWatermark(self._price_plot.viewport())
             self._paper_watermark.setVisible(self._paper_mode)
 
+        # Debounce resize: suppress pyqtgraph repaints during rapid resize
+        # drag; re-enable once the user pauses for 120 ms.
+        self._resize_debounce = QTimer(self)
+        self._resize_debounce.setSingleShot(True)
+        self._resize_debounce.setInterval(120)
+        self._resize_debounce.timeout.connect(self._on_resize_settled)
+
     def _on_price_mouse(self, pos: Any) -> None:
         if not self._has_pyqtgraph or self._price_plot is None:
             return
@@ -148,6 +155,21 @@ class ChartPanel(QGroupBox):
                 ln.setVisible(True)
         self._price_vline.setPos(p.x())
         self._volume_vline.setPos(p.x())
+
+    def resizeEvent(self, event: Any) -> None:
+        super().resizeEvent(event)
+        if self._has_pyqtgraph:
+            if self._price_plot is not None:
+                self._price_plot.setUpdatesEnabled(False)
+            if self._volume_plot is not None:
+                self._volume_plot.setUpdatesEnabled(False)
+            self._resize_debounce.start()
+
+    def _on_resize_settled(self) -> None:
+        if self._price_plot is not None:
+            self._price_plot.setUpdatesEnabled(True)
+        if self._volume_plot is not None:
+            self._volume_plot.setUpdatesEnabled(True)
 
     def refresh_view(self, state: Any) -> None:
         paper = bool(getattr(state, "agent_paper_mode", True))
@@ -273,16 +295,23 @@ class ChartPanel(QGroupBox):
         red_body = pg.mkBrush(255, 59, 59, 230)
         red_edge = pg.mkPen(255, 59, 59)
 
-        for i in range(n):
-            pen = green_edge if closes[i] >= opens[i] else red_edge
-            self._price_plot.plot(
-                [float(i), float(i)],
-                [float(lows[i]), float(highs[i])],
-                pen=pen,
-            )
-
         green_mask = closes >= opens
         red_mask = ~green_mask
+
+        # Draw all wicks as two bulk plots (NaN separators break lines
+        # between candles) — replaces O(n) individual plot() calls.
+        for mask, pen in ((green_mask, green_edge), (red_mask, red_edge)):
+            idx = np.where(mask)[0]
+            if idx.size:
+                xs = np.empty(idx.size * 3)
+                ys = np.empty(idx.size * 3)
+                xs[0::3] = x[idx]
+                xs[1::3] = x[idx]
+                xs[2::3] = np.nan
+                ys[0::3] = lows[idx]
+                ys[1::3] = highs[idx]
+                ys[2::3] = np.nan
+                self._price_plot.plot(xs, ys, pen=pen, connect="finite")
 
         if green_mask.any():
             self._price_plot.addItem(pg.BarGraphItem(
