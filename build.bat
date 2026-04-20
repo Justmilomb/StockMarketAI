@@ -19,6 +19,19 @@ if defined BLANK_CERT_PATH (
     echo   Skipping code signing (BLANK_CERT_PATH not set)
 )
 
+REM === Stage AI engine (Node + Claude CLI rebranded to blank-ai) ===
+REM blank.iss pulls files from build\engine\{node,cli}\*, which are produced
+REM by scripts\prepare_engine.py. Re-run if either folder is missing.
+if not exist "build\engine\node\node.exe" (
+    echo Preparing AI engine...
+    python scripts\prepare_engine.py
+    if errorlevel 1 (
+        echo   FAILED — engine preparation errored
+        exit /b 1
+    )
+    echo   Done: build\engine\
+)
+
 REM === Inno Setup installer ===
 if exist "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" (
     echo Building blank-setup.exe...

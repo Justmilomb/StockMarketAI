@@ -1,6 +1,6 @@
 # UTF-8
 # Windows version resource for PyInstaller.
-# Used by: trading.spec (version= parameter on EXE)
+# Used by: installer/blank.spec (version= parameter on EXE)
 
 VSVersionInfo(
     ffi=FixedFileInfo(
