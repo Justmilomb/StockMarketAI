@@ -1,18 +1,20 @@
 {% extends "_layout.html.j2" %}
 {% block content %}
-<div style="font-family:'JetBrains Mono',monospace;color:#00ff87;font-size:11px;letter-spacing:0.2em;text-transform:uppercase;margin-bottom:8px;">release · {{ version|e }}</div>
-<h1 style="font-size:28px;font-weight:200;margin:0 0 16px;">{{ headline|e }}</h1>
-<p style="color:rgba(255,255,255,0.7);font-size:15px;line-height:1.6;margin:0 0 20px;">
+<div style="font-family:'JetBrains Mono','Consolas','Courier New',monospace;color:#00ff87;font-size:11px;letter-spacing:0.28em;text-transform:uppercase;margin:0 0 14px;">release &middot; {{ version|e }}</div>
+<h1 style="font-family:'Outfit','Helvetica Neue',Arial,sans-serif;font-size:28px;font-weight:300;letter-spacing:-0.01em;color:#ffffff;margin:0 0 16px;line-height:1.25;">{{ headline|e }}</h1>
+<p style="font-family:'Outfit','Helvetica Neue',Arial,sans-serif;color:rgba(255,255,255,0.6);font-size:15px;line-height:1.65;margin:0 0 20px;">
 {{ intro|e }}
 </p>
 {% if highlights %}
-<ul style="color:rgba(255,255,255,0.7);font-size:14px;line-height:1.7;padding-left:20px;margin:0 0 24px;">
+<div style="border-top:1px solid rgba(255,255,255,0.08);margin:0 0 24px;">
 {% for item in highlights %}
-  <li>{{ item|e }}</li>
+  <div style="font-family:'Outfit','Helvetica Neue',Arial,sans-serif;padding:14px 0;border-bottom:1px solid rgba(255,255,255,0.08);color:rgba(255,255,255,0.6);font-size:14px;line-height:1.65;">
+    <span style="color:#00ff87;font-family:'JetBrains Mono','Consolas','Courier New',monospace;font-size:11px;margin-right:10px;">&rsaquo;</span>{{ item|e }}
+  </div>
 {% endfor %}
-</ul>
+</div>
 {% endif %}
-<p style="margin:0 0 8px;">
-<a href="{{ download_url|e }}" style="display:inline-block;background:#00ff87;color:#000000;text-decoration:none;font-family:'JetBrains Mono',monospace;font-size:13px;letter-spacing:0.06em;text-transform:uppercase;padding:12px 22px;border:1px solid #00ff87;">Update now</a>
+<p style="margin:0;">
+<a href="{{ download_url|e }}" style="display:inline-block;background:#00ff87;color:#000000;text-decoration:none;font-family:'JetBrains Mono','Consolas','Courier New',monospace;font-size:12px;letter-spacing:0.15em;text-transform:uppercase;padding:14px 28px;border:1px solid #00ff87;font-weight:500;">update now</a>
 </p>
 {% endblock %}

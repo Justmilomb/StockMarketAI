@@ -1,10 +1,11 @@
 {% extends "_layout.html.j2" %}
 {% block content %}
-<h1 style="font-size:28px;font-weight:200;margin:0 0 16px;">You're on the list.</h1>
-<p style="color:rgba(255,255,255,0.7);font-size:15px;line-height:1.6;margin:0 0 20px;">
-Thanks {{ name|e }} — we'll email you the moment blank goes live on <strong style="color:#ffffff;">{{ launch_date|e }}</strong>.
+<div style="font-family:'JetBrains Mono','Consolas','Courier New',monospace;color:#00ff87;font-size:11px;letter-spacing:0.28em;text-transform:uppercase;margin:0 0 14px;">waitlist</div>
+<h1 style="font-family:'Outfit','Helvetica Neue',Arial,sans-serif;font-size:28px;font-weight:300;letter-spacing:-0.01em;color:#ffffff;margin:0 0 16px;line-height:1.25;">you're on the list.</h1>
+<p style="font-family:'Outfit','Helvetica Neue',Arial,sans-serif;color:rgba(255,255,255,0.6);font-size:15px;line-height:1.65;margin:0 0 20px;">
+thanks {{ name|e }} &mdash; we'll email you the moment blank goes live on <span style="color:#ffffff;font-family:'JetBrains Mono','Consolas','Courier New',monospace;">{{ launch_date|e }}</span>.
 </p>
-<p style="color:rgba(255,255,255,0.5);font-size:13px;line-height:1.6;">
-blank is a Windows desktop app that runs on a 45-second loop, reads news and social signals, and places trades on Trading 212 — paper or live, your choice.
+<p style="font-family:'Outfit','Helvetica Neue',Arial,sans-serif;color:rgba(255,255,255,0.32);font-size:13px;line-height:1.7;margin:0;">
+blank is a windows desktop app that runs on a 45-second loop, reads news and social signals, and places trades on trading 212 &mdash; paper or live, your choice.
 </p>
 {% endblock %}

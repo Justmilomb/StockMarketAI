@@ -1,14 +1,14 @@
 {% extends "_layout.html.j2" %}
 {% block content %}
-<div style="font-family:'JetBrains Mono',monospace;color:#ffb020;font-size:11px;letter-spacing:0.25em;text-transform:uppercase;margin-bottom:8px;">action required</div>
-<h1 style="font-size:26px;font-weight:200;margin:0 0 16px;">{{ headline|e }}</h1>
-<p style="color:rgba(255,255,255,0.75);font-size:15px;line-height:1.7;margin:0 0 20px;">
-Hi {{ name|e }} &mdash; {{ body|e }}
+<div style="font-family:'JetBrains Mono','Consolas','Courier New',monospace;color:#ff3b3b;font-size:11px;letter-spacing:0.28em;text-transform:uppercase;margin:0 0 14px;">action required</div>
+<h1 style="font-family:'Outfit','Helvetica Neue',Arial,sans-serif;font-size:26px;font-weight:300;letter-spacing:-0.01em;color:#ffffff;margin:0 0 16px;line-height:1.3;">{{ headline|e }}</h1>
+<p style="font-family:'Outfit','Helvetica Neue',Arial,sans-serif;color:rgba(255,255,255,0.6);font-size:15px;line-height:1.7;margin:0 0 24px;">
+hi {{ name|e }} &mdash; {{ body|e }}
 </p>
 <p style="margin:0 0 24px;">
-<a href="{{ cta_url|e }}" style="display:inline-block;background:#ffb020;color:#000000;text-decoration:none;font-family:'JetBrains Mono',monospace;font-size:13px;letter-spacing:0.06em;text-transform:uppercase;padding:14px 28px;border:1px solid #ffb020;">{{ cta_label|e }}</a>
+<a href="{{ cta_url|e }}" style="display:inline-block;background:transparent;color:#ff3b3b;text-decoration:none;font-family:'JetBrains Mono','Consolas','Courier New',monospace;font-size:12px;letter-spacing:0.15em;text-transform:uppercase;padding:14px 28px;border:1px solid #ff3b3b;font-weight:500;">{{ cta_label|e }}</a>
 </p>
-<p style="color:rgba(255,255,255,0.5);font-size:13px;line-height:1.6;">
-Questions? Just reply to this email.
+<p style="font-family:'Outfit','Helvetica Neue',Arial,sans-serif;color:rgba(255,255,255,0.32);font-size:13px;line-height:1.65;margin:0;">
+questions? just reply to this email.
 </p>
 {% endblock %}

@@ -3,26 +3,48 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
 <title>{{ subject|e }}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<!--[if mso]>
+<style>
+  * { font-family: Arial, sans-serif !important; }
+  .mono { font-family: Consolas, 'Courier New', monospace !important; }
+</style>
+<![endif]-->
 </head>
-<body style="margin:0;padding:0;background:#000000;font-family:'Outfit','Inter',Arial,sans-serif;color:#ffffff;">
+<body style="margin:0;padding:0;background:#000000;font-family:'Outfit','Helvetica Neue',Arial,sans-serif;color:#ffffff;-webkit-font-smoothing:antialiased;">
   <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#000000;">
-    <tr><td align="center" style="padding:40px 16px 16px;">
+    <tr><td align="center" style="padding:40px 16px 24px;">
       <table role="presentation" width="560" cellspacing="0" cellpadding="0" border="0" style="max-width:560px;width:100%;background:#050505;border:1px solid rgba(255,255,255,0.08);">
-        <tr><td style="padding:32px 32px 16px;border-bottom:1px solid rgba(255,255,255,0.08);">
-          <div style="font-family:'JetBrains Mono','Consolas',monospace;color:#00ff87;font-size:12px;letter-spacing:0.25em;text-transform:uppercase;">blank</div>
-          <div style="color:rgba(255,255,255,0.32);font-size:11px;margin-top:4px;">certified random</div>
+
+        <!-- Header: blank wordmark + green rule -->
+        <tr><td style="padding:32px 32px 24px;border-bottom:1px solid rgba(255,255,255,0.08);">
+          <div style="font-family:'Outfit','Helvetica Neue',Arial,sans-serif;font-size:32px;font-weight:700;color:#ffffff;letter-spacing:-0.04em;line-height:1;">blank</div>
+          <div style="width:66px;height:2px;background:#00ff87;margin-top:6px;font-size:0;line-height:0;">&nbsp;</div>
+          <div class="mono" style="font-family:'JetBrains Mono','Consolas','Courier New',monospace;color:rgba(255,255,255,0.32);font-size:10px;letter-spacing:0.3em;text-transform:uppercase;margin-top:14px;">a product of certified random</div>
         </td></tr>
-        <tr><td style="padding:28px 32px 32px;">
+
+        <!-- Body -->
+        <tr><td style="padding:32px 32px 36px;">
           {% block content %}{% endblock %}
         </td></tr>
-        <tr><td style="padding:20px 32px 28px;border-top:1px solid rgba(255,255,255,0.08);color:rgba(255,255,255,0.32);font-size:11px;line-height:1.6;">
-          Sent to {{ recipient|e }}.
-          {% if unsubscribe_url %}
-            <a href="{{ unsubscribe_url|e }}" style="color:rgba(255,255,255,0.6);">Unsubscribe</a>.
-          {% endif %}
-          <br>© Certified Random. blank is an autonomous trading terminal. Trading involves risk of loss.
+
+        <!-- Footer -->
+        <tr><td style="padding:20px 32px 24px;border-top:1px solid rgba(255,255,255,0.08);">
+          <div class="mono" style="font-family:'JetBrains Mono','Consolas','Courier New',monospace;color:rgba(255,255,255,0.32);font-size:10px;letter-spacing:0.28em;text-transform:uppercase;line-height:1.7;">
+            blank &middot; certified random &middot; <a href="https://certifiedrandom.studios" style="color:rgba(255,255,255,0.6);text-decoration:none;">certifiedrandom.studios</a>
+          </div>
+          <div style="font-family:'Outfit','Helvetica Neue',Arial,sans-serif;color:rgba(255,255,255,0.32);font-size:11px;line-height:1.7;margin-top:10px;">
+            Sent to {{ recipient|e }}.{% if unsubscribe_url %} <a href="{{ unsubscribe_url|e }}" style="color:rgba(255,255,255,0.6);text-decoration:underline;">Unsubscribe</a>.{% endif %}
+          </div>
+          <div style="font-family:'Outfit','Helvetica Neue',Arial,sans-serif;color:rgba(255,255,255,0.32);font-size:11px;line-height:1.7;margin-top:6px;">
+            &copy; certified random. blank is an autonomous trading terminal. trading involves risk of loss.
+          </div>
         </td></tr>
+
       </table>
     </td></tr>
   </table>
