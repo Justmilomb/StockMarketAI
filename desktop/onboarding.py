@@ -103,21 +103,22 @@ def _build_steps(window: QMainWindow) -> List[TourStep]:
         ),
         TourStep(
             kicker="STEP 3 OF 4",
-            title="Start and stop the AI here.",
+            title="Start and stop your blank advisor here.",
             body=(
-                "Press START and the AI begins watching the market and "
-                "making trades for you. Press STOP and it stops.\n\n"
+                "Press START and your blank advisor begins watching the "
+                "market and making trades for you. Press STOP and it "
+                "stops.\n\n"
                 "You are always in control. Nothing runs on its own."
             ),
             target=attr("_agent_dock"),
         ),
         TourStep(
             kicker="STEP 4 OF 4",
-            title="Ask the AI anything.",
+            title="Ask your blank advisor anything.",
             body=(
                 "Type a question here — \"why did you buy Apple?\", "
-                "\"is Tesla a good buy?\", anything. The AI answers in "
-                "plain English.\n\n"
+                "\"is Tesla a good buy?\", anything. Your blank advisor "
+                "answers in plain English.\n\n"
                 "You can open this tour again any time from the Help "
                 "menu at the top."
             ),

@@ -220,14 +220,14 @@ def _init_db(conn: psycopg2.extensions.connection) -> None:
 
         seed_notes = (
             "- first official release of blank — the previous 2.x line was internal alpha, this is v1\n"
-            "- autonomous ai trading agent: reads news, social buzz, charts, and places orders on its own\n"
+            "- autonomous trading advisor: reads news, social buzz, charts, and places orders on its own\n"
             "- paper mode runs as a £100 gbp sandbox so you can watch the agent trade without risking real money\n"
             "- live mode trades via trading 212 when you hand it a real api key\n"
             "- separate paper and live windows — no more accidental mode flips mid-session\n"
             "- persistent chat agent: ask blank anything and it replies in seconds, not at the end of the next iteration\n"
             "- background scrapers feed the agent news and sentiment from reddit, stocktwits, financial news feeds, marketwatch, and youtube 24/7\n"
             "- supports every major western exchange: nyse/nasdaq, lse, xetra, euronext, six, nordics, tase\n"
-            "- bundled ai engine — no extra downloads or api keys needed, it just runs after install"
+            "- bundled advisor engine — no extra downloads or api keys needed, it just runs after install"
         )
         cur.execute(
             """
@@ -809,7 +809,7 @@ def _render_signup_email_html(key: str, expires_iso: str) -> str:
       <table width="520" cellpadding="0" cellspacing="0" border="0" style="max-width:520px;">
         <tr><td style="padding:0 0 32px 0;">
           <h1 style="margin:0;font-size:44px;font-weight:700;letter-spacing:-0.04em;color:#fff;">blank</h1>
-          <p style="margin:6px 0 0 0;font-size:13px;color:rgba(255,255,255,0.5);letter-spacing:0.02em;">autonomous ai trading terminal</p>
+          <p style="margin:6px 0 0 0;font-size:13px;color:rgba(255,255,255,0.5);letter-spacing:0.02em;">autonomous trading terminal</p>
         </td></tr>
         <tr><td style="padding:24px 20px;border:1px solid rgba(255,255,255,0.12);background:#050505;">
           <p style="margin:0 0 14px 0;font-family:'JetBrains Mono',ui-monospace,Menlo,monospace;font-size:10px;letter-spacing:0.32em;text-transform:uppercase;color:#00ff87;">access key</p>
@@ -989,16 +989,16 @@ def _render_waitlist_email_html() -> str:
       <table width="520" cellpadding="0" cellspacing="0" border="0" style="max-width:520px;">
         <tr><td style="padding:0 0 32px 0;">
           <h1 style="margin:0;font-size:44px;font-weight:700;letter-spacing:-0.04em;color:#fff;">blank</h1>
-          <p style="margin:6px 0 0 0;font-size:13px;color:rgba(255,255,255,0.5);letter-spacing:0.02em;">autonomous ai trading terminal</p>
+          <p style="margin:6px 0 0 0;font-size:13px;color:rgba(255,255,255,0.5);letter-spacing:0.02em;">autonomous trading terminal</p>
         </td></tr>
         <tr><td style="padding:24px 20px;border:1px solid rgba(255,255,255,0.12);background:#050505;">
           <p style="margin:0 0 14px 0;font-family:'JetBrains Mono',ui-monospace,Menlo,monospace;font-size:10px;letter-spacing:0.32em;text-transform:uppercase;color:#00ff87;">welcome to the waitlist</p>
           <p style="margin:0 0 16px 0;font-size:15px;line-height:1.65;color:rgba(255,255,255,0.85);">
-            you're in. we're building something exciting &mdash; an ai that trades the stock market for you.
+            you're in. we're building something exciting &mdash; an advisor that trades the stock market for you.
           </p>
           <p style="margin:0 0 16px 0;font-size:13px;line-height:1.65;color:rgba(255,255,255,0.55);">
             blank is an autonomous trading terminal for windows. you download it, open it, and let it run.
-            the ai watches prices, reads the news, and makes trades on its own. no experience needed.
+            your blank advisor watches prices, reads the news, and makes trades on its own. no experience needed.
           </p>
           <p style="margin:0 0 16px 0;font-size:13px;line-height:1.65;color:rgba(255,255,255,0.55);">
             we're a small team called <strong style="color:#fff;font-weight:400;">certified random</strong>.
@@ -1067,7 +1067,7 @@ def _render_waitlist_repeat_html() -> str:
       <table width="520" cellpadding="0" cellspacing="0" border="0" style="max-width:520px;">
         <tr><td style="padding:0 0 32px 0;">
           <h1 style="margin:0;font-size:44px;font-weight:700;letter-spacing:-0.04em;color:#fff;">blank</h1>
-          <p style="margin:6px 0 0 0;font-size:13px;color:rgba(255,255,255,0.5);letter-spacing:0.02em;">autonomous ai trading terminal</p>
+          <p style="margin:6px 0 0 0;font-size:13px;color:rgba(255,255,255,0.5);letter-spacing:0.02em;">autonomous trading terminal</p>
         </td></tr>
         <tr><td style="padding:24px 20px;border:1px solid rgba(255,255,255,0.12);background:#050505;">
           <p style="margin:0 0 14px 0;font-family:'JetBrains Mono',ui-monospace,Menlo,monospace;font-size:10px;letter-spacing:0.32em;text-transform:uppercase;color:#00ff87;">you're already on the list</p>

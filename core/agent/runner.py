@@ -69,8 +69,10 @@ DEFAULT_WAKE_PROMPT: str = (
 CADENCE_FLOOR_SECONDS: int = 30
 
 #: Default cadence when all major markets are closed and no agent
-#: preference has been learned yet. 10 minutes.
-CADENCE_MARKET_CLOSED_DEFAULT: int = 600
+#: preference has been learned yet. 2 minutes — keeps the supervisor
+#: responsive enough for fast day-trading decisions without burning
+#: subscription quota when nothing's moving.
+CADENCE_MARKET_CLOSED_DEFAULT: int = 120
 
 #: Upper bound on how many journal-tail lines we keep in memory so the
 #: panel doesn't grow unbounded over a long session.
@@ -105,6 +107,11 @@ class AgentRunner(QThread):
 
         self._stop_requested: bool = False
         self._interrupt_sleep: bool = False
+        # Set by ``force_fast_iteration`` when a chat message signals
+        # day-trading urgency. Clamps the *next* cadence to the 30s
+        # floor so the supervisor doesn't fall back to a learned 5-min
+        # wait the moment after a panicked "trade now" prompt.
+        self._force_fast_next_cadence: bool = False
 
         # Per-iteration counters, reset on each run.
         self._tool_call_count: int = 0
@@ -145,6 +152,19 @@ class AgentRunner(QThread):
         next time the runner enters ``_sleep_with_interrupt``.
         """
         self._interrupt_sleep = True
+
+    def force_fast_iteration(self) -> None:
+        """Force an immediate iteration with the minimum-cadence next wait.
+
+        Called by :class:`AgentPool` when a chat message contains a
+        day-trading urgency keyword (``trade now``, ``wake up``,
+        ``hurry`` …). Wakes the supervisor out of any current sleep
+        *and* clamps the next computed cadence to the 30s floor so the
+        agent actually day-trades instead of sliding back to a learned
+        5-minute wait the moment after the user asked for urgency.
+        """
+        self._interrupt_sleep = True
+        self._force_fast_next_cadence = True
 
     # ── QThread entry point ──────────────────────────────────────────
 
@@ -212,6 +232,12 @@ class AgentRunner(QThread):
         The config cadence_seconds is used as the open-market default.
         """
         market_open = self._any_market_open()
+        if self._force_fast_next_cadence:
+            # Urgent chat override — one-shot clamp to the 30s floor so
+            # a "trade now" prompt actually produces sub-minute follow-up,
+            # even if the agent last asked for a 5-minute wait.
+            self._force_fast_next_cadence = False
+            return float(CADENCE_FLOOR_SECONDS)
         if agent_requested_minutes > 0:
             secs = float(max(CADENCE_FLOOR_SECONDS, agent_requested_minutes * 60))
             self._learn_cadence(secs, market_open)
@@ -249,7 +275,7 @@ class AgentRunner(QThread):
                 learned = float(prefs.get("closed_seconds", 0.0))
                 samples = int(prefs.get("sample_count", 0))
                 if learned > 0 and samples >= 3:
-                    return min(learned, 900.0)  # cap at 15 min
+                    return min(learned, 300.0)  # cap at 5 min
         except Exception:
             pass
         return float(CADENCE_MARKET_CLOSED_DEFAULT)

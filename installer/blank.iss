@@ -83,11 +83,9 @@ Type: files; Name: "{app}\*.log"
 Type: files; Name: "{app}\*.pyc"
 
 [Code]
-{ Ask the user whether to scrub %LOCALAPPDATA%\blank\ (watchlists, chat
-  history, agent journal, paper broker state). Defaults to No so an
-  accidental click doesn't destroy their data. Silent uninstalls (used
-  by the auto-updater during upgrades) skip the prompt and keep the
-  data — that's the whole point of moving it out of {app} in v2. }
+// Prompt on genuine uninstall to optionally wipe %LOCALAPPDATA%\blank\
+// (watchlists, chat history, agent journal, paper broker state).
+// Silent uninstalls (auto-updater) skip the prompt and keep the data.
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
   UserDataDir: String;

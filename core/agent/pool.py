@@ -39,6 +39,32 @@ from PySide6.QtCore import QObject, Signal
 logger = logging.getLogger(__name__)
 
 
+#: Substrings that, when present in a chat message (case-insensitive),
+#: escalate the usual supervisor wake into a full ``force_fast_iteration``
+#: call. Kept deliberately narrow — "now" on its own is too common and
+#: would fire on benign questions like "what's the price now?".
+_URGENT_CHAT_PATTERNS: tuple[str, ...] = (
+    "trade now",
+    "day trade",
+    "day-trade",
+    "wake up",
+    "hurry",
+    "immediately",
+    "urgent",
+    "asap",
+    "right now",
+    "do it now",
+)
+
+
+def _is_urgent_chat(message: str) -> bool:
+    """Return True if ``message`` looks like a day-trading urgency cue."""
+    if not message:
+        return False
+    lower = message.lower()
+    return any(pat in lower for pat in _URGENT_CHAT_PATTERNS)
+
+
 class AgentPool(QObject):
     """Owns the supervisor + chat-worker fleet for one desktop session."""
 
@@ -288,10 +314,18 @@ class AgentPool(QObject):
         # this, a user could ask blank to open a position in the chat
         # panel and the supervisor would keep sleeping for another
         # minute-and-a-half before noticing a new position exists.
+        #
+        # Urgency keywords escalate this to ``force_fast_iteration``,
+        # which additionally clamps the NEXT cadence to the 30s floor
+        # so the supervisor doesn't immediately slide back into a
+        # learned multi-minute wait after the user asked for action.
         sup = self._supervisor
         if sup is not None and sup.isRunning():
             try:
-                sup.notify_chat_activity()
+                if _is_urgent_chat(message) and hasattr(sup, "force_fast_iteration"):
+                    sup.force_fast_iteration()
+                else:
+                    sup.notify_chat_activity()
             except Exception:
                 logger.debug("failed to wake supervisor on chat spawn", exc_info=True)
 

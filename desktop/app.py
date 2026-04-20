@@ -38,6 +38,7 @@ from PySide6.QtWidgets import (
 from desktop import tokens as T
 from desktop.state import init_state, load_config, resolve_config_path
 from desktop.panels.settings import SettingsPanel
+from desktop.panels.your_ai import YourAIPanel
 from desktop.panels.watchlist import WatchlistPanel
 from desktop.panels.positions import PositionsPanel
 from desktop.panels.orders import OrdersPanel
@@ -299,6 +300,7 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central)
 
         self.settings_panel = SettingsPanel(self.state)
+        self.your_ai_panel = YourAIPanel(self.state)
         self.chat_panel = ChatPanel(self.state)
         self.agent_log_panel = AgentLogPanel(self.state)
         self.watchlist_panel = WatchlistPanel(self.state)
@@ -309,15 +311,17 @@ class MainWindow(QMainWindow):
 
         self._watchlist_dock = self._make_dock("WATCHLIST", self.watchlist_panel)
         self._settings_dock = self._make_dock("SETTINGS", self.settings_panel)
+        self._your_ai_dock = self._make_dock("YOUR BLANK ADVISOR", self.your_ai_panel)
         self._positions_dock = self._make_dock("POSITIONS", self.positions_panel)
         self._exchanges_dock = self._make_dock("MARKETS", self.exchanges_panel)
         self._orders_dock = self._make_dock("ORDERS", self.orders_panel)
         self._chat_dock = self._make_dock("CHAT", self.chat_panel)
         self._news_dock = self._make_dock("INFORMATION", self.news_panel)
-        self._agent_dock = self._make_dock("AGENT", self.agent_log_panel)
+        self._agent_dock = self._make_dock("ADVISOR LOG", self.agent_log_panel)
 
         self.addDockWidget(Qt.TopDockWidgetArea, self._watchlist_dock)
         self.addDockWidget(Qt.LeftDockWidgetArea, self._settings_dock)
+        self.addDockWidget(Qt.LeftDockWidgetArea, self._your_ai_dock)
         self.addDockWidget(Qt.LeftDockWidgetArea, self._positions_dock)
         self.addDockWidget(Qt.LeftDockWidgetArea, self._exchanges_dock)
         self.addDockWidget(Qt.RightDockWidgetArea, self._chat_dock)
@@ -334,7 +338,8 @@ class MainWindow(QMainWindow):
         self._all_docks = [
             self._watchlist_dock, self._positions_dock,
             self._exchanges_dock, self._orders_dock, self._news_dock,
-            self._settings_dock, self._chat_dock, self._agent_dock,
+            self._settings_dock, self._your_ai_dock,
+            self._chat_dock, self._agent_dock,
         ]
 
         self._apply_dock_layout()
@@ -356,7 +361,7 @@ class MainWindow(QMainWindow):
             f" font-size: 10px; letter-spacing: 2px; padding: 0 10px;"
         )
 
-        self._ai_status = QLabel("AI ON")
+        self._ai_status = QLabel("ADVISOR ON")
         self._ai_status.setStyleSheet(status_pill)
         status.addPermanentWidget(self._ai_status)
 
@@ -909,6 +914,7 @@ class MainWindow(QMainWindow):
         """Refresh all panels. All DB/IO work has already been done on the
         background thread and applied to state before this is called."""
         self.settings_panel.refresh_view(self.state)
+        self.your_ai_panel.refresh_view(self.state)
         self.chat_panel.refresh_view(self.state)
         self.chart_panel.refresh_view(self.state)
         self.agent_log_panel.refresh_view(self.state)
@@ -1089,10 +1095,10 @@ class MainWindow(QMainWindow):
         if not self.agent_pool.can_spawn_chat_worker():
             active = self.agent_pool.active_chat_count()
             self.statusBar().showMessage(
-                f"AI busy ({active} workers) — queuing...", 4000,
+                f"your blank advisor is busy ({active} workers) — queuing...", 4000,
             )
         else:
-            self.statusBar().showMessage("AI thinking...", 10000)
+            self.statusBar().showMessage("your blank advisor is thinking...", 10000)
         self.agent_pool.spawn_chat_worker(message)
 
     # ── Agent pool lifecycle ─────────────────────────────────────────
@@ -1259,10 +1265,10 @@ class MainWindow(QMainWindow):
         reply = QMessageBox.question(
             self,
             "Clear All Chats & History",
-            "Wipe every chat message, agent memory entry, research "
+            "Wipe every chat message, advisor memory entry, research "
             "finding, journal line, AND the active watchlist?\n\n"
-            "This gives the AI a true blank slate. Broker settings and "
-            "config are kept.\n\nThis cannot be undone.",
+            "This gives your blank advisor a true blank slate. Broker "
+            "settings and config are kept.\n\nThis cannot be undone.",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
@@ -1305,7 +1311,7 @@ class MainWindow(QMainWindow):
 
         total = sum(counts.values())
         self.statusBar().showMessage(
-            f"Cleared {total} rows + watchlist — AI has a blank slate.", 5000,
+            f"Cleared {total} rows + watchlist — your blank advisor has a clean slate.", 5000,
         )
 
     def _watchlist_config_key(self) -> str:
@@ -1538,7 +1544,7 @@ class MainWindow(QMainWindow):
         count = len(self._chat_worker_ids)
         if count > 1:
             self.statusBar().showMessage(
-                f"AI thinking ({count} workers)...", 10000,
+                f"your blank advisor is thinking ({count} workers)...", 10000,
             )
 
     @Slot(str, str)
@@ -1923,7 +1929,7 @@ class MainWindow(QMainWindow):
         if self._ai_client and getattr(self._ai_client, "available", False):
             return True
         self.statusBar().showMessage(
-            f"{action_name} requires the blank AI engine — see the setup wizard",
+            f"{action_name} requires the blank advisor engine — see the setup wizard",
             5000,
         )
         return False
