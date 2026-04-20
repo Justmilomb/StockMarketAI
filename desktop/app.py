@@ -114,6 +114,9 @@ class MainWindow(QMainWindow):
                     audit_path=audit_path,
                     starting_cash=float(paper_broker_cfg.get("starting_cash", 100.0)),
                     currency=str(paper_broker_cfg.get("currency", "GBP") or "GBP"),
+                    fill_sanity_threshold=float(
+                        paper_broker_cfg.get("fill_sanity_threshold", 0.15)
+                    ),
                 ),
             )
             self.state.agent_paper_mode = True

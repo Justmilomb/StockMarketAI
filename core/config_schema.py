@@ -71,6 +71,13 @@ class PaperBrokerConfig(BaseModel):
     audit_path: str = "logs/paper_orders.jsonl"
     starting_cash: float = 100.0
     currency: str = "GBP"
+    # Maximum fraction the live price may diverge from a position's
+    # entry before the broker refuses to fill a SELL. Guards against
+    # bad yfinance ticks causing catastrophic fills (2026-04-20 BARC).
+    fill_sanity_threshold: float = Field(default=0.15, ge=0.0, le=1.0)
+    # ``get_live_price`` warns the agent when the broker-cached price
+    # and a fresh yfinance fetch diverge by more than this fraction.
+    divergence_warn_threshold: float = Field(default=0.05, ge=0.0, le=1.0)
 
 
 class NewsConfig(BaseModel):

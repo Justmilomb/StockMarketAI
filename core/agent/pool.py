@@ -168,6 +168,9 @@ class AgentPool(QObject):
             # its intended buying power.
             starting_cash = float(paper_cfg.get("starting_cash", 100.0))
             currency = str(paper_cfg.get("currency", "GBP") or "GBP")
+            fill_sanity_threshold = float(
+                paper_cfg.get("fill_sanity_threshold", 0.15)
+            )
             service.register_broker(
                 "stocks",
                 PaperBroker(
@@ -175,6 +178,7 @@ class AgentPool(QObject):
                     audit_path=audit_path,
                     starting_cash=starting_cash,
                     currency=currency,
+                    fill_sanity_threshold=fill_sanity_threshold,
                 ),
             )
             self._paper_broker = service

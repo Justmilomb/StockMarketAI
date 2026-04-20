@@ -214,10 +214,27 @@ def fetch_universe_data(
     return universe_data
 
 
-def fetch_live_prices(tickers: List[str]) -> Dict[str, Dict[str, float]]:
+# Default anomaly threshold for fetch_live_prices. A single tick that
+# diverges more than this from the previous close is treated as bad
+# yfinance data and zeroed out. 20% is wider than any realistic intraday
+# move for liquid names but still catches the obvious garbage (wrong
+# symbol, stale pre-market prints, partial downloads).
+_LIVE_PRICE_ANOMALY_THRESHOLD = 0.20
+
+
+def fetch_live_prices(
+    tickers: List[str],
+    anomaly_threshold: float = _LIVE_PRICE_ANOMALY_THRESHOLD,
+) -> Dict[str, Dict[str, float]]:
     """
     Fetch near real-time prices and calculate day change percentage.
     Returns: { "AAPL": {"price": 150.0, "change_pct": 1.5}, ... }
+
+    If a returned tick diverges from the previous close by more than
+    ``anomaly_threshold`` (fractional, e.g. 0.20 = 20%), the price is
+    zeroed out and the result includes ``anomaly=True``, ``rejected_price``
+    and ``reference`` keys so callers can tell a rejection apart from a
+    plain "yfinance returned nothing".
     """
     live_data: Dict[str, Dict[str, float]] = {}
     if not tickers:
@@ -247,6 +264,27 @@ def fetch_live_prices(tickers: List[str]) -> Dict[str, Dict[str, float]]:
                     current = float(ticker_closes.iloc[-1])
                     prev_close = float(ticker_closes.iloc[-2])
                     change_pct = ((current - prev_close) / prev_close) * 100.0
+
+                    # Anomaly guard: a single tick that moves >threshold
+                    # from the prior close is almost always bad data
+                    # (yfinance occasionally serves wrong-symbol or
+                    # pre-market micro-prints). Zero out so the broker's
+                    # "no live price" path kicks in instead of filling
+                    # an order at the garbage price.
+                    if prev_close > 0 and abs(current - prev_close) / prev_close > anomaly_threshold:
+                        print(
+                            f"[data_loader] anomaly: {cleaned_ticker} tick "
+                            f"{current} vs prev close {prev_close} "
+                            f"({change_pct:+.1f}%) — rejected"
+                        )
+                        live_data[original_ticker] = {
+                            "price": 0.0,
+                            "change_pct": 0.0,
+                            "anomaly": True,
+                            "rejected_price": current,
+                            "reference": prev_close,
+                        }
+                        continue
                 elif len(ticker_closes) == 1:
                     current = float(ticker_closes.iloc[-1])
                     change_pct = 0.0
