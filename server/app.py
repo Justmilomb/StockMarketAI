@@ -1,7 +1,9 @@
 """blank admin server — FastAPI backend for license validation, telemetry, config, and logs."""
 from __future__ import annotations
 
+import gzip
 import hashlib
+import io
 import json
 import logging
 import os
@@ -19,7 +21,7 @@ import psycopg2.extras
 import requests
 from fastapi import Body, Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -142,6 +144,15 @@ def _init_db(conn: psycopg2.extensions.connection) -> None:
             );
             CREATE INDEX IF NOT EXISTS idx_telemetry_key_time
                 ON telemetry_events(license_key, uploaded_at DESC);
+            -- Audit log for training data exports.
+            CREATE TABLE IF NOT EXISTS training_exports (
+                id SERIAL PRIMARY KEY,
+                exported_at TIMESTAMPTZ DEFAULT NOW(),
+                event_count INTEGER NOT NULL DEFAULT 0,
+                file_size_bytes INTEGER NOT NULL DEFAULT 0,
+                date_range_start TIMESTAMPTZ,
+                date_range_end TIMESTAMPTZ
+            );
         """)
         # Additive migration for databases that pre-date scheduled releases.
         # Must run before creating the scheduled_at index — if the table already
@@ -155,6 +166,15 @@ def _init_db(conn: psycopg2.extensions.connection) -> None:
         )
         cur.execute(
             "CREATE INDEX IF NOT EXISTS idx_releases_schedule ON releases(scheduled_at)",
+        )
+        # telemetry_events: uploaded_at may be missing on DBs created before the
+        # column was added to the CREATE TABLE block.
+        cur.execute(
+            "ALTER TABLE telemetry_events ADD COLUMN IF NOT EXISTS uploaded_at TIMESTAMPTZ DEFAULT NOW()",
+        )
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS idx_telemetry_key_time "
+            "ON telemetry_events(license_key, uploaded_at DESC)",
         )
     conn.commit()
     # seed default config if missing — use INSERT … ON CONFLICT DO NOTHING so
@@ -171,6 +191,8 @@ def _init_db(conn: psycopg2.extensions.connection) -> None:
             # coming_soon because v1 ships 2026-07-01 and pre-launch
             # visitors must not see a broken download link.
             ("landing_mode", "coming_soon"),
+            # ISO-8601 UTC timestamp of last training-data export; empty = never exported.
+            ("last_export_at", ""),
         ]
         for k, v in defaults:
             cur.execute(
