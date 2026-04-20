@@ -156,6 +156,17 @@ class ChartPanel(QGroupBox):
             if self._paper_watermark is not None:
                 self._paper_watermark.setVisible(paper)
 
+    def clear(self) -> None:
+        """Reset to blank state — no ticker, empty plots."""
+        self._current_ticker = ""
+        self._title_label.setText("CHART")
+        self._info_label.setText("")
+        if self._has_pyqtgraph:
+            import numpy as np
+            self._draw_candlestick(
+                np.array([]), np.array([]), np.array([]), np.array([]), np.array([])
+            )
+
     def load_chart(self, ticker: str) -> None:
         self._current_ticker = ticker
         self._title_label.setText(f"CHART · {ticker.upper()}")

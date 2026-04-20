@@ -890,6 +890,16 @@ class MainWindow(QMainWindow):
             self.state.news_sentiment = self.news_agent.news_data
         if self.history_manager:
             try:
+                tickers = list(self.state.active_watchlist_tickers or [])
+                if tickers:
+                    scraper_sent = self.history_manager.get_ticker_sentiment(tickers)
+                    if scraper_sent:
+                        self.state.news_sentiment = {
+                            **self.state.news_sentiment, **scraper_sent
+                        }
+            except Exception:
+                pass
+            try:
                 self.state.market_news = self.history_manager.get_scraper_items(
                     kinds=["news"], since_minutes=240, limit=15,
                 )
@@ -1205,10 +1215,18 @@ class MainWindow(QMainWindow):
             if isinstance(wl_root, dict):
                 wl_root[active] = []
             self._save_config()
-            self.state.active_watchlist_tickers = []
-            self._refresh_watchlist_panel()
         except Exception:
             logging.getLogger(__name__).exception("clear paper watchlist failed")
+
+        # Clear all UI state immediately.
+        self.state.active_watchlist_tickers = []
+        self.state.positions = []
+        self.state.orders = []
+        self.state.live_data = {}
+        self.watchlist_panel.refresh_view(self.state)
+        self.positions_panel.refresh_view(self.state)
+        self.orders_panel.refresh_view(self.state)
+        self.chart_panel.clear()
 
         self.statusBar().showMessage(
             "Paper account reset — cash, positions, and watchlist cleared.",
@@ -1258,20 +1276,20 @@ class MainWindow(QMainWindow):
         except Exception:
             logging.getLogger(__name__).exception("clear watchlist failed")
 
+        self.state.active_watchlist_tickers = []
         self.state.chat_history.clear()
         self.state.research_findings = []
         self.state.agent_journal_tail = []
         self.state.last_summary = ""
         self.state.news_sentiment = {}
+        self.state.live_data = {}
         self.chat_panel.refresh_view(self.state)
         self.news_panel.refresh_view(self.state)
         self.agent_log_panel.refresh_view(self.state)
-        # Watchlist panel reads the config directly, so a full refresh
-        # picks up the empty tickers list.
-        try:
-            self._refresh_watchlist_panel()
-        except Exception:
-            pass
+        self.watchlist_panel.refresh_view(self.state)
+        self.positions_panel.refresh_view(self.state)
+        self.orders_panel.refresh_view(self.state)
+        self.chart_panel.clear()
 
         total = sum(counts.values())
         self.statusBar().showMessage(

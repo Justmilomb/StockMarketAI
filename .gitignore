@@ -27,6 +27,9 @@ desktop.ini
 *.key
 credentials.json
 
+# Personal config (use config.default.json as the template)
+config.json
+
 # Data (large files)
 *.joblib
 data/

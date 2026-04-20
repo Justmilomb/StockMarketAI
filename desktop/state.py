@@ -215,13 +215,15 @@ def load_config(config_path: Path | str = "config.json") -> Dict[str, Any]:
 
     if not path.exists():
         path.parent.mkdir(parents=True, exist_ok=True)
+        import shutil
         if getattr(sys, "frozen", False):
-            bundle_seed = Path(getattr(sys, "_MEIPASS", "")) / "config.json"
-            if bundle_seed.exists():
-                import shutil
-                shutil.copy2(str(bundle_seed), str(path))
-                with path.open("r", encoding="utf-8") as f:
-                    return json.load(f)
+            seed = Path(getattr(sys, "_MEIPASS", "")) / "config.default.json"
+        else:
+            seed = Path(__file__).resolve().parent.parent / "config.default.json"
+        if seed.exists():
+            shutil.copy2(str(seed), str(path))
+            with path.open("r", encoding="utf-8") as f:
+                return json.load(f)
         with path.open("w", encoding="utf-8") as f:
             json.dump(DEFAULT_CONFIG, f, indent=2)
         return dict(DEFAULT_CONFIG)

@@ -49,7 +49,7 @@ a = Analysis(
     pathex=[PROJECT_ROOT, str(Path(PROJECT_ROOT) / 'core')],
     binaries=_native_binaries,
     datas=[
-        (str(Path(PROJECT_ROOT) / 'config.json'), '.'),
+        (str(Path(PROJECT_ROOT) / 'config.default.json'), '.'),
         (str(Path(PROJECT_ROOT) / 'desktop' / 'assets' / 'icon.ico'), 'desktop/assets'),
         *_font_datas,
         (str(Path(importlib.import_module('xgboost').__file__).parent / 'VERSION'), 'xgboost'),

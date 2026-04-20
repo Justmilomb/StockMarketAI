@@ -1,0 +1,113 @@
+{
+  "watchlists": {
+    "Default": []
+  },
+  "watchlists_paper": {
+    "Default": []
+  },
+  "protected_tickers": [],
+  "active_watchlist": "Default",
+  "data_dir": "data",
+  "capital": 10,
+  "active_asset_class": "stocks",
+  "enabled_asset_classes": ["stocks"],
+
+  "agent": {
+    "enabled": false,
+    "cadence_seconds": 45,
+    "paper_mode": true,
+    "daily_max_drawdown_pct": 3.0,
+    "max_position_pct": 20.0,
+    "max_trades_per_hour": 10,
+    "max_chat_workers": 5,
+    "chat_model": "sonnet",
+    "trader_personality_path": "data/trader_personality.json"
+  },
+
+  "ai": {
+    "model": "claude-opus-4-7",
+    "model_complex": "claude-opus-4-7",
+    "model_medium": "claude-sonnet-4-6",
+    "model_simple": "claude-haiku-4-5-20251001",
+    "model_assessor": "claude-sonnet-4-6",
+    "effort_supervisor": "max",
+    "effort_decision": "high",
+    "effort_info": "medium",
+    "effort_research_deep": "high",
+    "effort_research_quick": "medium",
+    "effort_assessor": "medium"
+  },
+
+  "broker": {
+    "type": "log",
+    "api_key_env": "T212_API_KEY",
+    "secret_key_env": "T212_SECRET_KEY",
+    "base_url": "https://live.trading212.com",
+    "practice": true
+  },
+
+  "paper_broker": {
+    "state_path": "data/paper_state.json",
+    "audit_path": "logs/paper_orders.jsonl",
+    "starting_cash": 100.0,
+    "currency": "GBP"
+  },
+
+  "news": {
+    "refresh_interval_minutes": 5,
+    "scraper_cadence_seconds": 300,
+    "scrapers_enabled": true,
+    "yahoo_scrape_enabled": true,
+    "finviz_enabled": true,
+    "reddit_enabled": true
+  },
+
+  "scrapers": {
+    "youtube_live_vision": {
+      "enabled": true,
+      "max_calls_per_day": 500,
+      "auto_download_ffmpeg": true
+    }
+  },
+
+  "swarm": {
+    "enabled": true,
+    "max_concurrent_workers": 4,
+    "grok_enabled": true,
+    "grok_session_path": "data/grok_session",
+    "finding_retention_days": 30
+  },
+
+  "risk": {
+    "kelly_fraction_cap": 0.35,
+    "max_position_pct": 0.2,
+    "atr_stop_multiplier": 1.8,
+    "atr_profit_multiplier": 2.5,
+    "drawdown_threshold": 0.15,
+    "drawdown_size_reduction": 0.5,
+    "min_position_dollars": 1.0,
+    "fractional_shares": true,
+    "max_open_positions": 20
+  },
+
+  "terminal": {
+    "mode": "recommendation",
+    "refresh_interval_seconds": 30,
+    "theme": "default",
+    "max_daily_loss": 0.05
+  },
+
+  "updates": {
+    "auto_check": true,
+    "check_interval_seconds": 60,
+    "skip_version": "",
+    "pending_install": null
+  },
+
+  "dev_monitor": {
+    "enabled": false,
+    "password": "",
+    "url": "https://api.useblank.ai/api/dev/agent-status",
+    "cadence_seconds": 20
+  }
+}

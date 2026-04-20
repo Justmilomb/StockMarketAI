@@ -834,6 +834,39 @@ class HistoryManager:
             items.append(d)
         return items
 
+    def get_ticker_sentiment(
+        self,
+        tickers: List[str],
+        since_minutes: int = 240,
+    ) -> Dict[str, Dict[str, Any]]:
+        """Return average VADER sentiment per ticker from recent scraper items.
+
+        Matches on the ``ticker`` column or on the ticker symbol appearing in
+        the article title, mirroring the get_scraper_items matching logic.
+        """
+        if not tickers:
+            return {}
+        result: Dict[str, Dict[str, Any]] = {}
+        with sqlite3.connect(self.db_path) as conn:
+            for raw_ticker in tickers:
+                clean = (raw_ticker or "").split("_")[0].upper()
+                if not clean:
+                    continue
+                rows = conn.execute(
+                    "SELECT sentiment_score FROM scraper_items "
+                    "WHERE fetched_at >= datetime('now', ?) "
+                    "AND sentiment_score IS NOT NULL "
+                    "AND (ticker = ? OR UPPER(title) LIKE ?)",
+                    (f"-{int(since_minutes)} minutes", clean, f"% {clean} %"),
+                ).fetchall()
+                scores = [r[0] for r in rows if r[0] is not None]
+                if scores:
+                    result[raw_ticker] = {
+                        "sentiment_score": sum(scores) / len(scores),
+                        "article_count": len(scores),
+                    }
+        return result
+
     def purge_old_scraper_items(self, keep_days: int = 7) -> int:
         """Delete scraper items older than *keep_days*. Returns deleted count."""
         with sqlite3.connect(self.db_path) as conn:
