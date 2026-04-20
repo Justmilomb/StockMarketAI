@@ -142,8 +142,6 @@ def _init_db(conn: psycopg2.extensions.connection) -> None:
                 snapshot JSONB NOT NULL,
                 uploaded_at TIMESTAMPTZ DEFAULT NOW()
             );
-            CREATE INDEX IF NOT EXISTS idx_telemetry_key_time
-                ON telemetry_events(license_key, uploaded_at DESC);
             -- Audit log for training data exports.
             CREATE TABLE IF NOT EXISTS training_exports (
                 id SERIAL PRIMARY KEY,
