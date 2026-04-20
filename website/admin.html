@@ -735,6 +735,197 @@
             body::before { animation: none; }
             header, .tabs, .section { opacity: 1; animation: none; }
         }
+
+        /* ── inspect panel ─────────────────────────────────────── */
+
+        .inspect-backdrop {
+            position: fixed;
+            inset: 0;
+            z-index: 200;
+            background: rgba(0,0,0,0.6);
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 200ms var(--ease-out);
+        }
+        .inspect-backdrop.open { opacity: 1; pointer-events: auto; }
+
+        .inspect-panel {
+            position: fixed;
+            top: 0;
+            right: 0;
+            bottom: 0;
+            z-index: 201;
+            width: min(560px, 96vw);
+            background: #050505;
+            border-left: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            transform: translateX(100%);
+            transition: transform 260ms var(--ease-out);
+            overflow: hidden;
+        }
+        .inspect-panel.open { transform: translateX(0); }
+
+        .inspect-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 1.25rem 1.5rem;
+            border-bottom: 1px solid var(--border);
+            flex-shrink: 0;
+        }
+        .inspect-header-left { min-width: 0; }
+        .inspect-title {
+            font-size: 0.8125rem;
+            font-weight: 400;
+            color: var(--text);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .inspect-subtitle {
+            font-size: 0.6875rem;
+            font-weight: 300;
+            color: var(--text-dim);
+            font-family: 'JetBrains Mono', monospace;
+            margin-top: 0.25rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .inspect-close {
+            background: none;
+            border: 1px solid var(--border);
+            color: var(--text-dim);
+            font-family: 'Outfit', sans-serif;
+            font-size: 0.625rem;
+            letter-spacing: 0.08em;
+            padding: 0.35rem 0.75rem;
+            cursor: pointer;
+            flex-shrink: 0;
+            margin-left: 1rem;
+            transition: color 140ms, border-color 140ms;
+        }
+        .inspect-close:hover { color: var(--text); border-color: var(--border-hover); }
+
+        .inspect-body {
+            flex: 1;
+            overflow-y: auto;
+            padding: 1rem 1.5rem 2rem;
+        }
+        .inspect-body::-webkit-scrollbar { width: 4px; }
+        .inspect-body::-webkit-scrollbar-track { background: transparent; }
+        .inspect-body::-webkit-scrollbar-thumb { background: var(--border-hover); }
+
+        .inspect-ts {
+            font-size: 0.5625rem;
+            color: var(--text-dim);
+            letter-spacing: 0.06em;
+            font-family: 'JetBrains Mono', monospace;
+            padding: 0.5rem 1.5rem 0;
+            flex-shrink: 0;
+        }
+
+        .icard {
+            border: 1px solid var(--border);
+            margin-bottom: 0.75rem;
+        }
+        .icard-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.75rem 1rem;
+            cursor: pointer;
+            user-select: none;
+            transition: background 120ms;
+        }
+        .icard-head:hover { background: rgba(255,255,255,0.03); }
+        .icard-label {
+            font-size: 0.6875rem;
+            font-weight: 400;
+            letter-spacing: 0.08em;
+            color: var(--text-mid);
+            text-transform: lowercase;
+        }
+        .icard-caret {
+            font-size: 0.5625rem;
+            color: var(--text-dim);
+            transition: transform 180ms var(--ease-out);
+        }
+        .icard.open .icard-caret { transform: rotate(90deg); }
+        .icard-body {
+            display: none;
+            padding: 0 1rem 1rem;
+            font-size: 0.75rem;
+            font-weight: 300;
+            color: var(--text-mid);
+            line-height: 1.65;
+        }
+        .icard.open .icard-body { display: block; }
+
+        .irow {
+            display: flex;
+            justify-content: space-between;
+            padding: 0.35rem 0;
+            border-bottom: 1px solid rgba(255,255,255,0.04);
+        }
+        .irow:last-child { border-bottom: none; }
+        .irow-k { color: var(--text-dim); }
+        .irow-v { color: var(--text); font-family: 'JetBrains Mono', monospace; font-size: 0.6875rem; }
+        .irow-v.green { color: var(--glow); }
+        .irow-v.red { color: var(--red); }
+
+        .icard table { width: 100%; border-collapse: collapse; margin-top: 0.25rem; }
+        .icard th { font-size: 0.5625rem; letter-spacing: 0.08em; color: var(--text-dim);
+            text-align: left; padding: 0.3rem 0.5rem; border-bottom: 1px solid var(--border);
+            font-weight: 400; }
+        .icard td { font-size: 0.6875rem; padding: 0.35rem 0.5rem;
+            border-bottom: 1px solid rgba(255,255,255,0.04); color: var(--text-mid);
+            font-family: 'JetBrains Mono', monospace; }
+        .icard tr:last-child td { border-bottom: none; }
+
+        .itag {
+            display: inline-block;
+            font-size: 0.5625rem;
+            letter-spacing: 0.06em;
+            padding: 0.15rem 0.5rem;
+            border: 1px solid var(--border);
+            color: var(--text-dim);
+            margin: 0.2rem 0.2rem 0 0;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .ilog-line {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.5625rem;
+            color: var(--text-dim);
+            padding: 0.2rem 0;
+            border-bottom: 1px solid rgba(255,255,255,0.03);
+            word-break: break-all;
+            line-height: 1.55;
+        }
+        .ilog-line:last-child { border-bottom: none; }
+
+        .inspect-no-data {
+            text-align: center;
+            padding: 3rem 1rem;
+            font-size: 0.75rem;
+            font-weight: 300;
+            color: var(--text-dim);
+        }
+
+        .inspect-btn {
+            background: none;
+            border: 1px solid rgba(0,255,135,0.25);
+            color: var(--glow);
+            font-family: 'Outfit', sans-serif;
+            font-size: 0.625rem;
+            padding: 0.2rem 0.5rem;
+            cursor: pointer;
+            letter-spacing: 0.04em;
+            transition: background 140ms;
+        }
+        .inspect-btn:hover { background: var(--glow-dim); }
     </style>
 </head>
 <body>
@@ -911,6 +1102,20 @@
         </div><!-- /dashboard -->
     </div>
 
+    <!-- inspect panel -->
+    <div id="inspect-backdrop" class="inspect-backdrop"></div>
+    <div id="inspect-panel" class="inspect-panel">
+        <div class="inspect-header">
+            <div class="inspect-header-left">
+                <div class="inspect-title" id="inspect-title"></div>
+                <div class="inspect-subtitle" id="inspect-subtitle"></div>
+            </div>
+            <button class="inspect-close" onclick="closeInspect()">close</button>
+        </div>
+        <div class="inspect-ts" id="inspect-ts"></div>
+        <div class="inspect-body" id="inspect-body"></div>
+    </div>
+
     <!-- new license modal -->
     <div id="modal-overlay" style="display:none; position:fixed; inset:0; z-index:500;
         background:rgba(0,0,0,0.7); align-items:center; justify-content:center;">
@@ -1064,6 +1269,12 @@
             const licenses = await api('/api/admin/licenses');
             document.getElementById('license-tbody').replaceChildren(...licenses.map(l => {
                 const actions = [];
+                actions.push(el('button', {
+                    text: 'inspect',
+                    class: 'inspect-btn',
+                    style: { marginRight: '0.375rem' },
+                    onclick: () => openInspect(l.key),
+                }));
                 if (l.status !== 'revoked') {
                     actions.push(el('button', {
                         text: 'revoke',
@@ -1589,6 +1800,261 @@
                 status.textContent = 'tick error';
             }
         });
+
+        // ── Inspect panel ─────────────────────────────────────────────────
+
+        function openInspect(key) {
+            document.getElementById('inspect-backdrop').classList.add('open');
+            document.getElementById('inspect-panel').classList.add('open');
+            const body = document.getElementById('inspect-body');
+            body.replaceChildren(el('p', {
+                text: 'loading…',
+                style: { color: 'var(--text-dim)', fontSize: '0.75rem', padding: '2rem', textAlign: 'center' }
+            }));
+            document.getElementById('inspect-title').textContent = key;
+            document.getElementById('inspect-subtitle').textContent = '';
+            document.getElementById('inspect-ts').textContent = '';
+            api('/api/admin/inspect/' + encodeURIComponent(key))
+                .then(data => renderInspect(data))
+                .catch(() => {
+                    body.replaceChildren(el('p', {
+                        text: 'failed to load telemetry data',
+                        style: { color: 'var(--text-dim)', fontSize: '0.75rem', padding: '2rem', textAlign: 'center' }
+                    }));
+                });
+        }
+
+        function closeInspect() {
+            document.getElementById('inspect-backdrop').classList.remove('open');
+            document.getElementById('inspect-panel').classList.remove('open');
+        }
+
+        document.getElementById('inspect-backdrop').addEventListener('click', closeInspect);
+
+        function makeICard(label, openDefault) {
+            const cardBody = el('div', { class: 'icard-body' });
+            const caret = el('span', { class: 'icard-caret', text: '▶' });
+            const head = el('div', { class: 'icard-head' }, [
+                el('span', { class: 'icard-label', text: label }),
+                caret,
+            ]);
+            const card = el('div', { class: 'icard' + (openDefault ? ' open' : '') }, [head, cardBody]);
+            head.addEventListener('click', () => card.classList.toggle('open'));
+            return { card, cardBody };
+        }
+
+        function addIRow(parent, key, val, color) {
+            const vEl = el('span', { class: 'irow-v', text: String(val == null ? '—' : val) });
+            if (color) vEl.classList.add(color);
+            parent.appendChild(el('div', { class: 'irow' }, [
+                el('span', { class: 'irow-k', text: key }),
+                vEl,
+            ]));
+        }
+
+        function fmtN(v, d) {
+            if (v == null || v === '') return '—';
+            const n = parseFloat(v);
+            return isNaN(n) ? String(v) : n.toFixed(d != null ? d : 2);
+        }
+
+        function renderInspect(data) {
+            const lic = data.license || {};
+            const snap = data.snapshot || null;
+            const body = document.getElementById('inspect-body');
+
+            document.getElementById('inspect-title').textContent = lic.name || lic.email || lic.key || '—';
+            document.getElementById('inspect-subtitle').textContent = lic.key || '';
+            if (data.snapshot_at) {
+                document.getElementById('inspect-ts').textContent =
+                    'snapshot: ' + timeAgo(data.snapshot_at) + '  ·  uploads: ' + (data.event_count || 0);
+            }
+
+            body.replaceChildren();
+
+            if (!snap) {
+                const c = makeICard('live status', true);
+                c.cardBody.appendChild(el('p', {
+                    text: 'no snapshot yet — dev monitor not enabled for this user',
+                    style: { color: 'var(--text-dim)', fontSize: '0.75rem' }
+                }));
+                body.appendChild(c.card);
+            } else {
+                // 1. Live status
+                const c1 = makeICard('live status', true);
+                const agent = snap.agent || {};
+                addIRow(c1.cardBody, 'running', agent.running ? 'yes' : 'no', agent.running ? 'green' : '');
+                addIRow(c1.cardBody, 'mode', agent.paper_mode ? 'paper' : 'live', agent.paper_mode ? '' : 'red');
+                addIRow(c1.cardBody, 'last iteration', agent.last_at ? timeAgo(agent.last_at) : '—');
+                if (agent.summary) {
+                    const summaryEl = el('div', { text: agent.summary });
+                    Object.assign(summaryEl.style, {
+                        marginTop: '0.5rem', padding: '0.5rem', background: '#000',
+                        border: '1px solid rgba(255,255,255,0.08)',
+                        fontFamily: "'JetBrains Mono',monospace",
+                        fontSize: '0.5625rem', color: 'rgba(255,255,255,0.6)',
+                        lineHeight: '1.6', wordBreak: 'break-word',
+                    });
+                    c1.cardBody.appendChild(summaryEl);
+                }
+                body.appendChild(c1.card);
+
+                // 2. Account
+                const c2 = makeICard('account', true);
+                const acc = snap.account || {};
+                const cur = acc.currency || 'GBP';
+                addIRow(c2.cardBody, 'cash', fmtN(acc.cash) + ' ' + cur);
+                addIRow(c2.cardBody, 'invested', fmtN(acc.invested) + ' ' + cur);
+                addIRow(c2.cardBody, 'total', fmtN(acc.total) + ' ' + cur);
+                const pnl = parseFloat(acc.pnl || 0);
+                addIRow(c2.cardBody, 'p&l', (pnl >= 0 ? '+' : '') + fmtN(acc.pnl) + ' ' + cur, pnl >= 0 ? 'green' : 'red');
+                body.appendChild(c2.card);
+
+                // 3. Positions
+                const positions = snap.positions || [];
+                const c3 = makeICard('positions (' + positions.length + ')');
+                if (positions.length) {
+                    const tbl = el('table', {});
+                    tbl.appendChild(el('thead', {}, [
+                        el('tr', {}, ['ticker','qty','cost','price','p&l'].map(h => el('th', { text: h })))
+                    ]));
+                    const tbody = el('tbody', {});
+                    positions.forEach(p => {
+                        const pnlV = parseFloat(p.pnl || 0);
+                        const pnlTd = el('td', { text: (pnlV >= 0 ? '+' : '') + fmtN(p.pnl) });
+                        pnlTd.style.color = pnlV >= 0 ? 'var(--glow)' : 'var(--red)';
+                        tbody.appendChild(el('tr', {}, [
+                            el('td', { text: p.ticker || '' }),
+                            el('td', { text: fmtN(p.qty, 4) }),
+                            el('td', { text: fmtN(p.cost) }),
+                            el('td', { text: fmtN(p.price) }),
+                            pnlTd,
+                        ]));
+                    });
+                    tbl.appendChild(tbody);
+                    c3.cardBody.appendChild(tbl);
+                } else {
+                    c3.cardBody.appendChild(el('span', { text: 'no open positions', style: { color: 'var(--text-dim)' } }));
+                }
+                body.appendChild(c3.card);
+
+                // 4. Recent trades
+                const trades = snap.trades || [];
+                const c4 = makeICard('recent trades (' + trades.length + ')');
+                if (trades.length) {
+                    const tbl = el('table', {});
+                    tbl.appendChild(el('thead', {}, [
+                        el('tr', {}, ['side','ticker','qty','price','when'].map(h => el('th', { text: h })))
+                    ]));
+                    const tbody = el('tbody', {});
+                    trades.forEach(t => {
+                        const sideTd = el('td', { text: t.side || '' });
+                        sideTd.style.color = t.side === 'buy' ? 'var(--glow)' : 'var(--red)';
+                        tbody.appendChild(el('tr', {}, [
+                            sideTd,
+                            el('td', { text: t.ticker || '' }),
+                            el('td', { text: fmtN(t.qty, 4) }),
+                            el('td', { text: fmtN(t.price) }),
+                            el('td', { text: timeAgo(t.ts) }),
+                        ]));
+                    });
+                    tbl.appendChild(tbody);
+                    c4.cardBody.appendChild(tbl);
+                } else {
+                    c4.cardBody.appendChild(el('span', { text: 'no recent trades', style: { color: 'var(--text-dim)' } }));
+                }
+                body.appendChild(c4.card);
+
+                // 5. Watchlist
+                const wl = snap.watchlist || [];
+                const c5 = makeICard('watchlist (' + wl.length + ')');
+                if (wl.length) {
+                    const wrap = el('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '0.2rem', paddingTop: '0.25rem' } });
+                    wl.forEach(t => wrap.appendChild(el('span', { class: 'itag', text: t })));
+                    c5.cardBody.appendChild(wrap);
+                } else {
+                    c5.cardBody.appendChild(el('span', { text: 'empty', style: { color: 'var(--text-dim)' } }));
+                }
+                body.appendChild(c5.card);
+
+                // 6. Personality
+                const pers = snap.personality || {};
+                const c6 = makeICard('personality');
+                if (Object.keys(pers).length) {
+                    const seed = pers.seed || {};
+                    if (seed.name) addIRow(c6.cardBody, 'name', seed.name);
+                    if (seed.archetype) addIRow(c6.cardBody, 'archetype', seed.archetype);
+                    if (seed.risk_profile) addIRow(c6.cardBody, 'risk profile', seed.risk_profile);
+                    const cp = pers.cadence_prefs || {};
+                    if (cp.sample_count) {
+                        addIRow(c6.cardBody, 'cadence samples', cp.sample_count);
+                        if (cp.open_seconds) addIRow(c6.cardBody, 'open market cadence', fmtN(cp.open_seconds, 0) + 's');
+                        if (cp.closed_seconds) addIRow(c6.cardBody, 'closed market cadence', fmtN(cp.closed_seconds, 0) + 's');
+                    }
+                    const lessons = pers.lessons || [];
+                    if (lessons.length) addIRow(c6.cardBody, 'lessons learned', lessons.length);
+                } else {
+                    c6.cardBody.appendChild(el('span', { text: 'no personality data', style: { color: 'var(--text-dim)' } }));
+                }
+                body.appendChild(c6.card);
+
+                // 7. Sentiment top-5
+                const sent = snap.sentiment || {};
+                const sentEntries = Object.entries(sent);
+                const c7 = makeICard('sentiment (top 5)');
+                if (sentEntries.length) {
+                    sentEntries.forEach(([t, s]) => {
+                        const score = parseFloat(s);
+                        addIRow(c7.cardBody, t, (score >= 0 ? '+' : '') + fmtN(score),
+                            score > 0.05 ? 'green' : score < -0.05 ? 'red' : '');
+                    });
+                } else {
+                    c7.cardBody.appendChild(el('span', { text: 'no sentiment data', style: { color: 'var(--text-dim)' } }));
+                }
+                body.appendChild(c7.card);
+
+                // 8. Agent journal tail
+                const log = snap.log || [];
+                const c8 = makeICard('agent journal (' + log.length + ' lines)');
+                if (log.length) {
+                    const wrap = el('div', {});
+                    log.slice(-20).forEach(l => wrap.appendChild(el('div', { class: 'ilog-line', text: String(l) })));
+                    c8.cardBody.appendChild(wrap);
+                } else {
+                    c8.cardBody.appendChild(el('span', { text: 'no journal entries', style: { color: 'var(--text-dim)' } }));
+                }
+                body.appendChild(c8.card);
+            }
+
+            // 9. Telemetry stats (always shown)
+            const c9 = makeICard('telemetry stats');
+            addIRow(c9.cardBody, 'uploads', String(data.event_count || 0));
+            addIRow(c9.cardBody, 'first upload', data.first_upload ? timeAgo(data.first_upload) : '—');
+            addIRow(c9.cardBody, 'last upload', data.last_upload ? timeAgo(data.last_upload) : '—');
+            addIRow(c9.cardBody, 'license status', String((data.license || {}).status || '—'));
+            body.appendChild(c9.card);
+
+            // 10. Server logs
+            const logs = data.recent_logs || [];
+            const c10 = makeICard('server logs (' + logs.length + ')');
+            if (logs.length) {
+                const wrap = el('div', {});
+                logs.forEach(l => {
+                    const line = el('div', { class: 'ilog-line' });
+                    const lvl = el('span', { text: (l.level || '') + '  ' });
+                    if (l.level === 'error') lvl.style.color = 'var(--red)';
+                    else if (l.level === 'warning') lvl.style.color = 'var(--amber)';
+                    else lvl.style.color = 'var(--text-dim)';
+                    line.appendChild(lvl);
+                    line.appendChild(document.createTextNode(l.message || ''));
+                    wrap.appendChild(line);
+                });
+                c10.cardBody.appendChild(wrap);
+            } else {
+                c10.cardBody.appendChild(el('span', { text: 'no server logs', style: { color: 'var(--text-dim)' } }));
+            }
+            body.appendChild(c10.card);
+        }
 
         document.getElementById('email-send').addEventListener('click', async () => {
             if (!EMAIL_CURRENT) return;

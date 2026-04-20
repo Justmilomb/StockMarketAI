@@ -1,9 +1,11 @@
 """Dev-only remote monitoring — streams desktop snapshots to the server."""
 from __future__ import annotations
 
+import json
 import logging
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import requests
@@ -41,16 +43,39 @@ class DevMonitor(QThread):
         self._cadence: int = max(5, int(cfg.get("cadence_seconds", 20)))
         self._stop = False
 
+        # license key for telemetry upload (best-effort; empty = skip)
+        try:
+            from desktop.license import _read_stored_key
+            self._license_key: str = _read_stored_key() or ""
+        except Exception:
+            self._license_key = ""
+
+        # derive telemetry endpoint from the dev-monitor base URL
+        _base = self._url.split("/api/")[0] if "/api/" in self._url else self._url.rsplit("/", 3)[0]
+        self._telemetry_url: str = f"{_base}/api/telemetry/snapshot"
+
+        # personality file path from config (same default as agent runner)
+        _agent_cfg = config.get("agent", {})
+        self._personality_path: Path = Path(
+            str(_agent_cfg.get("trader_personality_path") or "data/trader_personality.json")
+        )
+
     def stop(self) -> None:
         self._stop = True
 
     def run(self) -> None:
         while not self._stop:
+            snapshot: Optional[Dict[str, Any]] = None
             try:
                 snapshot = self._build_snapshot()
                 self._post(snapshot)
             except Exception:
                 logger.debug("dev_monitor: post failed", exc_info=True)
+            if snapshot is not None:
+                try:
+                    self._post_telemetry(snapshot)
+                except Exception:
+                    logger.debug("dev_monitor: telemetry post failed", exc_info=True)
             for _ in range(self._cadence):
                 if self._stop:
                     return
@@ -124,14 +149,37 @@ class DevMonitor(QThread):
 
         log_tail: List[str] = list(state.agent_journal_tail)[-30:]
 
+        personality: Dict[str, Any] = {}
+        try:
+            ppath = self._personality_path
+            if ppath.exists():
+                personality = json.loads(ppath.read_text(encoding="utf-8"))
+        except Exception:
+            logger.debug("dev_monitor: personality read failed", exc_info=True)
+
+        sentiment: Dict[str, float] = {}
+        try:
+            ns = dict(state.news_sentiment or {})
+            scored = [
+                (t, float(v.get("sentiment_score", 0)) if isinstance(v, dict) else 0.0)
+                for t, v in ns.items()
+            ]
+            scored.sort(key=lambda x: abs(x[1]), reverse=True)
+            sentiment = {t: s for t, s in scored[:5]}
+        except Exception:
+            logger.debug("dev_monitor: sentiment read failed", exc_info=True)
+
         return {
             "ts": datetime.now(timezone.utc).isoformat(),
+            "license_key": self._license_key,
             "agent": agent,
             "account": account,
             "positions": positions,
             "trades": trades,
             "watchlist": list(state.active_watchlist_tickers),
             "log": log_tail,
+            "personality": personality,
+            "sentiment": sentiment,
         }
 
     def _post(self, snapshot: Dict[str, Any]) -> None:
@@ -146,3 +194,15 @@ class DevMonitor(QThread):
         )
         if r.status_code >= 300:
             logger.debug("dev_monitor: server returned %d", r.status_code)
+
+    def _post_telemetry(self, snapshot: Dict[str, Any]) -> None:
+        if not self._license_key:
+            return
+        r = requests.post(
+            self._telemetry_url,
+            json={"license_key": self._license_key, "snapshot": snapshot},
+            headers={"Content-Type": "application/json"},
+            timeout=10,
+        )
+        if r.status_code >= 300:
+            logger.debug("dev_monitor: telemetry returned %d", r.status_code)

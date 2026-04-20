@@ -132,6 +132,16 @@ def _init_db(conn: psycopg2.extensions.connection) -> None:
                 filled_at TIMESTAMPTZ,
                 expires_at TIMESTAMPTZ NOT NULL
             );
+            -- Per-key telemetry snapshots pushed by the desktop app.
+            -- Pruned to 50 rows per key on each insert.
+            CREATE TABLE IF NOT EXISTS telemetry_events (
+                id SERIAL PRIMARY KEY,
+                license_key TEXT NOT NULL,
+                snapshot JSONB NOT NULL,
+                uploaded_at TIMESTAMPTZ DEFAULT NOW()
+            );
+            CREATE INDEX IF NOT EXISTS idx_telemetry_key_time
+                ON telemetry_events(license_key, uploaded_at DESC);
         """)
         # Additive migration for databases that pre-date scheduled releases.
         # Must run before creating the scheduled_at index — if the table already
@@ -298,6 +308,11 @@ class LogEntry(BaseModel):
 class LogBatch(BaseModel):
     license_key: str
     entries: list[LogEntry]
+
+
+class TelemetrySnapshotRequest(BaseModel):
+    license_key: str
+    snapshot: Dict[str, Any]
 
 
 class ReleaseCreateRequest(BaseModel):
@@ -1197,6 +1212,40 @@ def ingest_logs(
     return {"status": "ok", "count": str(len(body.entries))}
 
 
+@app.post("/api/telemetry/snapshot", status_code=204)
+def telemetry_snapshot_push(
+    body: TelemetrySnapshotRequest,
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> None:
+    """Desktop pushes a state snapshot keyed by its license. Admin-only readable."""
+    key = (body.license_key or "").strip()
+    if not key:
+        raise HTTPException(status_code=400, detail="license_key required")
+    with conn.cursor() as cur:
+        cur.execute("SELECT id FROM licenses WHERE key = %s", (key,))
+        if not cur.fetchone():
+            raise HTTPException(status_code=403, detail="invalid license key")
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO telemetry_events (license_key, snapshot) VALUES (%s, %s)",
+            (key, json.dumps(body.snapshot)),
+        )
+        cur.execute(
+            """
+            DELETE FROM telemetry_events
+            WHERE license_key = %s
+              AND id NOT IN (
+                SELECT id FROM telemetry_events
+                WHERE license_key = %s
+                ORDER BY uploaded_at DESC
+                LIMIT 50
+              )
+            """,
+            (key, key),
+        )
+    conn.commit()
+
+
 # ── Admin: stats ─────────────────────────────────────────────────────────
 
 @app.get("/api/admin/stats")
@@ -1417,6 +1466,69 @@ def admin_revoke_license(
                 reason_key=f"revoke:{license_key}",
             )
     return {"status": "revoked"}
+
+
+@app.get("/api/admin/inspect/{license_key}")
+def admin_inspect_license(
+    license_key: str,
+    _: str = Depends(require_admin),
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> Dict[str, Any]:
+    """Return license metadata + latest telemetry snapshot for the admin inspect panel."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT * FROM licenses WHERE key = %s", (license_key,))
+        lic = cur.fetchone()
+    if not lic:
+        raise HTTPException(status_code=404, detail="license not found")
+
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT snapshot, uploaded_at FROM telemetry_events "
+            "WHERE license_key = %s ORDER BY uploaded_at DESC LIMIT 1",
+            (license_key,),
+        )
+        latest = cur.fetchone()
+        cur.execute(
+            "SELECT COUNT(*) AS c, MIN(uploaded_at) AS first_at, MAX(uploaded_at) AS last_at "
+            "FROM telemetry_events WHERE license_key = %s",
+            (license_key,),
+        )
+        stats = cur.fetchone()
+        cur.execute(
+            "SELECT level, message, created_at FROM logs "
+            "WHERE license_key = %s ORDER BY created_at DESC LIMIT 20",
+            (license_key,),
+        )
+        logs = cur.fetchall()
+
+    lic_data = dict(lic)
+    for k in ("created_at", "expires_at", "last_active"):
+        if lic_data.get(k) is not None:
+            lic_data[k] = lic_data[k].isoformat()
+
+    snap: Optional[Dict[str, Any]] = None
+    snap_at: Optional[str] = None
+    if latest:
+        raw = latest["snapshot"]
+        snap = raw if isinstance(raw, dict) else json.loads(raw)
+        snap_at = latest["uploaded_at"].isoformat()
+
+    return {
+        "license": lic_data,
+        "snapshot": snap,
+        "snapshot_at": snap_at,
+        "event_count": int(stats["c"]) if stats else 0,
+        "first_upload": stats["first_at"].isoformat() if stats and stats["first_at"] else None,
+        "last_upload": stats["last_at"].isoformat() if stats and stats["last_at"] else None,
+        "recent_logs": [
+            {
+                "level": r["level"],
+                "message": r["message"],
+                "at": r["created_at"].isoformat(),
+            }
+            for r in logs
+        ],
+    }
 
 
 # ── Admin: config ────────────────────────────────────────────────────────
