@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+    <title>blank — monitor</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+    <style>
+        *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --bg: #000; --bg1: #0a0a0a;
+            --text: #fff; --mid: rgba(255,255,255,0.65);
+            --dim: rgba(255,255,255,0.32); --rule: rgba(255,255,255,0.08);
+            --glow: #00ff87; --red: #ff3b3b; --warn: #ffb020;
+            --mono: 'JetBrains Mono', ui-monospace, monospace;
+        }
+        html { font-size: 15px; -webkit-font-smoothing: antialiased; }
+        body { background: var(--bg); color: var(--text); font-family: 'Outfit', sans-serif; min-height: 100dvh; overflow-x: hidden; }
+
+        /* lock screen */
+        #lock { position: fixed; inset: 0; z-index: 9999; background: var(--bg); display: flex; align-items: center; justify-content: center; padding: 1.5rem; }
+        #lock.hidden { display: none; }
+        .lock-card { width: 100%; max-width: 360px; border: 1px solid var(--rule); background: var(--bg1); padding: 2rem 1.75rem 2.25rem; }
+        .lock-brand { font-family: var(--mono); font-size: 0.6875rem; letter-spacing: 0.25em; text-transform: uppercase; color: var(--glow); margin-bottom: 1.25rem; }
+        .lock-title { font-size: 1.375rem; font-weight: 300; margin-bottom: 0.5rem; }
+        .lock-sub { font-size: 0.8125rem; color: var(--dim); margin-bottom: 1.75rem; line-height: 1.5; }
+        .lock-input { width: 100%; background: var(--bg); border: 1px solid var(--rule); color: var(--text); font-family: var(--mono); font-size: 0.875rem; padding: 0.75rem 0.875rem; outline: none; margin-bottom: 0.875rem; transition: border-color 140ms cubic-bezier(0.16,1,0.3,1); }
+        .lock-input:focus { border-color: rgba(255,255,255,0.3); }
+        .lock-btn { width: 100%; background: var(--glow); color: #000; font-family: 'Outfit', sans-serif; font-size: 0.875rem; font-weight: 500; letter-spacing: 0.05em; border: none; padding: 0.75rem; cursor: pointer; transition: opacity 140ms; }
+        .lock-btn:hover { opacity: 0.85; }
+        .lock-err { margin-top: 0.75rem; font-size: 0.75rem; color: var(--red); min-height: 1rem; font-family: var(--mono); }
+
+        /* app */
+        #app { display: none; }
+        #app.visible { display: block; }
+        header { display: flex; align-items: center; justify-content: space-between; padding: 0.875rem 1rem; border-bottom: 1px solid var(--rule); position: sticky; top: 0; z-index: 100; background: rgba(0,0,0,0.92); backdrop-filter: blur(8px); }
+        .header-brand { font-family: var(--mono); font-size: 0.6875rem; letter-spacing: 0.2em; text-transform: uppercase; color: var(--glow); }
+        .header-right { display: flex; align-items: center; gap: 0.75rem; }
+        #countdown { font-family: var(--mono); font-size: 0.6875rem; color: var(--dim); letter-spacing: 0.05em; }
+        #refresh-btn { background: none; border: 1px solid var(--rule); color: var(--mid); font-family: var(--mono); font-size: 0.625rem; letter-spacing: 0.1em; text-transform: uppercase; padding: 0.375rem 0.625rem; cursor: pointer; transition: border-color 140ms, color 140ms; }
+        #refresh-btn:hover { border-color: var(--glow); color: var(--glow); }
+        #lock-btn { background: none; border: none; color: var(--dim); font-size: 0.75rem; cursor: pointer; padding: 0.25rem; }
+        main { padding: 1rem; max-width: 540px; margin: 0 auto; }
+
+        /* error */
+        #error-bar { display: none; font-family: var(--mono); font-size: 0.6875rem; color: var(--red); border: 1px solid rgba(255,59,59,0.2); background: rgba(255,59,59,0.05); padding: 0.625rem 1rem; margin-bottom: 1rem; letter-spacing: 0.04em; }
+        #error-bar.visible { display: block; }
+
+        /* status */
+        .status-bar { display: flex; align-items: center; gap: 0.75rem; border: 1px solid var(--rule); background: var(--bg1); padding: 0.875rem 1rem; margin-bottom: 1rem; }
+        .status-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+        .status-dot.running { background: var(--glow); box-shadow: 0 0 8px var(--glow); animation: pulse 2s ease-in-out infinite; }
+        .status-dot.idle { background: var(--dim); }
+        @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+        .status-label { font-family: var(--mono); font-size: 0.75rem; letter-spacing: 0.1em; text-transform: uppercase; }
+        .status-label.running { color: var(--glow); }
+        .status-label.idle { color: var(--dim); }
+        .status-meta { margin-left: auto; font-family: var(--mono); font-size: 0.6875rem; color: var(--dim); }
+        .mode-badge { font-family: var(--mono); font-size: 0.5625rem; letter-spacing: 0.15em; text-transform: uppercase; padding: 0.2rem 0.45rem; border: 1px solid; }
+        .mode-badge.paper { color: var(--warn); border-color: rgba(255,176,32,0.3); }
+        .mode-badge.live { color: var(--glow); border-color: rgba(0,255,135,0.3); }
+
+        /* sections */
+        .sec-title { font-family: var(--mono); font-size: 0.5625rem; letter-spacing: 0.25em; text-transform: uppercase; color: var(--dim); margin-bottom: 0.625rem; padding-bottom: 0.5rem; border-bottom: 1px solid var(--rule); }
+        .summary-box { border: 1px solid var(--rule); background: var(--bg1); padding: 0.875rem 1rem; margin-bottom: 1rem; font-size: 0.8125rem; color: var(--mid); line-height: 1.6; font-style: italic; }
+        .summary-box.empty { color: var(--dim); font-style: normal; font-family: var(--mono); font-size: 0.6875rem; }
+
+        /* account */
+        .account-card { border: 1px solid var(--rule); background: var(--bg1); padding: 1rem; margin-bottom: 1rem; }
+        .account-row { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.75rem; }
+        .account-item label { display: block; font-family: var(--mono); font-size: 0.5625rem; letter-spacing: 0.2em; text-transform: uppercase; color: var(--dim); margin-bottom: 0.25rem; }
+        .account-item .val { font-family: var(--mono); font-size: 1.0625rem; }
+        .val.positive { color: var(--glow); }
+        .val.negative { color: var(--red); }
+        .val.neutral { color: var(--text); }
+
+        /* positions */
+        .positions-wrap { margin-bottom: 1rem; }
+        .pos-card { border: 1px solid var(--rule); background: var(--bg1); padding: 0.75rem 1rem; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.75rem; }
+        .pos-ticker { font-family: var(--mono); font-size: 0.8125rem; font-weight: 500; min-width: 90px; }
+        .pos-meta { flex: 1; font-family: var(--mono); font-size: 0.625rem; color: var(--dim); line-height: 1.6; }
+        .pos-pnl { font-family: var(--mono); font-size: 0.8125rem; text-align: right; }
+        .empty-state { font-family: var(--mono); font-size: 0.6875rem; color: var(--dim); padding: 0.75rem 0; text-align: center; }
+
+        /* watchlist */
+        .watchlist-wrap { margin-bottom: 1rem; }
+        .chips { display: flex; flex-wrap: wrap; gap: 0.375rem; padding: 0.75rem; border: 1px solid var(--rule); background: var(--bg1); min-height: 2.5rem; }
+        .chip { font-family: var(--mono); font-size: 0.625rem; letter-spacing: 0.05em; color: var(--mid); border: 1px solid var(--rule); padding: 0.2rem 0.5rem; }
+
+        /* trades */
+        .trades-wrap { margin-bottom: 1rem; }
+        .trades-list { border: 1px solid var(--rule); background: var(--bg1); padding: 0 0.75rem; }
+        .trade-row { display: flex; align-items: center; gap: 0.625rem; border-bottom: 1px solid var(--rule); padding: 0.5rem 0; font-family: var(--mono); font-size: 0.6875rem; }
+        .trade-row:last-child { border-bottom: none; }
+        .trade-side { font-size: 0.5625rem; letter-spacing: 0.15em; text-transform: uppercase; padding: 0.175rem 0.4rem; border: 1px solid; min-width: 38px; text-align: center; }
+        .trade-side.buy { color: var(--glow); border-color: rgba(0,255,135,0.3); }
+        .trade-side.sell { color: var(--red); border-color: rgba(255,59,59,0.3); }
+        .trade-ticker { min-width: 80px; font-weight: 500; }
+        .trade-detail { flex: 1; color: var(--dim); }
+        .trade-ts { color: var(--dim); font-size: 0.5625rem; margin-left: auto; }
+
+        /* log */
+        .log-wrap { margin-bottom: 2rem; }
+        .log-box { border: 1px solid var(--rule); background: var(--bg1); padding: 0.75rem; max-height: 280px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.12) transparent; }
+        .log-line { font-family: var(--mono); font-size: 0.625rem; color: var(--dim); line-height: 1.65; word-break: break-all; }
+        .log-line:not(:last-child) { margin-bottom: 0.125rem; }
+        #last-updated { text-align: center; font-family: var(--mono); font-size: 0.5625rem; color: rgba(255,255,255,0.2); letter-spacing: 0.1em; padding-bottom: 2rem; }
+    </style>
+</head>
+<body>
+
+<div id="lock">
+    <div class="lock-card">
+        <div class="lock-brand">blank · monitor</div>
+        <h1 class="lock-title">dev dashboard</h1>
+        <p class="lock-sub">enter the admin key to view the live agent state.</p>
+        <input id="key-input" type="password" class="lock-input" placeholder="admin key" autocomplete="current-password">
+        <button id="unlock-btn" class="lock-btn">unlock</button>
+        <div id="lock-err" class="lock-err"></div>
+    </div>
+</div>
+
+<div id="app">
+    <header>
+        <span class="header-brand">blank · monitor</span>
+        <div class="header-right">
+            <span id="countdown">—</span>
+            <button id="refresh-btn">refresh</button>
+            <button id="lock-btn" title="lock">&#9632;</button>
+        </div>
+    </header>
+    <main>
+        <div id="error-bar"></div>
+        <div class="status-bar">
+            <div class="status-dot idle" id="status-dot"></div>
+            <span class="status-label idle" id="status-label">idle</span>
+            <span class="mode-badge paper" id="mode-badge">paper</span>
+            <span class="status-meta" id="status-meta">—</span>
+        </div>
+        <div id="summary-box" class="summary-box empty">no summary yet</div>
+        <div class="sec-title">account</div>
+        <div class="account-card">
+            <div class="account-row">
+                <div class="account-item"><label>cash</label><div class="val neutral" id="acc-cash">—</div></div>
+                <div class="account-item"><label>invested</label><div class="val neutral" id="acc-invested">—</div></div>
+                <div class="account-item"><label>total</label><div class="val neutral" id="acc-total">—</div></div>
+                <div class="account-item"><label>p&amp;l</label><div class="val neutral" id="acc-pnl">—</div></div>
+            </div>
+        </div>
+        <div class="sec-title">positions</div>
+        <div class="positions-wrap" id="positions-wrap"><div class="empty-state">no open positions</div></div>
+        <div class="sec-title">watchlist</div>
+        <div class="watchlist-wrap"><div class="chips" id="chips"><span class="empty-state">—</span></div></div>
+        <div class="sec-title">recent trades</div>
+        <div class="trades-wrap" id="trades-wrap"><div class="empty-state">no trades yet</div></div>
+        <div class="sec-title">agent log</div>
+        <div class="log-wrap"><div class="log-box" id="log-box"></div></div>
+        <div id="last-updated">last updated: —</div>
+    </main>
+</div>
+
+<script>
+(function () {
+    'use strict';
+    var API = 'https://api.useblank.ai/api/dev/agent-status';
+    var LS_KEY = 'bm_key';
+    var POLL_SEC = 15;
+    var adminKey = '';
+    var cdVal = POLL_SEC;
+    var cdTimer = null;
+
+    function el(tag, cls) { var e = document.createElement(tag); if (cls) e.className = cls; return e; }
+    function byId(id) { return document.getElementById(id); }
+
+    function fmt(n, curr) {
+        var sym = (curr || 'GBP') === 'GBP' ? '£' : '$';
+        return sym + Math.abs(n || 0).toFixed(2);
+    }
+    function fmtPnl(n, curr) { return (n >= 0 ? '+' : '-') + fmt(n, curr); }
+    function pnlCls(n) { return n > 0 ? 'positive' : n < 0 ? 'negative' : 'neutral'; }
+    function relTime(iso) {
+        if (!iso) return '—';
+        var diff = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+        if (diff < 60) return diff + 's ago';
+        if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+        return Math.floor(diff / 3600) + 'h ago';
+    }
+    function shortTs(iso) {
+        if (!iso) return '—';
+        return new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+    }
+
+    // ── lock / unlock ──────────────────────────────────────────────────────
+    function unlock(key) {
+        adminKey = key;
+        localStorage.setItem(LS_KEY, key);
+        byId('lock').classList.add('hidden');
+        byId('app').classList.add('visible');
+        fetchNow();
+        resetCountdown();
+    }
+    function lockScreen() {
+        clearInterval(cdTimer);
+        adminKey = '';
+        localStorage.removeItem(LS_KEY);
+        byId('lock').classList.remove('hidden');
+        byId('app').classList.remove('visible');
+        byId('key-input').value = '';
+        byId('lock-err').textContent = '';
+    }
+    byId('unlock-btn').addEventListener('click', function () {
+        var key = byId('key-input').value.trim();
+        if (!key) { byId('lock-err').textContent = 'enter the admin key'; return; }
+        byId('lock-err').textContent = '';
+        unlock(key);
+    });
+    byId('key-input').addEventListener('keydown', function (e) { if (e.key === 'Enter') byId('unlock-btn').click(); });
+    byId('lock-btn').addEventListener('click', lockScreen);
+    byId('refresh-btn').addEventListener('click', function () { fetchNow(); resetCountdown(); });
+
+    // ── countdown ─────────────────────────────────────────────────────────
+    function resetCountdown() {
+        clearInterval(cdTimer);
+        cdVal = POLL_SEC;
+        updateCd();
+        cdTimer = setInterval(function () {
+            cdVal--;
+            updateCd();
+            if (cdVal <= 0) { fetchNow(); cdVal = POLL_SEC; }
+        }, 1000);
+    }
+    function updateCd() { byId('countdown').textContent = 'refresh in ' + cdVal + 's'; }
+
+    // ── fetch ──────────────────────────────────────────────────────────────
+    function fetchNow() {
+        if (!adminKey) return;
+        fetch(API, { headers: { 'Authorization': 'Bearer ' + adminKey } })
+            .then(function (res) {
+                if (res.status === 401 || res.status === 403) { showErr('invalid admin key'); return null; }
+                if (res.status === 503) { showErr('agent not running — no snapshot yet'); return null; }
+                if (!res.ok) { showErr('server error ' + res.status); return null; }
+                return res.json();
+            })
+            .then(function (data) { if (data) { hideErr(); render(data); } })
+            .catch(function (e) { showErr('network error — ' + e.message); });
+    }
+    function showErr(msg) { var b = byId('error-bar'); b.textContent = msg; b.classList.add('visible'); }
+    function hideErr() { byId('error-bar').classList.remove('visible'); }
+
+    // ── render ─────────────────────────────────────────────────────────────
+    function render(d) {
+        var ag = d.agent || {};
+        var acc = d.account || {};
+        var curr = acc.currency || 'GBP';
+        var running = !!ag.running;
+
+        // status bar
+        byId('status-dot').className = 'status-dot ' + (running ? 'running' : 'idle');
+        var lbl = byId('status-label');
+        lbl.className = 'status-label ' + (running ? 'running' : 'idle');
+        lbl.textContent = running ? 'running' : 'idle';
+        var mb = byId('mode-badge');
+        mb.className = 'mode-badge ' + (ag.paper_mode ? 'paper' : 'live');
+        mb.textContent = ag.paper_mode ? 'paper' : 'live';
+        byId('status-meta').textContent = relTime(ag.last_at);
+
+        // summary
+        var sb = byId('summary-box');
+        if (ag.summary) {
+            sb.textContent = ag.summary;
+            sb.className = 'summary-box';
+        } else {
+            sb.textContent = 'no summary yet';
+            sb.className = 'summary-box empty';
+        }
+
+        // account
+        byId('acc-cash').textContent = fmt(acc.cash, curr);
+        byId('acc-cash').className = 'val neutral';
+        byId('acc-invested').textContent = fmt(acc.invested, curr);
+        byId('acc-invested').className = 'val neutral';
+        byId('acc-total').textContent = fmt(acc.total, curr);
+        byId('acc-total').className = 'val neutral';
+        byId('acc-pnl').textContent = fmtPnl(acc.pnl || 0, curr);
+        byId('acc-pnl').className = 'val ' + pnlCls(acc.pnl || 0);
+
+        // positions
+        var pw = byId('positions-wrap');
+        var positions = d.positions || [];
+        while (pw.firstChild) pw.removeChild(pw.firstChild);
+        if (positions.length === 0) {
+            var es = el('div', 'empty-state');
+            es.textContent = 'no open positions';
+            pw.appendChild(es);
+        } else {
+            positions.forEach(function (p) {
+                var card = el('div', 'pos-card');
+                var ticker = el('div', 'pos-ticker');
+                ticker.textContent = p.ticker;
+                var meta = el('div', 'pos-meta');
+                var line1 = document.createTextNode(p.qty + ' \u00d7 ' + fmt(p.cost, curr));
+                var br = el('br');
+                var line2 = document.createTextNode('now ' + fmt(p.price, curr));
+                meta.appendChild(line1); meta.appendChild(br); meta.appendChild(line2);
+                var pnlEl = el('div', 'pos-pnl ' + pnlCls(p.pnl));
+                pnlEl.textContent = fmtPnl(p.pnl, curr);
+                card.appendChild(ticker); card.appendChild(meta); card.appendChild(pnlEl);
+                pw.appendChild(card);
+            });
+        }
+
+        // watchlist chips
+        var chips = byId('chips');
+        while (chips.firstChild) chips.removeChild(chips.firstChild);
+        var wl = d.watchlist || [];
+        if (wl.length === 0) {
+            var dash = el('span', 'empty-state');
+            dash.textContent = '—';
+            chips.appendChild(dash);
+        } else {
+            wl.forEach(function (t) {
+                var chip = el('span', 'chip');
+                chip.textContent = t;
+                chips.appendChild(chip);
+            });
+        }
+
+        // trades
+        var tw = byId('trades-wrap');
+        while (tw.firstChild) tw.removeChild(tw.firstChild);
+        var trades = d.trades || [];
+        if (trades.length === 0) {
+            var tes = el('div', 'empty-state');
+            tes.textContent = 'no trades yet';
+            tw.appendChild(tes);
+        } else {
+            var list = el('div', 'trades-list');
+            trades.forEach(function (t) {
+                var row = el('div', 'trade-row');
+                var side = el('span', 'trade-side ' + (t.side || '').toLowerCase());
+                side.textContent = t.side || '?';
+                var tkEl = el('span', 'trade-ticker');
+                tkEl.textContent = t.ticker;
+                var det = el('span', 'trade-detail');
+                det.textContent = parseFloat(t.qty || 0).toFixed(4) + ' @ ' + fmt(t.price, curr);
+                var ts = el('span', 'trade-ts');
+                ts.textContent = shortTs(t.ts);
+                row.appendChild(side); row.appendChild(tkEl);
+                row.appendChild(det); row.appendChild(ts);
+                list.appendChild(row);
+            });
+            tw.appendChild(list);
+        }
+
+        // log
+        var logBox = byId('log-box');
+        while (logBox.firstChild) logBox.removeChild(logBox.firstChild);
+        var log = d.log || [];
+        if (log.length === 0) {
+            var ll = el('div', 'log-line');
+            ll.style.color = 'rgba(255,255,255,0.18)';
+            ll.textContent = '— no log entries —';
+            logBox.appendChild(ll);
+        } else {
+            log.forEach(function (line) {
+                var ll = el('div', 'log-line');
+                ll.textContent = line;
+                logBox.appendChild(ll);
+            });
+            logBox.scrollTop = logBox.scrollHeight;
+        }
+
+        byId('last-updated').textContent = 'snapshot: ' + (d.ts ? new Date(d.ts).toLocaleTimeString('en-GB') : '—');
+    }
+
+    // ── auto-resume ────────────────────────────────────────────────────────
+    var saved = localStorage.getItem(LS_KEY);
+    if (saved) { unlock(saved); }
+})();
+</script>
+</body>
+</html>

@@ -2392,6 +2392,56 @@ def admin_emails_tick(
     return {"ran_at": ran_at.isoformat(), "counts": out}
 
 
+# ── Dev monitor (dev-only, in-memory snapshot store) ─────────────────────
+
+_monitor_snapshot: Dict[str, Any] = {}
+_monitor_lock = Lock()
+
+
+def _require_bearer(authorization: str = Header(default="")) -> str:
+    """Bearer token auth — expects 'Authorization: Bearer <ADMIN_KEY>'."""
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="missing bearer token")
+    token = authorization[7:]
+    if not secrets.compare_digest(token, ADMIN_KEY):
+        raise HTTPException(status_code=403, detail="forbidden")
+    return token
+
+
+@app.post("/api/dev/agent-status", status_code=204)
+async def dev_agent_status_push(
+    request: Request,
+    _: str = Depends(_require_bearer),
+) -> None:
+    """Desktop client pushes its current state snapshot here."""
+    try:
+        body = await request.json()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="invalid json") from exc
+    with _monitor_lock:
+        _monitor_snapshot.clear()
+        _monitor_snapshot.update(body)
+
+
+@app.get("/api/dev/agent-status")
+def dev_agent_status_get(_: str = Depends(_require_bearer)) -> Dict[str, Any]:
+    """Browser dashboard polls this to get the latest snapshot."""
+    with _monitor_lock:
+        if not _monitor_snapshot:
+            raise HTTPException(status_code=503, detail="no snapshot yet")
+        return dict(_monitor_snapshot)
+
+
+@app.get("/monitor", response_class=HTMLResponse)
+def monitor_page() -> HTMLResponse:
+    path = os.path.join(WEBSITE_DIR, "monitor.html")
+    try:
+        with open(path, encoding="utf-8") as f:
+            return HTMLResponse(f.read())
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="monitor page not found")
+
+
 # ── Run ──────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":

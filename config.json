@@ -354,6 +354,12 @@
       "n_models": 8
     }
   },
+  "dev_monitor": {
+    "enabled": false,
+    "key": "",
+    "url": "https://api.useblank.ai/api/dev/agent-status",
+    "cadence_seconds": 20
+  },
   "marketstack": {
     "api_key_env": "MARKETSTACK_API_KEY",
     "base_url": "https://api.marketstack.com/v1"

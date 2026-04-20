@@ -57,6 +57,7 @@ from desktop.workers import BackgroundTask
 # AgentRunner itself is still used, but only via AgentPool so paper
 # broker state and the wake cadence are shared across agents.
 from core.agent.pool import AgentPool
+from desktop.dev_monitor import DevMonitor
 
 
 class MainWindow(QMainWindow):
@@ -191,6 +192,18 @@ class MainWindow(QMainWindow):
         # provider can safely read from panels that are already alive.
         self.scraper_runner: Optional[Any] = None
         self._start_scraper_runner()
+
+        # Dev-only remote monitoring — streams agent state to the server.
+        # Only started when config["dev_monitor"]["enabled"] is true.
+        self.dev_monitor: Optional[DevMonitor] = None
+        if self.config.get("dev_monitor", {}).get("enabled"):
+            self.dev_monitor = DevMonitor(
+                state=self.state,
+                broker_service=self.broker_service,
+                config=self.config,
+                parent=self,
+            )
+            self.dev_monitor.start()
 
         self._build_ui()
         self._setup_shortcuts()
@@ -1941,6 +1954,12 @@ class MainWindow(QMainWindow):
         if self.scraper_runner is not None:
             try:
                 self.scraper_runner.stop()
+            except Exception:
+                pass
+
+        if self.dev_monitor is not None:
+            try:
+                self.dev_monitor.stop()
             except Exception:
                 pass
 
