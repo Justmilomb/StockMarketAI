@@ -37,7 +37,7 @@ class DevMonitor(QThread):
         self._url: str = cfg.get(
             "url", "https://api.useblank.ai/api/dev/agent-status"
         )
-        self._key: str = cfg.get("key", "")
+        self._key: str = cfg.get("password", "")
         self._cadence: int = max(5, int(cfg.get("cadence_seconds", 20)))
         self._stop = False
 

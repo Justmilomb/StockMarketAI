@@ -115,8 +115,8 @@
     <div class="lock-card">
         <div class="lock-brand">blank · monitor</div>
         <h1 class="lock-title">dev dashboard</h1>
-        <p class="lock-sub">enter the admin key to view the live agent state.</p>
-        <input id="key-input" type="password" class="lock-input" placeholder="admin key" autocomplete="current-password">
+        <p class="lock-sub">enter the password to view the live agent state.</p>
+        <input id="key-input" type="password" class="lock-input" placeholder="password" autocomplete="current-password">
         <button id="unlock-btn" class="lock-btn">unlock</button>
         <div id="lock-err" class="lock-err"></div>
     </div>
@@ -165,7 +165,7 @@
 (function () {
     'use strict';
     var API = 'https://api.useblank.ai/api/dev/agent-status';
-    var LS_KEY = 'bm_key';
+    var LS_KEY = 'bm_pw';
     var POLL_SEC = 15;
     var adminKey = '';
     var cdVal = POLL_SEC;
@@ -212,7 +212,7 @@
     }
     byId('unlock-btn').addEventListener('click', function () {
         var key = byId('key-input').value.trim();
-        if (!key) { byId('lock-err').textContent = 'enter the admin key'; return; }
+        if (!key) { byId('lock-err').textContent = 'enter the password'; return; }
         byId('lock-err').textContent = '';
         unlock(key);
     });
@@ -238,7 +238,7 @@
         if (!adminKey) return;
         fetch(API, { headers: { 'Authorization': 'Bearer ' + adminKey } })
             .then(function (res) {
-                if (res.status === 401 || res.status === 403) { showErr('invalid admin key'); return null; }
+                if (res.status === 401 || res.status === 403) { showErr('wrong password'); return null; }
                 if (res.status === 503) { showErr('agent not running — no snapshot yet'); return null; }
                 if (!res.ok) { showErr('server error ' + res.status); return null; }
                 return res.json();

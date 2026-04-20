@@ -2393,42 +2393,47 @@ def admin_emails_tick(
 
 
 # ── Dev monitor (dev-only, in-memory snapshot store) ─────────────────────
+# Auth is password-only: the desktop POSTs with "Bearer <password>" and the
+# server stores the password alongside the snapshot. The browser GET must
+# supply the same password. No server-side env var is required — the password
+# lives entirely in the desktop's config.json under dev_monitor.password.
 
 _monitor_snapshot: Dict[str, Any] = {}
+_monitor_password: str = ""
 _monitor_lock = Lock()
-
-
-def _require_bearer(authorization: str = Header(default="")) -> str:
-    """Bearer token auth — expects 'Authorization: Bearer <ADMIN_KEY>'."""
-    if not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="missing bearer token")
-    token = authorization[7:]
-    if not secrets.compare_digest(token, ADMIN_KEY):
-        raise HTTPException(status_code=403, detail="forbidden")
-    return token
 
 
 @app.post("/api/dev/agent-status", status_code=204)
 async def dev_agent_status_push(
     request: Request,
-    _: str = Depends(_require_bearer),
+    authorization: str = Header(default=""),
 ) -> None:
-    """Desktop client pushes its current state snapshot here."""
+    """Desktop pushes its current agent state snapshot here."""
+    pw = authorization[7:] if authorization.startswith("Bearer ") else ""
     try:
         body = await request.json()
     except Exception as exc:
         raise HTTPException(status_code=400, detail="invalid json") from exc
+    global _monitor_password
     with _monitor_lock:
+        _monitor_password = pw
         _monitor_snapshot.clear()
         _monitor_snapshot.update(body)
 
 
 @app.get("/api/dev/agent-status")
-def dev_agent_status_get(_: str = Depends(_require_bearer)) -> Dict[str, Any]:
+def dev_agent_status_get(
+    authorization: str = Header(default=""),
+) -> Dict[str, Any]:
     """Browser dashboard polls this to get the latest snapshot."""
     with _monitor_lock:
         if not _monitor_snapshot:
             raise HTTPException(status_code=503, detail="no snapshot yet")
+        stored = _monitor_password
+        if stored:
+            pw = authorization[7:] if authorization.startswith("Bearer ") else ""
+            if not secrets.compare_digest(pw, stored):
+                raise HTTPException(status_code=403, detail="forbidden")
         return dict(_monitor_snapshot)
 
 

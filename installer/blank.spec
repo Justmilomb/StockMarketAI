@@ -154,6 +154,7 @@ a = Analysis(
         'desktop.theme', 'desktop.tokens', 'desktop.design',
         'desktop.license', 'desktop.update_service', 'desktop.updater',
         'desktop.data_export', 'desktop.workers', 'desktop.state',
+        'desktop.dev_monitor',
         # panels
         'desktop.panels', 'desktop.panels.agent_log', 'desktop.panels.chart',
         'desktop.panels.chat', 'desktop.panels.exchanges',
