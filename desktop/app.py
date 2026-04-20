@@ -1792,7 +1792,8 @@ class MainWindow(QMainWindow):
 
     def _add_ticker_to_watchlist(self, ticker: str) -> None:
         """Add a ticker to the active watchlist and refresh."""
-        ticker = ticker.upper().strip()
+        # Preserve case — T212 LSE tickers use lowercase `l` (e.g. RRl_EQ).
+        ticker = ticker.strip()
         if not ticker:
             return
         asset = self.state.active_asset_class
@@ -1812,7 +1813,7 @@ class MainWindow(QMainWindow):
 
     def _remove_ticker_from_watchlist(self, ticker: str) -> bool:
         """Programmatically remove a ticker from the active watchlist."""
-        ticker = ticker.upper().strip()
+        ticker = ticker.strip()
         if not ticker:
             return False
         asset = self.state.active_asset_class

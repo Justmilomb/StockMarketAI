@@ -218,7 +218,10 @@ VALID_INDICATORS: List[str] = sorted(_INDICATOR_REGISTRY.keys())
     },
 )
 async def compute_indicators(args: Dict[str, Any]) -> Dict[str, Any]:
-    ticker = str(args.get("ticker", "")).strip().upper()
+    # Preserve original case — Trading 212 LSE tickers use a lowercase
+    # `l` (e.g. ``RRl_EQ`` → Rolls-Royce London), and uppercasing strips
+    # that exchange marker so yfinance can't map to ``RR.L``.
+    ticker = str(args.get("ticker", "")).strip()
     if not ticker:
         return _text_result({"error": "ticker is required"})
 

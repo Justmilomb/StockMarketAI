@@ -32,6 +32,19 @@ if getattr(sys, "frozen", False):
     _MIGRATION_RESULT = migrate_user_state_if_needed()
     os.chdir(str(user_data_dir()))
     CONFIG_PATH = _user_config_path()
+    # If no config.json is about to be seeded (fresh install, or
+    # reinstall after user wiped their data), clear any stale
+    # first-run UI markers so the onboarding tour and risk
+    # disclosure re-show. These files live in %LOCALAPPDATA%\blank\
+    # and can outlive an uninstall/reinstall cycle.
+    if not CONFIG_PATH.exists():
+        for _marker in (".onboarding_complete", "risk_disclosure_snoozed_until.txt"):
+            try:
+                (user_data_dir() / _marker).unlink()
+            except FileNotFoundError:
+                pass
+            except OSError:
+                pass
 else:
     PROJECT_ROOT = Path(__file__).resolve().parent.parent
     sys.path.insert(0, str(PROJECT_ROOT))
