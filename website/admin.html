@@ -1257,11 +1257,20 @@
             }
         });
 
-        function api(path, opts) {
-            return fetch(API + path, {
+        async function api(path, opts) {
+            const res = await fetch(API + path, {
                 ...opts,
                 headers: { 'X-Admin-Key': ADMIN_KEY, 'Content-Type': 'application/json', ...(opts && opts.headers) },
-            }).then(r => r.json());
+            });
+            const body = await res.json().catch(() => ({ detail: res.statusText || ('HTTP ' + res.status) }));
+            if (!res.ok) {
+                const msg = (body && body.detail) || ('HTTP ' + res.status);
+                const err = new Error(msg);
+                err.status = res.status;
+                err.body = body;
+                throw err;
+            }
+            return body;
         }
 
         function loadAll() { loadStats(); loadChart(); loadLicenses(); loadConfig(); loadReleases(); loadLogs(); }
@@ -1961,10 +1970,11 @@
             document.getElementById('inspect-ts').textContent = '';
             api('/api/admin/inspect/' + encodeURIComponent(key))
                 .then(data => renderInspect(data))
-                .catch(() => {
+                .catch(err => {
+                    const msg = (err && err.message) || 'unknown error';
                     body.replaceChildren(el('p', {
-                        text: 'failed to load telemetry data',
-                        style: { color: 'var(--text-dim)', fontSize: '0.75rem', padding: '2rem', textAlign: 'center' }
+                        text: 'inspect failed: ' + msg,
+                        style: { color: 'var(--red)', fontSize: '0.75rem', padding: '2rem', textAlign: 'center' }
                     }));
                 });
         }

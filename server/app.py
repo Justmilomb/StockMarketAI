@@ -1501,25 +1501,43 @@ def admin_inspect_license(
     if not lic:
         raise HTTPException(status_code=404, detail="license not found")
 
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT snapshot, uploaded_at FROM telemetry_events "
-            "WHERE license_key = %s ORDER BY uploaded_at DESC LIMIT 1",
-            (license_key,),
-        )
-        latest = cur.fetchone()
-        cur.execute(
-            "SELECT COUNT(*) AS c, MIN(uploaded_at) AS first_at, MAX(uploaded_at) AS last_at "
-            "FROM telemetry_events WHERE license_key = %s",
-            (license_key,),
-        )
-        stats = cur.fetchone()
-        cur.execute(
-            "SELECT level, message, created_at FROM logs "
-            "WHERE license_key = %s ORDER BY created_at DESC LIMIT 20",
-            (license_key,),
-        )
-        logs = cur.fetchall()
+    # Telemetry block. Wrapped in try/except so an outdated DB missing
+    # ``telemetry_events`` or its ``uploaded_at`` column still lets the
+    # admin see the licence row + server logs instead of blowing up with
+    # a 500. psycopg2 aborts the transaction on any failed query, so we
+    # rollback before reading logs below.
+    latest = None
+    stats = None
+    telemetry_error: Optional[str] = None
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT snapshot, uploaded_at FROM telemetry_events "
+                "WHERE license_key = %s ORDER BY uploaded_at DESC LIMIT 1",
+                (license_key,),
+            )
+            latest = cur.fetchone()
+            cur.execute(
+                "SELECT COUNT(*) AS c, MIN(uploaded_at) AS first_at, MAX(uploaded_at) AS last_at "
+                "FROM telemetry_events WHERE license_key = %s",
+                (license_key,),
+            )
+            stats = cur.fetchone()
+    except Exception as exc:
+        telemetry_error = str(exc)
+        conn.rollback()
+
+    logs = []
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT level, message, created_at FROM logs "
+                "WHERE license_key = %s ORDER BY created_at DESC LIMIT 20",
+                (license_key,),
+            )
+            logs = cur.fetchall()
+    except Exception:
+        conn.rollback()
 
     lic_data = dict(lic)
     for k in ("created_at", "expires_at", "last_active"):
@@ -1540,6 +1558,7 @@ def admin_inspect_license(
         "event_count": int(stats["c"]) if stats else 0,
         "first_upload": stats["first_at"].isoformat() if stats and stats["first_at"] else None,
         "last_upload": stats["last_at"].isoformat() if stats and stats["last_at"] else None,
+        "telemetry_error": telemetry_error,
         "recent_logs": [
             {
                 "level": r["level"],

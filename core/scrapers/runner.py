@@ -46,6 +46,44 @@ CADENCE_FLOOR_SECONDS: int = 60
 #: cycle to keep the sqlite file from growing unbounded.
 RETENTION_DAYS: int = 7
 
+#: Compound-sentiment threshold above which a headline is treated as
+#: "hot". VADER boilerplate rarely scores this high; bankruptcy /
+#: blockbuster-earnings / FDA-approval / acquisition headlines do.
+HOT_SENTIMENT_THRESHOLD: float = 0.7
+
+#: Minimum seconds between consecutive wake callbacks. Breaking news
+#: clusters in waves (a primary source publishes, then every aggregator
+#: mirrors it within a minute); we only want the first wake, not ten.
+WAKE_COOLDOWN_SECONDS: int = 120
+
+
+def _normalise_ticker(raw: str) -> str:
+    """Strip T212 suffixes so scraped and watchlist tickers can be compared.
+
+    Scrapers already apply ``ScraperBase.clean_ticker`` (``SHELl_EQ`` →
+    ``SHELL``). The watchlist side reaches us as raw T212 symbols, so
+    both have to run through the same transform or nothing matches.
+    """
+    return (raw or "").split("_")[0].upper()
+
+
+def _is_hot_item(row: Dict[str, Any], watchlist_set: set[str]) -> bool:
+    """Return True if *row* is material enough to wake the supervisor.
+
+    Material = strong VADER compound sentiment on a headline that
+    mentions a watchlist or held ticker. Scraped items without a ticker
+    are ignored here (VADER has no way to tell if an S&P 500 doom take
+    actually matters to the current book).
+    """
+    ticker = _normalise_ticker(str(row.get("ticker") or ""))
+    if not ticker or ticker not in watchlist_set:
+        return False
+    try:
+        score = float(row.get("sentiment_score") or 0.0)
+    except (TypeError, ValueError):
+        return False
+    return abs(score) >= HOT_SENTIMENT_THRESHOLD
+
 
 class ScraperRunner(threading.Thread):
     """Daemon thread that refreshes the scraper cache on a schedule."""
@@ -58,6 +96,7 @@ class ScraperRunner(threading.Thread):
         scrapers: Optional[List[ScraperBase]] = None,
         cadence_seconds: int = 300,
         max_workers: int = 4,
+        wake_callback: Optional[Callable[[List[Dict[str, Any]]], None]] = None,
     ) -> None:
         super().__init__(daemon=True, name="scraper-runner")
         self._db: HistoryManager = db
@@ -65,12 +104,14 @@ class ScraperRunner(threading.Thread):
         self._scrapers: List[ScraperBase] = scrapers or list(SCRAPERS)
         self._cadence: int = max(CADENCE_FLOOR_SECONDS, int(cadence_seconds))
         self._max_workers: int = max(1, int(max_workers))
+        self._wake_callback: Optional[Callable[[List[Dict[str, Any]]], None]] = wake_callback
 
         self._stop_event: threading.Event = threading.Event()
         self._wake_event: threading.Event = threading.Event()
         self._lock: threading.Lock = threading.Lock()
         self._last_run_at: Optional[float] = None
         self._last_run_stats: Dict[str, int] = {}
+        self._last_wake_at: float = 0.0
 
     # ── lifecycle ────────────────────────────────────────────────────
 
@@ -122,6 +163,10 @@ class ScraperRunner(threading.Thread):
             logger.warning("[scraper-runner] cycle failed in pool: %s", exc)
             return
 
+        hot_items: List[Dict[str, Any]] = []
+        watchlist_set = {_normalise_ticker(t) for t in tickers}
+        watchlist_set.discard("")
+
         for name, items in results:
             if not items:
                 stats[name] = 0
@@ -138,14 +183,25 @@ class ScraperRunner(threading.Thread):
             except Exception as exc:
                 logger.debug("[scraper-runner] save %s failed: %s", name, exc)
                 new = 0
+                rows = []
             stats[name] = new
             total_inserted += new
+
+            for row in rows:
+                if _is_hot_item(row, watchlist_set):
+                    hot_items.append(row)
 
         # Housekeeping — keep the cache size bounded.
         try:
             self._db.purge_old_scraper_items(keep_days=RETENTION_DAYS)
         except Exception as exc:
             logger.debug("[scraper-runner] purge failed: %s", exc)
+
+        # Breaking-news wake: if any newly-inserted headline looks
+        # material (strong sentiment on a watchlist/held ticker) and we
+        # haven't fired recently, nudge the supervisor so it doesn't
+        # sleep through a catalyst.
+        self._maybe_wake_supervisor(hot_items)
 
         with self._lock:
             self._last_run_at = time.time()
@@ -156,6 +212,21 @@ class ScraperRunner(threading.Thread):
             time.monotonic() - started, total_inserted,
             ",".join(f"{k}:{v}" for k, v in stats.items()),
         )
+
+    # ── breaking-news watchdog ───────────────────────────────────────
+
+    def _maybe_wake_supervisor(self, hot_items: List[Dict[str, Any]]) -> None:
+        """Call the wake callback if we have hot items and aren't cooling down."""
+        if not hot_items or self._wake_callback is None:
+            return
+        now = time.monotonic()
+        if now - self._last_wake_at < WAKE_COOLDOWN_SECONDS:
+            return
+        self._last_wake_at = now
+        try:
+            self._wake_callback(hot_items)
+        except Exception as exc:
+            logger.debug("[scraper-runner] wake callback failed: %s", exc)
 
     # ── introspection ────────────────────────────────────────────────
 

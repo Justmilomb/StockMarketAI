@@ -89,6 +89,7 @@ class AgentRunner(QThread):
     text_chunk = Signal(str)                    # assistant text block
     log_line = Signal(str)                      # pre-formatted journal line
     error_occurred = Signal(str)                # fatal runner error
+    cadence_changed = Signal(int)               # next sleep duration in seconds
 
     def __init__(
         self,
@@ -188,6 +189,7 @@ class AgentRunner(QThread):
             self.log_line.emit(
                 f"[runner] next check-in in {wait_secs:.0f}s ({label})",
             )
+            self.cadence_changed.emit(int(wait_secs))
             await self._sleep_with_interrupt(wait_secs)
 
     # ── iteration plumbing ───────────────────────────────────────────

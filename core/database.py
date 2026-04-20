@@ -841,24 +841,65 @@ class HistoryManager:
     ) -> Dict[str, Dict[str, Any]]:
         """Return average VADER sentiment per ticker from recent scraper items.
 
-        Matches on the ``ticker`` column or on the ticker symbol appearing in
-        the article title, mirroring the get_scraper_items matching logic.
+        The watchlist passes T212 symbols (``SHELl_EQ``, ``RRl_EQ``) while
+        scrapers store whatever form they query with — usually the plain
+        ``split("_")[0].upper()`` form, but sometimes the yfinance form
+        (``RR.L``). So we match every plausible variant against both the
+        ``ticker`` column and the article title.
         """
         if not tickers:
             return {}
+
+        try:
+            from core.data_loader import _clean_ticker as _yf_clean
+        except Exception:
+            _yf_clean = None
+
         result: Dict[str, Dict[str, Any]] = {}
         with sqlite3.connect(self.db_path) as conn:
             for raw_ticker in tickers:
-                clean = (raw_ticker or "").split("_")[0].upper()
-                if not clean:
+                variants: set[str] = set()
+                simple = (raw_ticker or "").split("_")[0].upper()
+                if simple:
+                    variants.add(simple)
+                if _yf_clean is not None:
+                    try:
+                        yf = _yf_clean(raw_ticker)
+                    except Exception:
+                        yf = ""
+                    if yf:
+                        variants.add(yf.upper())
+                        variants.add(yf.split(".")[0].upper())
+                variants.discard("")
+                if not variants:
                     continue
-                rows = conn.execute(
+
+                # Ticker column match is precise — scrapers store the symbol
+                # they queried with. Title match is a word-boundary fallback
+                # for market-wide items (BBC, Reddit) that don't tag tickers.
+                # We use several LIKE variants to catch start-of-title,
+                # end-of-title, and parens-wrapped mentions (e.g.
+                # "Nvidia (NVDA) soars") without the heavy false-positive
+                # rate of an unanchored ``%TICKER%``.
+                clauses: List[str] = []
+                params: List[Any] = [f"-{int(since_minutes)} minutes"]
+                for v in variants:
+                    clauses.append("ticker = ?")
+                    params.append(v)
+                for v in variants:
+                    if len(v) < 2:
+                        continue
+                    for pat in (f"% {v} %", f"{v} %", f"% {v}", f"%({v})%", f"%:{v})%", f"%:{v} %"):
+                        clauses.append("UPPER(title) LIKE ?")
+                        params.append(pat)
+
+                sql = (
                     "SELECT sentiment_score FROM scraper_items "
                     "WHERE fetched_at >= datetime('now', ?) "
                     "AND sentiment_score IS NOT NULL "
-                    "AND (ticker = ? OR UPPER(title) LIKE ?)",
-                    (f"-{int(since_minutes)} minutes", clean, f"% {clean} %"),
-                ).fetchall()
+                    "AND (" + " OR ".join(clauses) + ")"
+                )
+                rows = conn.execute(sql, params).fetchall()
                 scores = [r[0] for r in rows if r[0] is not None]
                 if scores:
                     result[raw_ticker] = {

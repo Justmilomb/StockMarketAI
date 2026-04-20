@@ -231,9 +231,11 @@ async def get_daily_bars(args: Dict[str, Any]) -> Dict[str, Any]:
 @tool(
     "search_instrument",
     "Search the Trading 212 instrument catalogue for tickers matching a query. "
-    "Matches against both the ticker symbol and the company name. Works in "
-    "both live and paper mode (paper mode falls back to a direct metadata "
-    "fetch using the configured T212 credentials).",
+    "Pass a ticker or company name (e.g. 'BP', 'rolls royce', 'shell') — "
+    "descriptive phrases like 'BP oil London' will not help and may dilute "
+    "matches. Uses fuzzy word-overlap scoring so partial matches still "
+    "surface. Works in both live and paper mode (paper mode falls back to a "
+    "direct metadata fetch using the configured T212 credentials).",
     {"query": str, "limit": int},
 )
 async def search_instrument(args: Dict[str, Any]) -> Dict[str, Any]:
@@ -255,31 +257,55 @@ async def search_instrument(args: Dict[str, Any]) -> Dict[str, Any]:
             "note": "instrument catalogue unavailable — check T212 credentials",
         })
 
-    # Split query into individual words so "rolls royce" matches
-    # "Rolls-Royce Holdings" and "gbx leverage" matches instruments
-    # where both words appear in the name/ticker. Strip hyphens and
-    # other punctuation from the searchable text so hyphenated names
-    # (Rolls-Royce, Hims & Hers) match plain-word queries.
-    query_words = query.split()
+    # Scored match: rank each instrument by how many query words appear in
+    # its ticker+name, with strong bonuses for ticker hits and whole-word
+    # name hits. Previous implementation required ALL words to match, which
+    # threw away obvious answers when the agent wrote a descriptive query
+    # like "BP oil London" (instrument names rarely contain "oil"/"London").
+    query_words = [w for w in query.split() if w]
+    if not query_words:
+        return _text_result({"query": query, "count": 0, "matches": []})
 
-    matches: List[Dict[str, Any]] = []
+    scored: List[tuple[float, Dict[str, Any]]] = []
     for i in instruments:
         if not isinstance(i, dict):
             continue
         ticker = str(i.get("ticker", "")).lower()
         name = str(i.get("name", "")).lower()
-        # Normalise: replace common separators with spaces so
-        # "rolls-royce" becomes "rolls royce" for matching.
-        searchable = f"{ticker} {name}".replace("-", " ").replace("&", " ")
-        if all(w in searchable for w in query_words):
-            matches.append({
-                "ticker": i.get("ticker", ""),
-                "name": i.get("name", ""),
-                "type": i.get("type", ""),
-                "currencyCode": i.get("currencyCode", "") or i.get("currency", ""),
-            })
-            if len(matches) >= limit:
-                break
+        # Normalise separators so "rolls-royce" matches "rolls royce" and
+        # "hims & hers" matches "hims hers".
+        ticker_norm = ticker.replace("-", " ").replace("&", " ")
+        name_norm = name.replace("-", " ").replace("&", " ")
+        name_words = set(name_norm.split())
+
+        score = 0.0
+        for w in query_words:
+            if not w:
+                continue
+            if w == ticker_norm or w == ticker_norm.split("_")[0]:
+                score += 10.0
+            elif w in ticker_norm:
+                score += 5.0
+            if w in name_words:
+                score += 3.0
+            elif w in name_norm:
+                score += 1.0
+
+        if score <= 0:
+            continue
+
+        # Prefer shorter names when scores tie — a 2-word query that hits
+        # "BP p.l.c." should rank above "BP Prudhoe Bay Royalty Trust".
+        length_penalty = min(len(name_norm) * 0.001, 0.5)
+        scored.append((score - length_penalty, {
+            "ticker": i.get("ticker", ""),
+            "name": i.get("name", ""),
+            "type": i.get("type", ""),
+            "currencyCode": i.get("currencyCode", "") or i.get("currency", ""),
+        }))
+
+    scored.sort(key=lambda row: row[0], reverse=True)
+    matches = [row[1] for row in scored[:limit]]
     return _text_result({"query": query, "count": len(matches), "matches": matches})
 
 

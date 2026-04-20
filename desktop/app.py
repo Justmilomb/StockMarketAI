@@ -24,7 +24,7 @@ from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
-from PySide6.QtCore import Qt, QTimer, Slot
+from PySide6.QtCore import Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QDockWidget,
@@ -62,6 +62,12 @@ from desktop.dev_monitor import DevMonitor
 
 class MainWindow(QMainWindow):
     """Terminal-style trading terminal window."""
+
+    #: Cross-thread bridge for the scraper watchdog. The scraper runner
+    #: lives on a plain ``threading.Thread`` with no Qt event loop, so
+    #: it cannot safely touch widgets; emitting this signal hops the
+    #: payload onto the GUI thread via Qt's queued-connection machinery.
+    _breaking_news_emitted = Signal(str)
 
     def __init__(
         self,
@@ -1331,7 +1337,12 @@ class MainWindow(QMainWindow):
             db=self.history_manager,
             watchlist_provider=self._get_active_tickers,
             cadence_seconds=cadence,
+            wake_callback=self._on_breaking_news,
         )
+        # Queued-connection bridge for cross-thread log lines from the
+        # scraper watchdog. Without this the wake callback would touch
+        # UI widgets from the scraper thread.
+        self._breaking_news_emitted.connect(self._on_agent_log_line)
         self.scraper_runner.start()
 
     def _ensure_agent_pool(self) -> None:
@@ -1371,6 +1382,7 @@ class MainWindow(QMainWindow):
         sup.iteration_started.connect(self._on_agent_iteration_started)
         sup.iteration_finished.connect(self._on_agent_iteration_finished)
         sup.error_occurred.connect(self._on_agent_error_occurred)
+        sup.cadence_changed.connect(self._on_agent_cadence_changed)
 
         # Chat worker signals are forwarded by the pool.
         self.agent_pool.chat_text.connect(self._on_chat_worker_text)
@@ -1415,6 +1427,9 @@ class MainWindow(QMainWindow):
     @Slot(bool)
     def _on_agent_status_changed(self, running: bool) -> None:
         self.state.agent_running = running
+        if not running:
+            self.state.agent_iteration_active = False
+            self.state.agent_wait_start_ts = None
         self._agent_start_action.setEnabled(not running)
         self._agent_stop_action.setEnabled(running)
         self._agent_kill_action.setEnabled(running)
@@ -1447,6 +1462,8 @@ class MainWindow(QMainWindow):
     def _on_agent_iteration_started(self, iteration_id: str) -> None:
         from datetime import datetime
         self.state.last_iteration_ts = datetime.now()
+        self.state.agent_iteration_active = True
+        self.state.agent_wait_start_ts = None
         self._agent_text_buffer.clear()
 
     @Slot(str, str)
@@ -1455,6 +1472,7 @@ class MainWindow(QMainWindow):
         # stream of every thought the agent had (which is unreadable).
         # The full detail is already in the agent log panel.
         self._agent_text_buffer.clear()
+        self.state.agent_iteration_active = False
         message = summary
         if message:
             self.state.last_summary = summary
@@ -1465,6 +1483,50 @@ class MainWindow(QMainWindow):
     def _on_agent_error_occurred(self, msg: str) -> None:
         self.statusBar().showMessage(f"Agent error: {msg}", 8000)
         self._on_agent_log_line(f"[error] {msg}")
+
+    @Slot(int)
+    def _on_agent_cadence_changed(self, seconds: int) -> None:
+        """Update the settings panel readout whenever the runner reschedules.
+
+        ``cadence_changed`` fires right before the runner enters its sleep,
+        so we record the wait-start timestamp here. The settings panel's
+        1Hz timer derives the countdown from this plus ``agent_cadence_seconds``.
+        """
+        from datetime import datetime
+        self.state.agent_cadence_seconds = int(seconds)
+        self.state.agent_wait_start_ts = datetime.now()
+
+    def _on_breaking_news(self, hot_items: list) -> None:
+        """Wake the supervisor when the scraper flags material headlines.
+
+        Called from the scraper thread. ``notify_chat_activity`` is
+        thread-safe (just flips a bool); the log line is pushed to the
+        GUI via a Qt signal so Qt's queued-connection machinery does
+        the thread hop for us.
+        """
+        if not hot_items:
+            return
+        try:
+            sup = self.agent_pool.supervisor()
+        except Exception:
+            sup = None
+        if sup is None:
+            return
+
+        tickers = sorted({
+            str(it.get("ticker") or "").upper() for it in hot_items
+        } - {""})
+        headline = str(hot_items[0].get("title") or "").strip()
+        if len(headline) > 120:
+            headline = headline[:117] + "…"
+        tlist = ",".join(tickers[:5]) or "—"
+        self._breaking_news_emitted.emit(
+            f"[scraper] breaking news wake (tickers={tlist}): {headline}",
+        )
+        try:
+            sup.notify_chat_activity()
+        except Exception:
+            pass
 
     # ── Chat worker signal slots ─────────────────────────────────────
 

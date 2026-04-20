@@ -234,8 +234,12 @@ def fetch_live_prices(tickers: List[str]) -> Dict[str, Dict[str, float]]:
         # Fetch each ticker individually to avoid MultiIndex issues (yfinance 1.2.0+)
         for original_ticker, cleaned_ticker in ticker_map.items():
             try:
+                # auto_adjust=True: previous closes are back-scaled for splits
+                # and dividends, so a share consolidation doesn't produce a
+                # fake +10,000% day move. Current-day close is unchanged
+                # because there is nothing future to adjust against.
                 tdf = yf.download(
-                    cleaned_ticker, period="5d", auto_adjust=False,
+                    cleaned_ticker, period="5d", auto_adjust=True,
                     progress=False, timeout=15, multi_level_index=False,
                 )
                 if tdf is None or tdf.empty or "Close" not in tdf.columns:
@@ -252,6 +256,13 @@ def fetch_live_prices(tickers: List[str]) -> Dict[str, Dict[str, float]]:
                     change_pct = 0.0
                 else:
                     current = 0.0
+                    change_pct = 0.0
+
+                # Last-resort sanity filter. Even adjusted series can misbehave
+                # on ticker reassignment, delisting artefacts, or malformed
+                # splits metadata. Real daily moves rarely exceed 500%
+                # (circuit breakers halt most stocks well before that).
+                if abs(change_pct) > 500.0:
                     change_pct = 0.0
 
                 live_data[original_ticker] = {

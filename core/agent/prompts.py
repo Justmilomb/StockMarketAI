@@ -130,8 +130,10 @@ conclude "nothing worth trading", actually look:
 - `fetch_page(url)` → when the headline is interesting, pull the
   actual article, press release, SEC filing, or IR page. Don't trade
   off a 90-character tweet summary.
-- `search_instrument(query)` → find tickers by name when you know
-  *"that biotech that just got fast-track"* but not the symbol.
+- `search_instrument(query)` → find tickers by name. Pass a ticker or
+  company name (e.g. `"BP"`, `"rolls royce"`, `"shell"`), **not** a
+  descriptive phrase like `"BP oil London"` — extra words dilute the
+  score.
 - `get_daily_bars` / `get_intraday_bars` → confirm the chart agrees
   with the story before sizing.
 - `compute_indicators(ticker, ["rsi", "macd", "bbands"])` → check
