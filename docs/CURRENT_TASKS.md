@@ -242,10 +242,35 @@ tests** — 2026-04-14
 - [x] `docs/systems/forecasting.md` + `docs/systems/nlp.md` +
   `docs/ARCHITECTURE.md` — owner map + payload docs updated.
 
+**Rebuild Phase 5.1 — External alt-data sources** — 2026-04-20
+- [x] 7 client modules (`core/alt_data/` — `alpha_vantage`, `fmp`, `fred`,
+  `news_api_client`, `sec_edgar`, `earnings_whispers`, `open_insider`)
+  sharing a single `_cache.py` TTL store.
+- [x] 11 MCP tools across 4 tool modules (`fundamentals_tools`,
+  `macro_tools`, `news_api_tools`, `alt_data_extended_tools`), all
+  registered in `core/agent/mcp_server.py`. Tools check
+  `alt_data.<source>.enabled` and return typed `{error, fix}` pairs when
+  disabled.
+- [x] `config.default.json` — `alt_data` block with all seven sources
+  `enabled: true` by default and per-source `cache_ttl_seconds`, so
+  the feature ships working out of the box.
+- [x] `.env.example` — `ALPHA_VANTAGE_KEY`, `FMP_KEY`, `FRED_KEY`,
+  `NEWS_API_KEY` placeholders. Key-less sources (EDGAR, Earnings
+  Whispers, OpenInsider) work without configuration.
+- [x] 31 pytest cases across `tests/test_alt_data_cache.py`,
+  `test_alpha_vantage.py`, `test_fmp.py`, `test_fred.py`,
+  `test_news_api_client.py`, `test_sec_edgar.py`,
+  `test_earnings_whispers.py`, `test_open_insider.py`, and a
+  `test_alt_data_tools_registered.py` integration check that locks the
+  MCP tool name set.
+- [x] `docs/systems/alt-data.md` — sources table, graceful-degradation
+  contract, "adding a new source" playbook; `docs/ARCHITECTURE.md`
+  updated with the new tool files and `alt_data/` pointer.
+
 ### Up Next
 
-- [ ] (none currently — Phase 10 closes this round of prediction and
-  profitability upgrades)
+- [ ] (none currently — Phase 5.1 closes this round of alt-data
+  expansion)
 
 (Crypto + polymarket restore is deferred indefinitely; dormant code
 stays bundled in the installer but is not exposed to the agent.)

@@ -131,7 +131,11 @@ core/
 │       ├── insider_tools.py
 │       ├── alt_data_tools.py
 │       ├── execution_tools.py
-│       └── rl_tools.py
+│       ├── rl_tools.py
+│       ├── fundamentals_tools.py     — Alpha Vantage + FMP (overview, ratios, DCF, targets)
+│       ├── macro_tools.py            — FRED snapshot + series
+│       ├── news_api_tools.py         — NewsAPI structured headlines
+│       └── alt_data_extended_tools.py — 13F holders, earnings whisper, insider cluster
 ├── scrapers/
 │   ├── base.py                — ScraperBase + ScrapedItem
 │   ├── runner.py              — background daemon, VADER-scores every item
@@ -153,7 +157,9 @@ core/
 │   └── x_via_gnews.py
 ├── forecasting/               — Chronos-2, TimesFM, TFT + XGBoost meta-learner
 ├── nlp/                       — FinBERT compound sentiment scorer
-├── alt_data/                  — analyst revision momentum
+├── alt_data/                  — external data: analyst revisions, Alpha Vantage,
+│                                FMP, FRED, NewsAPI, EDGAR 13F, Earnings Whispers,
+│                                OpenInsider. See [docs/systems/alt-data.md](systems/alt-data.md).
 ├── execution/                 — TWAP / VWAP slice planner
 ├── rl/                        — FinRL scaffold (regime-aware cold-start allocator)
 ├── broker_service.py          — broker facade (T212 / LogBroker)

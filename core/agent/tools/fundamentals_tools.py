@@ -127,9 +127,33 @@ async def get_dcf_value(args: Dict[str, Any]) -> Dict[str, Any]:
     return _text_result(dcf_value(ticker, ttl=ttl))
 
 
+@tool(
+    "get_analyst_price_targets",
+    "Fetch the analyst consensus price target for *ticker* from Financial Modeling Prep: "
+    "consensus (mean), median, high, and low targets from the covering-analyst panel. "
+    "Compare against current price to gauge how far off the Street thinks fair value sits. "
+    "Wide high-vs-low spread signals analyst disagreement — usually a sign of a contested "
+    "thesis rather than a clean mispricing. "
+    "Requires FMP_KEY env var and alt_data.fmp.enabled: true.",
+    {"ticker": str},
+)
+async def get_analyst_price_targets(args: Dict[str, Any]) -> Dict[str, Any]:
+    ticker = str(args.get("ticker", "")).strip().upper()
+    if not ticker:
+        return _text_result({"error": "ticker is required"})
+    ctx = get_agent_context()
+    cfg = _fmp_cfg(ctx.config)
+    if not cfg.get("enabled", False):
+        return _text_result({"error": "alt_data.fmp is disabled"})
+    from core.alt_data.fmp import analyst_targets
+    ttl = int(cfg.get("cache_ttl_seconds", 3600))
+    return _text_result(analyst_targets(ticker, ttl=ttl))
+
+
 FUNDAMENTALS_TOOLS = [
     get_company_overview,
     get_earnings_history,
     get_financial_ratios,
     get_dcf_value,
+    get_analyst_price_targets,
 ]

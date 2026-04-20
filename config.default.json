@@ -109,5 +109,15 @@
     "password": "",
     "url": "https://api.useblank.ai/api/dev/agent-status",
     "cadence_seconds": 20
+  },
+
+  "alt_data": {
+    "alpha_vantage":     {"enabled": true, "cache_ttl_seconds": 3600},
+    "fmp":               {"enabled": true, "cache_ttl_seconds": 3600},
+    "fred":              {"enabled": true, "cache_ttl_seconds": 3600},
+    "news_api":          {"enabled": true, "cache_ttl_seconds": 900},
+    "sec_edgar":         {"enabled": true, "cache_ttl_seconds": 3600},
+    "earnings_whispers": {"enabled": true, "cache_ttl_seconds": 1800},
+    "open_insider":      {"enabled": true, "cache_ttl_seconds": 1800}
   }
 }
