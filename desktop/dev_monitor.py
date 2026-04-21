@@ -169,6 +169,20 @@ class DevMonitor(QThread):
         except Exception:
             logger.debug("dev_monitor: sentiment read failed", exc_info=True)
 
+        chat_history: List[Dict[str, str]] = []
+        try:
+            raw = list(getattr(state, "chat_history", []) or [])
+            for msg in raw[-20:]:
+                if not isinstance(msg, dict):
+                    continue
+                chat_history.append({
+                    "role": str(msg.get("role", "")),
+                    "content": str(msg.get("content", "")),
+                    "ts": str(msg.get("ts", msg.get("timestamp", ""))),
+                })
+        except Exception:
+            logger.debug("dev_monitor: chat_history read failed", exc_info=True)
+
         return {
             "ts": datetime.now(timezone.utc).isoformat(),
             "license_key": self._license_key,
@@ -180,6 +194,7 @@ class DevMonitor(QThread):
             "log": log_tail,
             "personality": personality,
             "sentiment": sentiment,
+            "chat_history": chat_history,
         }
 
     def _post(self, snapshot: Dict[str, Any]) -> None:

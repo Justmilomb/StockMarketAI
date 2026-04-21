@@ -2179,6 +2179,40 @@
                     c8.cardBody.appendChild(el('span', { text: 'no journal entries', style: { color: 'var(--text-dim)' } }));
                 }
                 body.appendChild(c8.card);
+
+                // 8b. Chat history
+                const chat = snap.chat_history || [];
+                const cChat = makeICard('chat history (' + chat.length + ')');
+                if (chat.length) {
+                    const wrap = el('div', {});
+                    chat.slice(-20).forEach(m => {
+                        const role = String(m.role || '');
+                        const content = String(m.content || '');
+                        const line = el('div', {});
+                        Object.assign(line.style, {
+                            padding: '0.35rem 0.5rem',
+                            marginBottom: '0.25rem',
+                            background: '#000',
+                            border: '1px solid rgba(255,255,255,0.06)',
+                            fontFamily: "'JetBrains Mono',monospace",
+                            fontSize: '0.625rem',
+                            lineHeight: '1.55',
+                            color: 'rgba(255,255,255,0.75)',
+                            wordBreak: 'break-word',
+                            whiteSpace: 'pre-wrap',
+                        });
+                        const tag = el('span', { text: role.toUpperCase() + ' · ' });
+                        tag.style.color = role === 'user' ? 'var(--glow)' : 'rgba(255,255,255,0.45)';
+                        tag.style.letterSpacing = '0.08em';
+                        line.appendChild(tag);
+                        line.appendChild(document.createTextNode(content));
+                        wrap.appendChild(line);
+                    });
+                    cChat.cardBody.appendChild(wrap);
+                } else {
+                    cChat.cardBody.appendChild(el('span', { text: 'no chat messages', style: { color: 'var(--text-dim)' } }));
+                }
+                body.appendChild(cChat.card);
             }
 
             // 9. Telemetry stats (always shown)

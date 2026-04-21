@@ -5,6 +5,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QDialog, QFrame, QLabel, QPushButton, QVBoxLayout
 
 from desktop import tokens as T
+from desktop.widgets.primitives.button import apply_variant
 
 
 _SHORTCUTS: list[tuple[str, str]] = [
@@ -107,7 +108,7 @@ class HelpDialog(QDialog):
         root.addWidget(text, 1)
 
         btn = QPushButton("CLOSE")
-        btn.setProperty("variant", "ghost")
+        apply_variant(btn, "ghost")
         btn.setCursor(Qt.PointingHandCursor)
         btn.clicked.connect(self.close)
         root.addWidget(btn, 0, Qt.AlignRight)

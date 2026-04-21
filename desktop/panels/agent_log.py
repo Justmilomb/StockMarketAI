@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
 )
 
 from desktop import tokens as T
+from desktop.widgets.primitives.button import apply_variant
 
 
 # Assessor grade tags emitted by core/agent/runner.py as the leading
@@ -61,19 +62,20 @@ class AgentLogPanel(QGroupBox):
         control_row.addWidget(self._status_label, 1)
 
         self._start_btn = QPushButton("START")
-        self._start_btn.setProperty("variant", "primary")
+        apply_variant(self._start_btn, "primary")
         self._start_btn.setFixedWidth(72)
         self._start_btn.clicked.connect(self.start_requested.emit)
         control_row.addWidget(self._start_btn)
 
         self._stop_btn = QPushButton("STOP")
+        apply_variant(self._stop_btn, "secondary")
         self._stop_btn.setFixedWidth(72)
         self._stop_btn.clicked.connect(self.stop_requested.emit)
         self._stop_btn.setEnabled(False)
         control_row.addWidget(self._stop_btn)
 
         self._kill_btn = QPushButton("KILL")
-        self._kill_btn.setProperty("variant", "danger")
+        apply_variant(self._kill_btn, "danger")
         self._kill_btn.setFixedWidth(60)
         self._kill_btn.clicked.connect(self.kill_requested.emit)
         self._kill_btn.setEnabled(False)

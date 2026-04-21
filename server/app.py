@@ -1718,6 +1718,21 @@ def admin_export_training_data(
                 "data": pers,
             })
 
+        # chat transcripts — dedupe by (role, content) pair
+        seen_chats = {(x.get("role"), x.get("content")) for x in bucket["chat_transcripts"]}
+        for msg in (snap.get("chat_history") or []):
+            if not isinstance(msg, dict):
+                continue
+            sig = (msg.get("role"), msg.get("content"))
+            if sig in seen_chats:
+                continue
+            seen_chats.add(sig)
+            bucket["chat_transcripts"].append({
+                "role": msg.get("role"),
+                "content": msg.get("content"),
+                "ts": msg.get("ts") or snap.get("ts") or (ts.isoformat() if ts else None),
+            })
+
     # Fetch server-side error logs for each licence key in this range
     if rows and date_range_start:
         with conn.cursor() as cur:

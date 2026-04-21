@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 )
 
 from desktop import tokens as T
+from desktop.widgets.primitives.button import apply_variant
 
 
 SETUP_MARKER = Path.home() / ".blank" / "setup_complete"
@@ -184,7 +185,7 @@ class SetupWizard(QDialog):
         btn_row.addStretch(1)
 
         skip = QPushButton("SKIP")
-        skip.setProperty("variant", "ghost")
+        apply_variant(skip, "ghost")
         skip.setCursor(Qt.PointingHandCursor)
         skip.clicked.connect(self._finish)
         btn_row.addWidget(skip)
@@ -195,7 +196,7 @@ class SetupWizard(QDialog):
         btn_row.addWidget(recheck)
 
         cont = QPushButton("CONTINUE")
-        cont.setProperty("variant", "primary")
+        apply_variant(cont, "primary")
         cont.setCursor(Qt.PointingHandCursor)
         cont.clicked.connect(self._on_check_continue)
         btn_row.addWidget(cont)
@@ -228,7 +229,7 @@ class SetupWizard(QDialog):
         btn_row.setSpacing(8)
 
         open_btn = QPushButton("OPEN HELP")
-        open_btn.setProperty("variant", "ghost")
+        apply_variant(open_btn, "ghost")
         open_btn.setCursor(Qt.PointingHandCursor)
         open_btn.clicked.connect(
             lambda: webbrowser.open("https://help.blank.app/setup"),
@@ -238,7 +239,7 @@ class SetupWizard(QDialog):
         btn_row.addStretch(1)
 
         skip = QPushButton("SKIP (NO ADVISOR)")
-        skip.setProperty("variant", "ghost")
+        apply_variant(skip, "ghost")
         skip.setCursor(Qt.PointingHandCursor)
         skip.clicked.connect(self._on_engine_skip)
         btn_row.addWidget(skip)
@@ -286,13 +287,13 @@ class SetupWizard(QDialog):
         btn_row.addStretch(1)
 
         paper = QPushButton("USE PAPER")
-        paper.setProperty("variant", "ghost")
+        apply_variant(paper, "ghost")
         paper.setCursor(Qt.PointingHandCursor)
         paper.clicked.connect(self._go_done)
         btn_row.addWidget(paper)
 
         save = QPushButton("SAVE KEYS")
-        save.setProperty("variant", "primary")
+        apply_variant(save, "primary")
         save.setCursor(Qt.PointingHandCursor)
         save.clicked.connect(self._save_env)
         btn_row.addWidget(save)
@@ -339,7 +340,7 @@ class SetupWizard(QDialog):
         layout.addStretch()
 
         launch = QPushButton("LAUNCH BLANK")
-        launch.setProperty("variant", "primary")
+        apply_variant(launch, "primary")
         launch.setCursor(Qt.PointingHandCursor)
         launch.clicked.connect(self._finish)
         layout.addWidget(launch)

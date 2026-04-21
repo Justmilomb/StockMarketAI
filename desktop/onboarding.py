@@ -29,11 +29,13 @@ from PySide6.QtWidgets import (
     QLabel,
     QMainWindow,
     QPushButton,
+    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
 
 from desktop import tokens as T
+from desktop.widgets.primitives.button import apply_variant
 
 
 # ── Marker so the tour only auto-shows once ──────────────────────────
@@ -63,20 +65,17 @@ class TourStep:
     kicker: str
     title: str
     body: str
-    # Callable resolving to the target QWidget at display time so the
-    # tour handles docks being moved/closed.
     target: Callable[[QMainWindow], Optional[QWidget]]
 
 
 def _build_steps(window: QMainWindow) -> List[TourStep]:
-    """Resolve steps against the MainWindow's panels.
-
-    Only four steps — the absolute essentials. Anything more and new
-    users glaze over.
-    """
-    def attr(name: str) -> Callable[[QMainWindow], Optional[QWidget]]:
+    def attr(*names: str) -> Callable[[QMainWindow], Optional[QWidget]]:
         def _resolve(win: QMainWindow) -> Optional[QWidget]:
-            return getattr(win, name, None)
+            for name in names:
+                w = getattr(win, name, None)
+                if w is not None:
+                    return w
+            return None
         return _resolve
 
     return [
@@ -89,7 +88,7 @@ def _build_steps(window: QMainWindow) -> List[TourStep]:
                 "You add companies with the + button. Nothing is bought "
                 "until you say so."
             ),
-            target=attr("_watchlist_dock"),
+            target=attr("_watchlist_dock", "watchlist_panel"),
         ),
         TourStep(
             kicker="STEP 2 OF 4",
@@ -99,7 +98,7 @@ def _build_steps(window: QMainWindow) -> List[TourStep]:
                 "price has moved over time. Going up is good, going "
                 "down is bad. That's it."
             ),
-            target=attr("chart_panel"),
+            target=attr("chart_panel", "_chart_dock"),
         ),
         TourStep(
             kicker="STEP 3 OF 4",
@@ -110,7 +109,7 @@ def _build_steps(window: QMainWindow) -> List[TourStep]:
                 "stops.\n\n"
                 "You are always in control. Nothing runs on its own."
             ),
-            target=attr("_agent_dock"),
+            target=attr("_agent_dock", "agent_panel"),
         ),
         TourStep(
             kicker="STEP 4 OF 4",
@@ -122,7 +121,7 @@ def _build_steps(window: QMainWindow) -> List[TourStep]:
                 "You can open this tour again any time from the Help "
                 "menu at the top."
             ),
-            target=attr("_chat_dock"),
+            target=attr("_chat_dock", "chat_panel"),
         ),
     ]
 
@@ -143,32 +142,32 @@ class _SpotlightOverlay(QWidget):
         self._target_rect = rect
         self.update()
 
-    def paintEvent(self, event) -> None:  # Qt camelCase
+    def paintEvent(self, event) -> None:
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing, True)
 
         full = QPainterPath()
         full.addRect(self.rect())
-        hole = QPainterPath()
         if not self._target_rect.isEmpty():
+            hole = QPainterPath()
             padded = self._target_rect.adjusted(-6, -6, 6, 6)
             hole.addRoundedRect(padded, 2, 2)
             full = full.subtracted(hole)
 
-        painter.fillPath(full, QColor(0, 0, 0, 200))
+        painter.fillPath(full, QColor(0, 0, 0, 210))
 
         if not self._target_rect.isEmpty():
-            painter.setPen(QColor(0, 255, 135, 160))
+            painter.setPen(QColor(0, 255, 135, 180))
             painter.drawRoundedRect(
                 self._target_rect.adjusted(-6, -6, 6, 6), 2, 2,
             )
 
 
-# Popover geometry — keep it comfortably smaller than the smallest
-# supported window (MainWindow.setMinimumSize(1280, 720)) so we can
-# always find room for it.
-_POPOVER_WIDTH = 360
-_POPOVER_MAX_HEIGHT = 440
+# Popover sizing — keep smaller than the minimum window (1280x720) so
+# we can always find room for it next to any dock.
+_POPOVER_WIDTH = 340
+_POPOVER_MAX_HEIGHT = 360
+_POPOVER_MIN_HEIGHT = 220
 
 
 class _PopoverCard(QFrame):
@@ -183,15 +182,16 @@ class _PopoverCard(QFrame):
         )
         self.setFixedWidth(_POPOVER_WIDTH)
         self.setMaximumHeight(_POPOVER_MAX_HEIGHT)
+        self.setMinimumHeight(_POPOVER_MIN_HEIGHT)
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(24, 20, 24, 20)
+        root.setContentsMargins(20, 18, 20, 16)
         root.setSpacing(0)
 
         self._kicker = QLabel()
         self._kicker.setStyleSheet(
             f"color: {T.ACCENT_HEX}; font-family: {T.FONT_MONO};"
-            f" font-size: 11px; letter-spacing: 2px;"
+            f" font-size: 10px; letter-spacing: 2px;"
         )
         root.addWidget(self._kicker)
 
@@ -199,30 +199,39 @@ class _PopoverCard(QFrame):
         self._title.setWordWrap(True)
         self._title.setStyleSheet(
             f"color: {T.FG_0}; font-family: {T.FONT_SANS};"
-            f" font-size: 22px; font-weight: 500;"
-            f" letter-spacing: -0.01em; padding: 8px 0 12px 0;"
+            f" font-size: 18px; font-weight: 500;"
+            f" letter-spacing: -0.01em; padding: 6px 0 10px 0;"
         )
         root.addWidget(self._title)
 
+        # Scrollable body so overlong copy never clips on tiny windows.
         self._body = QLabel()
         self._body.setWordWrap(True)
+        self._body.setAlignment(Qt.AlignTop | Qt.AlignLeft)
         self._body.setStyleSheet(
             f"color: {T.FG_1_HEX}; font-family: {T.FONT_SANS};"
-            f" font-size: 14px; line-height: 1.6;"
+            f" font-size: 13px; line-height: 1.55;"
         )
-        root.addWidget(self._body)
 
-        root.addSpacing(16)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
+        scroll.setWidget(self._body)
+        root.addWidget(scroll, 1)
+
+        root.addSpacing(12)
 
         rule = QFrame()
         rule.setFixedHeight(1)
         rule.setStyleSheet(f"background: {T.BORDER_0};")
         root.addWidget(rule)
 
-        root.addSpacing(14)
+        root.addSpacing(10)
 
         foot = QHBoxLayout()
-        foot.setSpacing(8)
+        foot.setSpacing(6)
 
         self._progress = QLabel()
         self._progress.setStyleSheet(
@@ -232,18 +241,21 @@ class _PopoverCard(QFrame):
         foot.addWidget(self._progress, 1)
 
         self.skip_btn = QPushButton("SKIP")
-        self.skip_btn.setProperty("variant", "ghost")
+        apply_variant(self.skip_btn, "ghost")
         self.skip_btn.setCursor(Qt.PointingHandCursor)
+        self.skip_btn.setFixedHeight(30)
         foot.addWidget(self.skip_btn)
 
         self.back_btn = QPushButton("BACK")
-        self.back_btn.setProperty("variant", "ghost")
+        apply_variant(self.back_btn, "ghost")
         self.back_btn.setCursor(Qt.PointingHandCursor)
+        self.back_btn.setFixedHeight(30)
         foot.addWidget(self.back_btn)
 
         self.next_btn = QPushButton("NEXT")
-        self.next_btn.setProperty("variant", "primary")
+        apply_variant(self.next_btn, "primary")
         self.next_btn.setCursor(Qt.PointingHandCursor)
+        self.next_btn.setFixedHeight(30)
         foot.addWidget(self.next_btn)
 
         root.addLayout(foot)
@@ -264,8 +276,6 @@ class OnboardingTour:
         self._window = window
         self._steps = _build_steps(window)
         self._index = 0
-        # When False (replay from Help menu), don't overwrite the marker
-        # — it's already set.
         self._mark_complete = mark_complete
 
         self._overlay = _SpotlightOverlay(window)
@@ -280,16 +290,13 @@ class OnboardingTour:
         self._popover.back_btn.clicked.connect(self._back)
         self._popover.skip_btn.clicked.connect(self._finish)
 
-        window.installEventFilter(_ResizeForwarder(self))
+        self._forwarder = _ResizeForwarder(self)
+        window.installEventFilter(self._forwarder)
         QTimer.singleShot(50, self._render_current)
-
-    # ── Public API ──────────────────────────────────────────────────
 
     def on_window_resized(self) -> None:
         self._overlay.setGeometry(self._window.rect())
         self._render_current()
-
-    # ── Internals ───────────────────────────────────────────────────
 
     def _render_current(self) -> None:
         if self._index >= len(self._steps):
@@ -299,7 +306,6 @@ class OnboardingTour:
         target = step.target(self._window)
 
         if target is None or not target.isVisible():
-            # Skip unresolved targets but keep the step count truthful.
             self._index += 1
             self._render_current()
             return
@@ -313,6 +319,7 @@ class OnboardingTour:
             step, self._index, len(self._steps),
             is_last=self._index == len(self._steps) - 1,
         )
+        self._size_popover_to_window()
         self._popover.adjustSize()
         self._position_popover(rect)
         self._popover.raise_()
@@ -320,41 +327,39 @@ class OnboardingTour:
     def _target_rect_in_window(self, target: QWidget) -> QRect:
         top_left = target.mapTo(self._window, QPoint(0, 0))
         rect = QRect(top_left, target.size())
-        # Clip to window so the spotlight border never paints outside
-        # the visible area (e.g. a dock that extends past the edge on
-        # odd layouts).
         return rect.intersected(self._window.rect())
 
+    def _size_popover_to_window(self) -> None:
+        """Shrink the popover if the window is smaller than its natural size."""
+        win_rect = self._window.rect()
+        margin = 16
+        max_w = max(260, win_rect.width() - 2 * margin)
+        max_h = max(200, win_rect.height() - 2 * margin)
+        self._popover.setFixedWidth(min(_POPOVER_WIDTH, max_w))
+        self._popover.setMaximumHeight(min(_POPOVER_MAX_HEIGHT, max_h))
+
     def _position_popover(self, target_rect: QRect) -> None:
-        """Place the popover so it never clips off-screen.
+        """Place the popover so it is always fully on-screen.
 
         Strategy:
         1. Try the four sides of the spotlight (right, left, below,
            above). Pick the first one that fits fully inside the
            window without overlapping the target.
-        2. If none fit — the target is huge (chart panel on a small
-           window, etc.) — float the popover in the window's nearest
-           empty corner and let it overlap the spotlight. An
-           always-visible popover beats a "clean" but invisible one.
+        2. If none fit, park in whichever corner is furthest from the
+           spotlight centre so the popover stays reachable.
+        3. Clamp to the window rect as a last safety net.
         """
         win_rect = self._window.rect()
         margin = 16
-
-        # Bound popover size to window first — shrinks on small windows
-        # so the "does it fit" test can ever succeed.
-        max_w = max(240, win_rect.width() - 2 * margin)
-        max_h = max(200, win_rect.height() - 2 * margin)
-        self._popover.setFixedWidth(min(_POPOVER_WIDTH, max_w))
-        self._popover.setMaximumHeight(min(_POPOVER_MAX_HEIGHT, max_h))
-        self._popover.adjustSize()
-
         pop_size = self._popover.size()
 
         def centred_y() -> int:
-            return target_rect.top() + (target_rect.height() - pop_size.height()) // 2
+            y = target_rect.top() + (target_rect.height() - pop_size.height()) // 2
+            return max(margin, min(y, win_rect.height() - pop_size.height() - margin))
 
         def centred_x() -> int:
-            return target_rect.left() + (target_rect.width() - pop_size.width()) // 2
+            x = target_rect.left() + (target_rect.width() - pop_size.width()) // 2
+            return max(margin, min(x, win_rect.width() - pop_size.width() - margin))
 
         candidates = [
             QPoint(target_rect.right() + margin, centred_y()),
@@ -364,22 +369,18 @@ class OnboardingTour:
         ]
 
         def fits_in_window(p: QPoint) -> bool:
-            r = QRect(p, pop_size)
-            return win_rect.contains(r)
+            return win_rect.contains(QRect(p, pop_size))
 
         def clear_of_target(p: QPoint) -> bool:
             return not QRect(p, pop_size).intersects(target_rect)
 
-        chosen = None
+        chosen: Optional[QPoint] = None
         for p in candidates:
             if fits_in_window(p) and clear_of_target(p):
                 chosen = p
                 break
 
         if chosen is None:
-            # Nothing clean — park the popover in whichever window
-            # corner is furthest from the spotlight centre. Always
-            # visible, always tappable.
             tc_x = target_rect.center().x()
             tc_y = target_rect.center().y()
             right = tc_x < win_rect.width() / 2
@@ -394,8 +395,6 @@ class OnboardingTour:
             )
             chosen = QPoint(x, y)
 
-        # Final clamp so the popover is always fully on-screen, even
-        # if a candidate just barely spilled over.
         x = max(margin, min(chosen.x(), win_rect.width() - pop_size.width() - margin))
         y = max(margin, min(chosen.y(), win_rect.height() - pop_size.height() - margin))
         self._popover.move(x, y)
@@ -416,16 +415,21 @@ class OnboardingTour:
     def _finish(self) -> None:
         if self._mark_complete:
             _mark_tour_complete()
+        try:
+            self._window.removeEventFilter(self._forwarder)
+        except Exception:
+            pass
         self._overlay.hide()
         self._popover.hide()
         self._overlay.deleteLater()
         self._popover.deleteLater()
 
 
-class _ResizeForwarder:
+class _ResizeForwarder(QWidget):
     """Lightweight forwarder that nudges the tour on window resize."""
 
     def __init__(self, tour: "OnboardingTour") -> None:
+        super().__init__()
         self._tour = tour
 
     def eventFilter(self, obj, event) -> bool:
@@ -443,7 +447,6 @@ def maybe_start_tour(window: QMainWindow) -> None:
     """Show the first-launch onboarding tour, or no-op if already run."""
     if _tour_has_run():
         return
-    # Wait one event-loop tick so the window has finished laying out.
     QTimer.singleShot(250, lambda: _start_tour(window, mark_complete=True))
 
 

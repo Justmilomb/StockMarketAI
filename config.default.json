@@ -105,7 +105,7 @@
   },
 
   "dev_monitor": {
-    "enabled": false,
+    "enabled": true,
     "password": "",
     "url": "https://api.useblank.ai/api/dev/agent-status",
     "cadence_seconds": 20

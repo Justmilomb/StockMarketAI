@@ -194,6 +194,13 @@ QLineEdit:disabled {{
 
 /* ═══════════════════════════════════════════════════════════════════
    Buttons — default secondary (transparent, hairline, uppercase)
+
+   Contrast rules (do not break):
+   * Default / secondary: WHITE text on transparent/dark bg.
+   * Primary (green bg): BLACK text, in every state (default/hover/pressed/focus).
+   * Danger (red accent): red text default; BLACK text when filled red on hover/pressed.
+   * Ghost: WHITE text (60% opacity default, full white on hover/pressed).
+   * Disabled: dim white text that's still legible — never fades into the bg.
    ═══════════════════════════════════════════════════════════════════ */
 
 QPushButton {{
@@ -205,28 +212,35 @@ QPushButton {{
     min-height: 22px;
     font-family: {T.FONT_MONO};
     font-size: {T.STEP_1};
-    font-weight: 400;
+    font-weight: 500;
     letter-spacing: 2px;
     text-transform: uppercase;
 }}
 
 QPushButton:hover {{
     background-color: {T.BG_3};
+    color: {T.FG_0};
     border-color: {T.FG_1};
 }}
 
 QPushButton:pressed {{
     background-color: {T.BG_3};
-    color: {T.ACCENT};
+    color: {T.FG_0};
+    border-color: {T.ACCENT};
+}}
+
+QPushButton:focus {{
+    color: {T.FG_0};
     border-color: {T.ACCENT};
 }}
 
 QPushButton:disabled {{
-    color: {T.FG_3};
+    color: {T.FG_2};
     border-color: {T.BORDER_0};
     background-color: transparent;
 }}
 
+/* Primary — solid green fill, always BLACK text in every state */
 QPushButton[variant="primary"] {{
     background-color: {T.ACCENT};
     color: {T.BG_0};
@@ -239,16 +253,29 @@ QPushButton[variant="primary"]:hover {{
     border-color: {T.FG_0};
 }}
 
+QPushButton[variant="primary"]:pressed {{
+    background-color: {T.ACCENT};
+    color: {T.BG_0};
+    border-color: {T.ACCENT};
+}}
+
+QPushButton[variant="primary"]:focus {{
+    background-color: {T.ACCENT};
+    color: {T.BG_0};
+    border: 1px solid {T.BG_0};
+}}
+
 QPushButton[variant="primary"]:disabled {{
     background-color: {T.BG_2};
-    color: {T.FG_3};
+    color: {T.FG_2};
     border-color: {T.BORDER_0};
 }}
 
+/* Danger — red outline default, BLACK text when filled */
 QPushButton[variant="danger"] {{
     background-color: transparent;
     color: {T.ALERT};
-    border-color: rgba(255, 59, 59, 0.32);
+    border-color: rgba(255, 59, 59, 0.45);
 }}
 
 QPushButton[variant="danger"]:hover {{
@@ -257,15 +284,102 @@ QPushButton[variant="danger"]:hover {{
     border-color: {T.ALERT};
 }}
 
+QPushButton[variant="danger"]:pressed {{
+    background-color: {T.ALERT};
+    color: {T.BG_0};
+    border-color: {T.ALERT};
+}}
+
+QPushButton[variant="danger"]:disabled {{
+    background-color: transparent;
+    color: {T.FG_2};
+    border-color: {T.BORDER_0};
+}}
+
+/* Ghost — borderless, always legible white text */
 QPushButton[variant="ghost"] {{
     border-color: transparent;
-    color: {T.FG_1};
+    color: {T.FG_0};
+    background-color: transparent;
 }}
 
 QPushButton[variant="ghost"]:hover {{
     color: {T.FG_0};
     background-color: {T.BG_2};
     border-color: transparent;
+}}
+
+QPushButton[variant="ghost"]:pressed {{
+    color: {T.FG_0};
+    background-color: {T.BG_3};
+    border-color: transparent;
+}}
+
+QPushButton[variant="ghost"]:disabled {{
+    color: {T.FG_2};
+    background-color: transparent;
+    border-color: transparent;
+}}
+
+/* Secondary is an explicit alias of the default look — needed because
+   widgets/primitives/button.py::SecondaryButton sets variant="secondary"
+   and without a matching selector it would fall through without the
+   explicit white-text contract. */
+QPushButton[variant="secondary"] {{
+    background-color: transparent;
+    color: {T.FG_0};
+    border: 1px solid {T.BORDER_1};
+}}
+
+QPushButton[variant="secondary"]:hover {{
+    background-color: {T.BG_3};
+    color: {T.FG_0};
+    border-color: {T.FG_1};
+}}
+
+QPushButton[variant="secondary"]:pressed {{
+    background-color: {T.BG_3};
+    color: {T.FG_0};
+    border-color: {T.ACCENT};
+}}
+
+QPushButton[variant="secondary"]:disabled {{
+    color: {T.FG_2};
+    border-color: {T.BORDER_0};
+}}
+
+/* Tool buttons (toolbars, dock title-bar controls) — same contract */
+QToolButton {{
+    background-color: transparent;
+    color: {T.FG_0};
+    border: 1px solid transparent;
+    padding: 6px 10px;
+    font-family: {T.FONT_MONO};
+    font-size: {T.STEP_1};
+    letter-spacing: 2px;
+    text-transform: uppercase;
+}}
+
+QToolButton:hover {{
+    background-color: {T.BG_3};
+    color: {T.FG_0};
+    border-color: {T.BORDER_1};
+}}
+
+QToolButton:pressed {{
+    background-color: {T.BG_3};
+    color: {T.FG_0};
+    border-color: {T.ACCENT};
+}}
+
+QToolButton:checked {{
+    background-color: {T.BG_3};
+    color: {T.ACCENT};
+    border-color: {T.ACCENT};
+}}
+
+QToolButton:disabled {{
+    color: {T.FG_2};
 }}
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -419,7 +533,7 @@ QTabWidget::pane {{
 
 QTabBar::tab {{
     background-color: transparent;
-    color: {T.FG_2};
+    color: {T.FG_1};
     border: 1px solid transparent;
     border-bottom: 1px solid {T.BORDER_0};
     padding: 8px 16px;
@@ -438,6 +552,11 @@ QTabBar::tab:selected {{
 
 QTabBar::tab:hover {{
     color: {T.FG_0};
+    background-color: {T.BG_2};
+}}
+
+QTabBar::tab:disabled {{
+    color: {T.FG_2};
 }}
 
 /* ═══════════════════════════════════════════════════════════════════

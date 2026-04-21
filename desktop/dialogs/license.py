@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
 
 from desktop import tokens as T
 from desktop.license import save_key, validate
+from desktop.widgets.primitives.button import apply_variant
 
 
 class LicenseDialog(QDialog):
@@ -88,13 +89,13 @@ class LicenseDialog(QDialog):
         btn_row.setSpacing(8)
 
         quit_btn = QPushButton("QUIT")
-        quit_btn.setProperty("variant", "ghost")
+        apply_variant(quit_btn, "ghost")
         quit_btn.setCursor(Qt.PointingHandCursor)
         quit_btn.clicked.connect(self.reject)
         btn_row.addWidget(quit_btn, 1)
 
         activate_btn = QPushButton("ACTIVATE")
-        activate_btn.setProperty("variant", "primary")
+        apply_variant(activate_btn, "primary")
         activate_btn.setCursor(Qt.PointingHandCursor)
         activate_btn.clicked.connect(self._activate)
         btn_row.addWidget(activate_btn, 1)
