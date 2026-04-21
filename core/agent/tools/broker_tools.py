@@ -285,22 +285,23 @@ async def place_order(args: Dict[str, Any]) -> Dict[str, Any]:
         tags=["trade"],
     )
 
-    # Auto-add the ticker to the active watchlist on a successful BUY.
-    # A position that isn't tracked on the watchlist falls out of the
-    # research swarm and the information panel — which is exactly what
-    # broke for the user on the first live iteration (HOOD bought but
-    # never watched). Never let a watchlist-add failure block the trade.
+    # Auto-add the ticker to the active watchlist on any successful order.
+    # A traded ticker that isn't on the watchlist falls out of the research
+    # swarm and the information panel — a sell still wants ongoing coverage
+    # (the model may want to re-enter, or track the thesis post-exit).
+    # add_to_watchlist_sync is a noop if the ticker is already tracked.
+    # Never let a watchlist-add failure block the trade.
     watchlist_add: Dict[str, Any] | None = None
-    if side_raw == "buy":
-        try:
-            from core.agent.tools.watchlist_tools import add_to_watchlist_sync
-            watchlist_add = add_to_watchlist_sync(
-                ticker,
-                reason=f"auto-added after BUY: {reason}" if reason else "auto-added after BUY",
-                tool_tag="place_order",
-            )
-        except Exception as e:
-            watchlist_add = {"status": "error", "reason": str(e)}
+    try:
+        from core.agent.tools.watchlist_tools import add_to_watchlist_sync
+        side_label = side_raw.upper()
+        watchlist_add = add_to_watchlist_sync(
+            ticker,
+            reason=f"auto-added after {side_label}: {reason}" if reason else f"auto-added after {side_label}",
+            tool_tag="place_order",
+        )
+    except Exception as e:
+        watchlist_add = {"status": "error", "reason": str(e)}
 
     result: Dict[str, Any] = {
         "status": "submitted",
