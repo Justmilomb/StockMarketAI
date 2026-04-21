@@ -57,9 +57,9 @@ class TemplateSpec:
 TEMPLATES: List[TemplateSpec] = [
     TemplateSpec(
         id="welcome_new_license",
-        label="Welcome (new licence issued)",
-        subject="Your blank licence",
-        required_vars=["name", "license_key", "download_url"],
+        label="Welcome (account created)",
+        subject="Your blank account is ready",
+        required_vars=["name", "download_url"],
     ),
     TemplateSpec(
         id="waitlist_joined",

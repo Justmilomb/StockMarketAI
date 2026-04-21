@@ -10,6 +10,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QGroupBox, QLineEdit, QTextEdit, QVBoxLayout
 
 from desktop import tokens as T
+from desktop.auth_state import auth_state
 
 
 _GRADE_COLORS = {
@@ -133,6 +134,7 @@ class ChatPanel(QGroupBox):
             f"QLineEdit:focus {{ border-top-color: {T.ACCENT}; }}"
         )
         layout.addWidget(self._input)
+        auth_state().changed.connect(lambda: self.refresh_view(state))
         self.refresh_view(state)
 
     def _on_submit(self) -> None:
@@ -142,6 +144,11 @@ class ChatPanel(QGroupBox):
             self.message_submitted.emit(text)
 
     def refresh_view(self, state: Any) -> None:
+        signed_in = auth_state().is_signed_in
+        self._input.setEnabled(signed_in)
+        self._input.setPlaceholderText(
+            "Type a message…" if signed_in else "Sign in to chat"
+        )
         history = state.chat_history[-20:] if state.chat_history else []
         html_parts = []
         for msg in history:

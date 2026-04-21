@@ -191,7 +191,7 @@ def launch(mode: str | None = None) -> None:
         app.setWindowIcon(QIcon(str(icon_path)))
 
     # ── Wake up Render server (fire-and-forget while user sees UI) ──
-    from desktop.license import validate, _read_stored_key, _read_server_url
+    from desktop.license import _read_server_url
 
     server_url = _read_server_url()
 
@@ -205,25 +205,35 @@ def launch(mode: str | None = None) -> None:
     wake_thread = threading.Thread(target=_wake_server, daemon=True)
     wake_thread.start()
 
-    # ── License gate ─────────────────────────────────────────────────
-    from desktop.dialogs.license import LicenseDialog
+    # ── Account auth (fully skippable — app is free to install) ─────
+    # Anyone can open the app. Gated actions (trade / agent / chat)
+    # nudge the user to sign in at the point of use; we never block
+    # the UI behind sign-in.
+    from desktop.auth import fetch_me
+    from desktop.auth_state import auth_state
 
-    stored_key = _read_stored_key()
-
-    if stored_key:
-        result = validate(server_url=server_url, key=stored_key)
-        if not result.get("valid"):
-            dialog = LicenseDialog(server_url=server_url)
-            if not dialog.run():
-                sys.exit(0)
-            result = validate(server_url=server_url)
+    result: dict = {}
+    me = fetch_me(server_url=server_url)
+    if me.get("ok"):
+        auth_state().set_signed_in(
+            email=me.get("email", ""),
+            name=me.get("name", ""),
+        )
+        result = me
+        logger.info("Resumed session for %s", me.get("email", "<unknown>"))
     else:
-        dialog = LicenseDialog(server_url=server_url)
-        if not dialog.run():
-            sys.exit(0)
-        result = validate(server_url=server_url)
-
-    logger.info("License validated — launching app")
+        # No valid stored session — offer the sign-in dialog once, but
+        # let the user skip and browse the UI signed-out.
+        from desktop.dialogs.signin import SignInDialog
+        dialog = SignInDialog()
+        dialog.run()
+        if auth_state().is_signed_in:
+            # Fetch remote config (kill-switch / force-update) now that
+            # we have a token. If it fails, launch signed-in anyway —
+            # the enforcement branches below will short-circuit safely.
+            result = fetch_me(server_url=server_url)
+            if not result.get("ok"):
+                result = {}
 
     # ── First-run setup wizard ───────────────────────────────────────
     from desktop.dialogs.setup_wizard import SetupWizard

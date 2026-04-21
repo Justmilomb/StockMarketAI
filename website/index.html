@@ -316,6 +316,23 @@
         .signup-note.ok { color: var(--glow); }
         .signup-note.err { color: var(--red); }
 
+        .signin-hint {
+            font-family: var(--mono);
+            font-size: 0.6875rem;
+            letter-spacing: 0.14em;
+            color: var(--text-dim);
+            text-align: center;
+            margin: 14px 0 6px;
+            text-transform: uppercase;
+        }
+        .signin-hint a {
+            color: var(--text);
+            text-decoration: none;
+            border-bottom: 1px solid rgba(255,255,255,0.18);
+            padding-bottom: 1px;
+        }
+        .signin-hint a:hover { color: var(--glow); border-bottom-color: var(--glow); }
+
         .risk-note {
             font-family: var(--mono);
             font-size: 0.5625rem;
@@ -1047,6 +1064,7 @@
                 <button type="submit" id="signup-btn"><span>create account</span></button>
             </form>
             <p class="signup-note" id="signup-note"></p>
+            <p class="signin-hint">already have an account? <a href="/auth/login">sign in</a></p>
             <p class="risk-note">trading involves risk &middot; capital at risk</p>
         </div>
 
@@ -1471,7 +1489,7 @@
                 }).then(function(resp) {
                     if (resp.ok) {
                         btn.querySelector('span').textContent = 'done';
-                        setNote('account created — check your inbox for your access key', 'ok');
+                        setNote('account created — check your inbox, then download blank and sign in with your email and password', 'ok');
                         emailInput.value = '';
                         if (pwInput) pwInput.value = '';
                         var wrap = document.querySelector('.signup-wrap');

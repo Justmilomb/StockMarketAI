@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
 )
 
 from desktop import tokens as T
+from desktop.auth_state import auth_state
 from desktop.widgets.primitives.button import apply_variant
 
 
@@ -93,6 +94,8 @@ class AgentLogPanel(QGroupBox):
         self._log_view.document().setMaximumBlockCount(1000)
         layout.addWidget(self._log_view, 1)
 
+        # Flip button state instantly when the user signs in / out.
+        auth_state().changed.connect(lambda: self.refresh_view(state))
         self.refresh_view(state)
 
     @staticmethod
@@ -123,9 +126,14 @@ class AgentLogPanel(QGroupBox):
 
     def refresh_view(self, state: Any) -> None:
         running = bool(getattr(state, "agent_running", False))
-        self._status_label.setText("AGENT RUNNING" if running else "AGENT OFFLINE")
-        self._status_label.setStyleSheet(self._status_style(running))
-        self._start_btn.setEnabled(not running)
+        signed_in = auth_state().is_signed_in
+        if not signed_in:
+            self._status_label.setText("SIGN IN TO USE THE AGENT")
+        else:
+            self._status_label.setText("AGENT RUNNING" if running else "AGENT OFFLINE")
+        self._status_label.setStyleSheet(self._status_style(running and signed_in))
+        # Start is only actionable when signed in AND not already running.
+        self._start_btn.setEnabled(signed_in and not running)
         self._stop_btn.setEnabled(running)
         self._kill_btn.setEnabled(running)
 
@@ -137,6 +145,11 @@ class AgentLogPanel(QGroupBox):
             sb = self._log_view.verticalScrollBar()
             sb.setValue(sb.maximum())
         elif not self._log_view.toPlainText():
-            self._log_view.setPlainText(
-                "Agent is offline. Click START or use Agent → Start Agent.\n"
-            )
+            if signed_in:
+                self._log_view.setPlainText(
+                    "Agent is offline. Click START or use Agent → Start Agent.\n"
+                )
+            else:
+                self._log_view.setPlainText(
+                    "Sign in to start your agent.\n"
+                )

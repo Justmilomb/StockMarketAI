@@ -28,6 +28,7 @@ from PySide6.QtCore import Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QDockWidget,
+    QHBoxLayout,
     QLabel,
     QMainWindow,
     QStatusBar,
@@ -36,6 +37,9 @@ from PySide6.QtWidgets import (
 )
 
 from desktop import tokens as T
+from desktop.auth import clear_token
+from desktop.auth_gate import bus as auth_bus, require_auth
+from desktop.auth_state import auth_state
 from desktop.state import init_state, load_config, resolve_config_path
 from desktop.panels.settings import SettingsPanel
 from desktop.panels.your_ai import YourAIPanel
@@ -52,6 +56,8 @@ from desktop.panels.mandatory_update_overlay import MandatoryUpdateOverlay
 from desktop.dialogs.about import AboutDialog
 from desktop.dialogs.schedule_update import ScheduleUpdateDialog
 from desktop.update_service import UpdateService
+from desktop.widgets.profile_button import ProfileButton
+from desktop.widgets.signin_banner import SignInBanner
 from desktop.workers import BackgroundTask
 
 # Phase 4: agent pool owns the supervisor + chat-worker fleet.
@@ -279,12 +285,25 @@ class MainWindow(QMainWindow):
             f" font-size: 10px; letter-spacing: 2px;"
             f" background: transparent; padding: 2px 10px;",
         )
-        menu_bar.setCornerWidget(self._header_label, Qt.TopRightCorner)
 
-        # Central widget wraps the update banner + chart panel. Paper vs
-        # live has no chrome impact anywhere in the window — the only
-        # visual tell is the PAPER watermark the ChartPanel paints over
-        # itself when ``state.agent_paper_mode`` is True.
+        # Corner widget = existing header text + a profile button so
+        # SIGN IN / account lives top-right where users expect it.
+        corner = QWidget()
+        corner_row = QHBoxLayout(corner)
+        corner_row.setContentsMargins(0, 0, 6, 0)
+        corner_row.setSpacing(10)
+        corner_row.addWidget(self._header_label)
+        self.profile_button = ProfileButton()
+        self.profile_button.signin_requested.connect(self._open_signin_dialog)
+        self.profile_button.signout_requested.connect(self._on_signed_out)
+        corner_row.addWidget(self.profile_button)
+        menu_bar.setCornerWidget(corner, Qt.TopRightCorner)
+
+        # Central widget wraps the update banner + sign-in banner +
+        # chart panel. Paper vs live has no chrome impact anywhere in
+        # the window — the only visual tell is the PAPER watermark the
+        # ChartPanel paints over itself when ``state.agent_paper_mode``
+        # is True.
         self.chart_panel = ChartPanel(self.state)
         central = QWidget()
         central_layout = QVBoxLayout(central)
@@ -295,9 +314,17 @@ class MainWindow(QMainWindow):
         # Not in the central layout — it's a detached top-level window
         # parented to MainWindow so it closes with the app.
         self.mandatory_overlay = MandatoryUpdateOverlay(self)
+        self.signin_banner = SignInBanner()
+        self.signin_banner.signin_requested.connect(self._open_signin_dialog)
         central_layout.addWidget(self.update_banner)
+        central_layout.addWidget(self.signin_banner)
         central_layout.addWidget(self.chart_panel, 1)
         self.setCentralWidget(central)
+
+        # Any gated action (from any widget) can ask the window to raise
+        # the sign-in dialog via the shared bus.
+        auth_bus().signin_requested.connect(self._open_signin_dialog)
+        auth_state().changed.connect(self._on_auth_changed)
 
         self.settings_panel = SettingsPanel(self.state)
         self.your_ai_panel = YourAIPanel(self.state)
@@ -1065,6 +1092,10 @@ class MainWindow(QMainWindow):
         self.chat_panel.focus_input()
 
     def _handle_chat_message(self, message: str) -> None:
+        """Gate chat behind sign-in then hand off to the real impl."""
+        require_auth(self, lambda: self._handle_chat_message_impl(message))
+
+    def _handle_chat_message_impl(self, message: str) -> None:
         """Spawn a chat worker for this message.
 
         Every message goes through the agent pool: a fresh AI
@@ -1105,6 +1136,11 @@ class MainWindow(QMainWindow):
 
     @Slot()
     def _on_agent_start(self) -> None:
+        """Start the supervisor. Gated behind sign-in so we never run
+        the paid agent loop for signed-out users."""
+        require_auth(self, self._on_agent_start_impl)
+
+    def _on_agent_start_impl(self) -> None:
         """Start the supervisor inside the pool (build pool if needed)."""
         try:
             self._ensure_agent_pool()
@@ -1140,6 +1176,46 @@ class MainWindow(QMainWindow):
         self.state.agent_running = False
         self.agent_log_panel.refresh_view(self.state)
         self.statusBar().showMessage("Agent killed", 3000)
+
+    # ── Account auth plumbing ───────────────────────────────────────
+
+    @Slot()
+    def _open_signin_dialog(self) -> None:
+        """Raise the sign-in dialog. Safe to call from any code path —
+        if the user is already signed in we no-op. Fetches remote
+        config after a successful sign-in so kill-switch / maintenance
+        / force-update flags are honoured without restarting."""
+        if auth_state().is_signed_in:
+            return
+        from desktop.dialogs.signin import SignInDialog
+        dialog = SignInDialog(self)
+        dialog.run()
+        if auth_state().is_signed_in:
+            try:
+                from desktop.auth import fetch_me
+                me = fetch_me()
+                if me.get("ok"):
+                    from desktop.main import _apply_remote_config
+                    _apply_remote_config(me.get("config", {}) or {})
+            except Exception:
+                logger.debug("post-signin remote config apply failed", exc_info=True)
+
+    @Slot()
+    def _on_signed_out(self) -> None:
+        """User clicked 'sign out' in the profile dropdown."""
+        clear_token()
+        auth_state().set_signed_out()
+        self.statusBar().showMessage("signed out", 3000)
+
+    @Slot()
+    def _on_auth_changed(self) -> None:
+        """Refresh any widget that gates on sign-in state (start button,
+        chat placeholder, …). Panels also subscribe to ``auth_state()``
+        directly, so this is mostly defensive."""
+        if hasattr(self, "agent_log_panel"):
+            self.agent_log_panel.refresh_view(self.state)
+        if hasattr(self, "chat_panel"):
+            self.chat_panel.refresh_view(self.state)
 
     @Slot()
     def _on_export_user_data(self) -> None:
@@ -1707,6 +1783,9 @@ class MainWindow(QMainWindow):
 
     @Slot()
     def action_open_trade(self) -> None:
+        require_auth(self, self._action_open_trade_impl)
+
+    def _action_open_trade_impl(self) -> None:
         if not self._require_stocks():
             return
         if not self.watchlist_panel:

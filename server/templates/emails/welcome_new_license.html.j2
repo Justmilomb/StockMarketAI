@@ -1,12 +1,10 @@
 {% extends "_layout.html.j2" %}
 {% block content %}
-<div style="font-family:'JetBrains Mono','Consolas','Courier New',monospace;color:#00ff87;font-size:11px;letter-spacing:0.28em;text-transform:uppercase;margin:0 0 14px;">licence active</div>
+<div style="font-family:'JetBrains Mono','Consolas','Courier New',monospace;color:#00ff87;font-size:11px;letter-spacing:0.28em;text-transform:uppercase;margin:0 0 14px;">account ready</div>
 <h1 style="font-family:'Outfit','Helvetica Neue',Arial,sans-serif;font-size:28px;font-weight:300;letter-spacing:-0.01em;color:#ffffff;margin:0 0 16px;line-height:1.25;">welcome to blank.</h1>
 <p style="font-family:'Outfit','Helvetica Neue',Arial,sans-serif;color:rgba(255,255,255,0.6);font-size:15px;line-height:1.65;margin:0 0 20px;">
-hi {{ name|e }}, your licence is active. paste the key below into the setup wizard on first launch.
+hi {{ name|e }}, your account is ready. download blank, open it, and sign in with the email and password you just chose.
 </p>
-<div style="font-family:'JetBrains Mono','Consolas','Courier New',monospace;color:rgba(255,255,255,0.32);font-size:10px;letter-spacing:0.28em;text-transform:uppercase;margin:0 0 8px;">licence key</div>
-<div style="font-family:'JetBrains Mono','Consolas','Courier New',monospace;color:#00ff87;font-size:15px;background:#000000;border:1px solid rgba(0,255,135,0.4);padding:14px 16px;word-break:break-all;letter-spacing:0.08em;margin:0 0 24px;">{{ license_key|e }}</div>
 <p style="margin:0 0 24px;">
 <a href="{{ download_url|e }}" style="display:inline-block;background:#00ff87;color:#000000;text-decoration:none;font-family:'JetBrains Mono','Consolas','Courier New',monospace;font-size:12px;letter-spacing:0.15em;text-transform:uppercase;padding:14px 28px;border:1px solid #00ff87;font-weight:500;">download for windows</a>
 </p>

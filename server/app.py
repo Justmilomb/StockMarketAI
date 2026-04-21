@@ -16,6 +16,7 @@ from datetime import datetime, timedelta, timezone
 from threading import Lock
 from typing import Any, Deque, Dict, Generator, List, Optional
 
+import jwt
 import psycopg2
 import psycopg2.extras
 import requests
@@ -34,6 +35,14 @@ if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 ADMIN_KEY = os.environ.get("BLANK_ADMIN_KEY", "admin")
 WEBSITE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "website")
+
+# JWT secret used to sign user auth tokens. Production MUST set
+# BLANK_JWT_SECRET — without it tokens become trivially forgeable once
+# an attacker sees the source. The dev fallback is deliberately obvious
+# so a missing env var in prod fails loudly in log greps.
+JWT_SECRET = os.environ.get("BLANK_JWT_SECRET", "dev-jwt-secret-do-not-ship")
+JWT_ALGORITHM = "HS256"
+JWT_TTL_DAYS = 30
 
 # Resend email — used by the public signup flow to email each new user
 # their access key. When RESEND_API_KEY is unset (dev), the signup
@@ -298,6 +307,11 @@ class SignupRequest(BaseModel):
     agreed_risk: bool = False
 
 
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
 class LicenseUpdateRequest(BaseModel):
     status: Optional[str] = None
     email: Optional[str] = None
@@ -355,6 +369,63 @@ def require_admin(x_admin_key: str = Header(...)) -> str:
     if x_admin_key != ADMIN_KEY:
         raise HTTPException(status_code=403, detail="invalid admin key")
     return x_admin_key
+
+
+def _hash_password(raw: str) -> str:
+    """Return ``salt:hex`` with 260k PBKDF2-SHA256 iterations. Matches
+    the format already produced by the old signup endpoint so existing
+    rows keep verifying."""
+    salt = secrets.token_hex(16)
+    digest = hashlib.pbkdf2_hmac(
+        "sha256", raw.encode(), salt.encode(), 260_000,
+    ).hex()
+    return f"{salt}:{digest}"
+
+
+def _verify_password(raw: str, stored: str) -> bool:
+    if not stored or ":" not in stored:
+        return False
+    salt, expected = stored.split(":", 1)
+    candidate = hashlib.pbkdf2_hmac(
+        "sha256", raw.encode(), salt.encode(), 260_000,
+    ).hex()
+    return secrets.compare_digest(candidate, expected)
+
+
+def _issue_jwt(license_row: dict[str, Any]) -> str:
+    """Mint a 30-day JWT for a licence row. ``sub`` is the licence key
+    (our internal user id — never shown to the user)."""
+    now = datetime.now(timezone.utc)
+    payload = {
+        "sub": license_row["key"],
+        "email": license_row["email"],
+        "name": license_row.get("name") or "",
+        "iat": int(now.timestamp()),
+        "exp": int((now + timedelta(days=JWT_TTL_DAYS)).timestamp()),
+    }
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+
+def _decode_jwt(token: str) -> dict[str, Any]:
+    try:
+        return jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="session expired — please sign in again")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="invalid session token")
+
+
+def require_auth(
+    authorization: str = Header(default=""),
+) -> dict[str, Any]:
+    """FastAPI dependency: accept ``Authorization: Bearer <jwt>`` and
+    return the decoded payload, or 401."""
+    if not authorization.lower().startswith("bearer "):
+        raise HTTPException(status_code=401, detail="missing bearer token")
+    token = authorization[7:].strip()
+    if not token:
+        raise HTTPException(status_code=401, detail="missing bearer token")
+    return _decode_jwt(token)
 
 
 # ── App ──────────────────────────────────────────────────────────────────
@@ -541,6 +612,15 @@ def terms_page() -> HTMLResponse:
     with open(os.path.join(WEBSITE_DIR, "terms.html"), encoding="utf-8") as f:
         html = f.read()
     return HTMLResponse(content=html)
+
+
+@app.get("/auth/login", response_class=HTMLResponse)
+def auth_login_page() -> HTMLResponse:
+    """Serve the sign-in page. Accepts ``?callback_port=<int>`` so the
+    desktop app can spin up a loopback listener and receive the token
+    without any shared state."""
+    with open(os.path.join(WEBSITE_DIR, "auth_login.html"), encoding="utf-8") as f:
+        return HTMLResponse(content=f.read())
 
 
 # ── Health / version (public) ────────────────────────────────────────────
@@ -759,6 +839,86 @@ def validate_license(
     }
 
 
+# ── Account auth (users never see the underlying licence key) ───────────
+
+@app.post("/api/auth/login")
+def auth_login(
+    body: LoginRequest,
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> dict[str, Any]:
+    """Email + password → JWT. Returns 401 on any failure so the UI
+    doesn't leak whether the email exists."""
+    email = (body.email or "").strip().lower()
+    password = body.password or ""
+    if not email or not password:
+        raise HTTPException(status_code=401, detail="invalid email or password")
+
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT * FROM licenses WHERE LOWER(email) = %s "
+            "ORDER BY created_at DESC LIMIT 1",
+            (email,),
+        )
+        row = cur.fetchone()
+
+    if not row or not _verify_password(password, row.get("password_hash") or ""):
+        raise HTTPException(status_code=401, detail="invalid email or password")
+
+    if row["status"] in ("revoked", "expired"):
+        raise HTTPException(status_code=403, detail=f"account {row['status']}")
+
+    if row.get("expires_at"):
+        expires = row["expires_at"]
+        if expires.tzinfo is None:
+            expires = expires.replace(tzinfo=timezone.utc)
+        if datetime.now(timezone.utc) > expires:
+            raise HTTPException(status_code=403, detail="account expired")
+
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE licenses SET last_active = NOW() WHERE key = %s",
+            (row["key"],),
+        )
+    conn.commit()
+
+    token = _issue_jwt(dict(row))
+    return {
+        "token": token,
+        "email": row["email"],
+        "name": row.get("name") or "",
+        "expires_at": row["expires_at"].isoformat() if row["expires_at"] else None,
+    }
+
+
+@app.get("/api/auth/me")
+def auth_me(
+    claims: dict[str, Any] = Depends(require_auth),
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> dict[str, Any]:
+    """Return the current user and the same remote-config blob the old
+    ``/api/license/validate`` handed back, so the desktop app can keep
+    honouring kill-switch / maintenance / force-update flags."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT * FROM licenses WHERE key = %s", (claims["sub"],))
+        row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=401, detail="account no longer exists")
+    if row["status"] in ("revoked", "expired"):
+        raise HTTPException(status_code=403, detail=f"account {row['status']}")
+
+    with conn.cursor() as cur:
+        cur.execute("SELECT key, value FROM config")
+        cfg = {r["key"]: r["value"] for r in cur.fetchall()}
+
+    return {
+        "email": row["email"],
+        "name": row.get("name") or "",
+        "status": row["status"],
+        "expires_at": row["expires_at"].isoformat() if row["expires_at"] else None,
+        "config": cfg,
+    }
+
+
 # ── Public signup (email → access key via Resend) ───────────────────────
 
 # RFC-5322 is ridiculous; this regex covers the 99% case and we let
@@ -907,6 +1067,11 @@ def public_signup(
             status_code=400,
             detail="you must acknowledge the risk disclosure",
         )
+    if not body.password or len(body.password) < 8:
+        raise HTTPException(
+            status_code=400,
+            detail="please choose a password of at least 8 characters",
+        )
 
     ip = request.client.host if request.client else "unknown"
     if not _signup_rate_ok(ip):
@@ -915,31 +1080,40 @@ def public_signup(
             detail="too many signup attempts — try again in an hour",
         )
 
-    # Look up any existing licence for this email first. Re-sending the
-    # same key is much nicer UX than handing out fresh keys each time
-    # someone re-submits the form.
+    # Look up any existing licence for this email first. Two cases:
+    # (a) an older pre-auth row with no password_hash — we set the
+    #     password the user just typed so they can sign in;
+    # (b) a row that already has a password — reject with a pointer to
+    #     the sign-in page so we don't silently overwrite credentials.
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT key, expires_at FROM licenses WHERE LOWER(email) = %s "
-            "ORDER BY created_at DESC LIMIT 1",
+            "SELECT key, expires_at, password_hash FROM licenses "
+            "WHERE LOWER(email) = %s ORDER BY created_at DESC LIMIT 1",
             (email,),
         )
         existing = cur.fetchone()
 
+    if existing and existing.get("password_hash"):
+        raise HTTPException(
+            status_code=409,
+            detail="an account already exists for this email — please sign in",
+        )
+
+    password_hash = _hash_password(body.password)
     if existing:
         key = existing["key"]
         expires = existing["expires_at"]
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE licenses SET password_hash = %s, name = COALESCE(NULLIF(%s, ''), name) "
+                "WHERE key = %s",
+                (password_hash, (body.name or "").strip(), key),
+            )
+        conn.commit()
     else:
         key = _generate_license_key()
         expires = datetime.now(timezone.utc) + timedelta(days=365)
         with conn.cursor() as cur:
-            password_hash: str | None = None
-            if body.password:
-                salt = secrets.token_hex(16)
-                raw = hashlib.pbkdf2_hmac(
-                    "sha256", body.password.encode(), salt.encode(), 260_000
-                ).hex()
-                password_hash = f"{salt}:{raw}"
             cur.execute(
                 "INSERT INTO licenses (key, email, name, status, expires_at, password_hash) "
                 "VALUES (%s, %s, %s, 'active', %s, %s)",
@@ -966,14 +1140,16 @@ def public_signup(
     if not ok:
         logger.info("signup email skipped for %s (%s)", email, info)
 
+    with conn.cursor() as cur:
+        cur.execute("SELECT * FROM licenses WHERE key = %s", (key,))
+        license_row = cur.fetchone()
+    token = _issue_jwt(dict(license_row)) if license_row else None
+
     return {
         "status": "ok",
         "sent": sent,
         "email": email,
-        # Only echo the key back on the API response when Resend was
-        # skipped (dev mode). Production responses never expose the
-        # key so a shoulder-surfer on the signup page can't farm it.
-        "key": key if not RESEND_API_KEY else None,
+        "token": token,
     }
 
 

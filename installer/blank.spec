@@ -155,6 +155,8 @@ a = Analysis(
         'desktop.license', 'desktop.update_service', 'desktop.updater',
         'desktop.data_export', 'desktop.workers', 'desktop.state',
         'desktop.dev_monitor',
+        'desktop.auth', 'desktop.auth_state', 'desktop.auth_gate',
+        'desktop.auth_callback_server',
         # panels
         'desktop.panels', 'desktop.panels.agent_log', 'desktop.panels.chart',
         'desktop.panels.chat', 'desktop.panels.exchanges',
@@ -166,7 +168,7 @@ a = Analysis(
         'desktop.dialogs', 'desktop.dialogs._base',
         'desktop.dialogs.about', 'desktop.dialogs.add_ticker',
         'desktop.dialogs.help', 'desktop.dialogs.history',
-        'desktop.dialogs.instruments', 'desktop.dialogs.license',
+        'desktop.dialogs.instruments', 'desktop.dialogs.signin',
         'desktop.dialogs.mode_selector', 'desktop.dialogs.pies',
         'desktop.dialogs.risk_disclosure', 'desktop.dialogs.schedule_update',
         'desktop.dialogs.search_ticker', 'desktop.dialogs.setup_wizard',
@@ -174,6 +176,7 @@ a = Analysis(
         # widgets + primitives
         'desktop.widgets', 'desktop.widgets.mode_banner',
         'desktop.widgets.mode_watermark',
+        'desktop.widgets.profile_button', 'desktop.widgets.signin_banner',
         'desktop.widgets.primitives',
         'desktop.widgets.primitives.button', 'desktop.widgets.primitives.card',
         'desktop.widgets.primitives.divider',
