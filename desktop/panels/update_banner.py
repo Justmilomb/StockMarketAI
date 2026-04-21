@@ -44,7 +44,7 @@ QFrame#UpdateBanner {{
 }}
 QFrame#UpdateBanner QLabel {{
     background: transparent;
-    color: {T.FG_1_HEX};
+    color: {T.FG_0};
     font-family: {T.FONT_SANS};
     font-size: 12px;
 }}
@@ -56,7 +56,7 @@ QFrame#UpdateBanner QLabel#HeadlineLabel {{
     letter-spacing: 2px;
 }}
 QFrame#UpdateBanner QLabel#StatusLabel {{
-    color: {T.FG_2_HEX};
+    color: {T.FG_1_HEX};
     font-family: {T.FONT_MONO};
     font-size: 10px;
     letter-spacing: 2px;
@@ -75,13 +75,14 @@ QFrame#UpdateBanner QPushButton {{
 }}
 QFrame#UpdateBanner QPushButton:hover {{
     background: {T.FG_0};
+    color: {T.BG_0};
     border-color: {T.FG_0};
 }}
 QFrame#UpdateBanner QPushButton#NotesToggle,
 QFrame#UpdateBanner QPushButton#SkipBtn,
 QFrame#UpdateBanner QPushButton#DismissBtn {{
     background: transparent;
-    color: {T.FG_1_HEX};
+    color: {T.FG_0};
     border: 1px solid {T.BORDER_1};
 }}
 QFrame#UpdateBanner QPushButton#NotesToggle:hover,

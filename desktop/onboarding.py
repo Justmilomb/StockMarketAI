@@ -271,6 +271,7 @@ class OnboardingTour:
         self._overlay = _SpotlightOverlay(window)
         self._overlay.setGeometry(window.rect())
         self._overlay.show()
+        self._overlay.raise_()
 
         self._popover = _PopoverCard(window)
         self._popover.show()
@@ -280,8 +281,13 @@ class OnboardingTour:
         self._popover.back_btn.clicked.connect(self._back)
         self._popover.skip_btn.clicked.connect(self._finish)
 
-        window.installEventFilter(_ResizeForwarder(self))
-        QTimer.singleShot(50, self._render_current)
+        # Keep a reference so Qt/Python doesn't GC the event filter.
+        self._resize_forwarder = _ResizeForwarder(self)
+        window.installEventFilter(self._resize_forwarder)
+        # Give Qt time to finish the initial layout pass — dock
+        # geometries are not final until after the window is shown and
+        # the event loop spins once.
+        QTimer.singleShot(200, self._render_current)
 
     # ── Public API ──────────────────────────────────────────────────
 
@@ -304,11 +310,28 @@ class OnboardingTour:
             self._render_current()
             return
 
-        if isinstance(target, QDockWidget) and target.isFloating():
-            target.setFloating(False)
+        if isinstance(target, QDockWidget):
+            if target.isFloating():
+                target.setFloating(False)
+            # A tabified dock may not be the active tab — raising it
+            # brings it to the front so the spotlight lands on visible
+            # content instead of the neighbour behind it.
+            target.raise_()
+
+        # Re-sync the overlay to window size every render — dock moves
+        # and menu bar height changes can shift things between steps.
+        self._overlay.setGeometry(self._window.rect())
 
         rect = self._target_rect_in_window(target)
+        if rect.isEmpty():
+            # Target is off-screen / zero-size — skip rather than
+            # flashing an empty spotlight.
+            self._index += 1
+            self._render_current()
+            return
+
         self._overlay.set_target_rect(rect)
+        self._overlay.raise_()
         self._popover.set_step(
             step, self._index, len(self._steps),
             is_last=self._index == len(self._steps) - 1,
