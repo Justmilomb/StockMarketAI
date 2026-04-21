@@ -78,13 +78,24 @@ async def list_memory_keys(args: Dict[str, Any]) -> Dict[str, Any]:
 
 @tool(
     "append_journal",
-    "Append a free-form entry to the agent journal. Tags help you search later.",
-    {"entry": str, "tags": str},
+    "Append a free-form entry to the agent journal. Tags are optional "
+    "(comma-separated string) and help you search later.",
+    {
+        "type": "object",
+        "properties": {
+            "entry": {"type": "string", "description": "Journal entry text."},
+            "tags": {
+                "type": "string",
+                "description": "Optional comma-separated tags.",
+            },
+        },
+        "required": ["entry"],
+    },
 )
 async def append_journal(args: Dict[str, Any]) -> Dict[str, Any]:
     ctx = get_agent_context()
     entry = str(args.get("entry", ""))
-    tags = str(args.get("tags", ""))
+    tags = str(args.get("tags", "") or "")
     if not entry:
         return _text_result({"error": "entry is required"})
     with sqlite3.connect(ctx.db.db_path) as conn:

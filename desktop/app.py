@@ -1389,6 +1389,7 @@ class MainWindow(QMainWindow):
         sup.iteration_finished.connect(self._on_agent_iteration_finished)
         sup.error_occurred.connect(self._on_agent_error_occurred)
         sup.cadence_changed.connect(self._on_agent_cadence_changed)
+        sup.usage_limit_paused.connect(self._on_agent_usage_limit_paused)
 
         # Chat worker signals are forwarded by the pool.
         self.agent_pool.chat_text.connect(self._on_chat_worker_text)
@@ -1489,6 +1490,17 @@ class MainWindow(QMainWindow):
     def _on_agent_error_occurred(self, msg: str) -> None:
         self.statusBar().showMessage(f"Agent error: {msg}", 8000)
         self._on_agent_log_line(f"[error] {msg}")
+
+    @Slot(str, int)
+    def _on_agent_usage_limit_paused(self, msg: str, seconds: int) -> None:
+        """Show the paused-for-usage banner until the pause window expires.
+
+        Called on the GUI thread via QueuedConnection. The seconds the
+        runner returns already accounts for the parsed reset clock plus
+        a 1-minute buffer, so we just clamp to the status bar's ms API.
+        """
+        ms = max(1000, int(seconds) * 1000)
+        self.statusBar().showMessage(msg, ms)
 
     @Slot(int)
     def _on_agent_cadence_changed(self, seconds: int) -> None:
