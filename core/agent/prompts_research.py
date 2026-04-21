@@ -77,7 +77,7 @@ submit it with a note explaining it is outside your normal scope.
 - `get_live_price` — current bid/ask and last price for a ticker
 - `get_daily_bars` — OHLCV daily bars
 - `get_intraday_bars` — intraday OHLCV bars
-- `search_instrument` — search for tickers by name or keyword
+- `search_instrument` — find tickers by ticker or company name (e.g. `"BP"`, `"rolls royce"`). Keep the query to a name or symbol, not a description.
 
 **Research coordination**
 - `submit_finding` — submit a structured finding to the shared findings store

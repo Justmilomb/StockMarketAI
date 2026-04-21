@@ -171,7 +171,7 @@ class SetupWizard(QDialog):
         layout.addWidget(_section_kicker("CHECKING PREREQUISITES"))
         layout.addSpacing(8)
 
-        engine_row, self._lbl_engine = self._check_row("AI engine")
+        engine_row, self._lbl_engine = self._check_row("advisor engine")
         layout.addWidget(engine_row)
 
         fp_row, self._lbl_feedparser = self._check_row("feedparser (news)")
@@ -209,16 +209,16 @@ class SetupWizard(QDialog):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(10)
 
-        layout.addWidget(_section_kicker("AI ENGINE SETUP"))
+        layout.addWidget(_section_kicker("ADVISOR ENGINE SETUP"))
         layout.addSpacing(8)
 
         layout.addWidget(_body_text(
-            "blank uses a local AI engine to power signals, news sentiment, "
+            "blank uses a local advisor engine to power signals, news sentiment, "
             "and the chat assistant. The engine ships with the installer. "
             "If this check is failing, the install may be corrupted.\n\n"
             "Try RE-CHECK. If it still fails, see help.blank.app/setup "
             "or reinstall.\n\n"
-            "You can skip to use blank without AI features (charts and broker "
+            "You can skip to use blank without advisor features (charts and broker "
             "still work)."
         ))
 
@@ -237,7 +237,7 @@ class SetupWizard(QDialog):
 
         btn_row.addStretch(1)
 
-        skip = QPushButton("SKIP (NO AI)")
+        skip = QPushButton("SKIP (NO ADVISOR)")
         skip.setProperty("variant", "ghost")
         skip.setCursor(Qt.PointingHandCursor)
         skip.clicked.connect(self._on_engine_skip)
@@ -393,7 +393,7 @@ class SetupWizard(QDialog):
             else f"<span style='color:{T.FG_2_HEX};'>PAPER MODE</span>"
         )
         self._summary.setText(
-            f"AI engine &mdash; {engine_line}<br>"
+            f"advisor engine &mdash; {engine_line}<br>"
             f"Broker keys &mdash; {env_line}"
         )
         self._stack.setCurrentIndex(3)

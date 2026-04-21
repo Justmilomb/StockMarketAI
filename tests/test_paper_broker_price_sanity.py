@@ -135,7 +135,7 @@ def test_sell_rejected_when_price_deviates_above_threshold(
     _seed_position(broker, "BARCl_EQ", qty=0.07, avg_price=444.0)
 
     with patch.object(broker, "_ticker_is_tradeable", return_value=True), \
-         patch.object(broker._prices, "get_many", return_value={"BARCl_EQ": 132.1}):
+         patch.object(broker._prices, "get_fresh", return_value=132.1):
         result = broker.submit_order("BARCl_EQ", "SELL", 0.07, "market")
 
     assert result["status"] == "REJECTED"
@@ -152,7 +152,7 @@ def test_sell_allowed_when_price_within_threshold(tmp_path: Path) -> None:
 
     # 5% below entry — well within default 15% threshold.
     with patch.object(broker, "_ticker_is_tradeable", return_value=True), \
-         patch.object(broker._prices, "get_many", return_value={"BARCl_EQ": 421.8}):
+         patch.object(broker._prices, "get_fresh", return_value=421.8):
         result = broker.submit_order("BARCl_EQ", "SELL", 0.07, "market")
 
     assert result["status"] == "FILLED"
@@ -172,7 +172,7 @@ def test_sell_sanity_threshold_is_configurable(tmp_path: Path) -> None:
     _seed_position(broker, "BARCl_EQ", qty=0.07, avg_price=444.0)
 
     with patch.object(broker, "_ticker_is_tradeable", return_value=True), \
-         patch.object(broker._prices, "get_many", return_value={"BARCl_EQ": 421.8}):
+         patch.object(broker._prices, "get_fresh", return_value=421.8):
         result = broker.submit_order("BARCl_EQ", "SELL", 0.07, "market")
 
     assert result["status"] == "REJECTED"

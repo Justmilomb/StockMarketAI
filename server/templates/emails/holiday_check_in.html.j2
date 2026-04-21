@@ -1,18 +1,18 @@
 {% extends "_layout.html.j2" %}
 {% block content %}
-<div style="font-family:'JetBrains Mono',monospace;color:#00ff87;font-size:11px;letter-spacing:0.25em;text-transform:uppercase;margin-bottom:8px;">markets closed</div>
-<h1 style="font-size:26px;font-weight:200;margin:0 0 16px;">the week in review, {{ name|e }}.</h1>
-<p style="color:rgba(255,255,255,0.6);font-size:13px;line-height:1.6;margin:0 0 24px;font-family:'JetBrains Mono',monospace;">
+<div style="font-family:'JetBrains Mono','Consolas','Courier New',monospace;color:#00ff87;font-size:11px;letter-spacing:0.28em;text-transform:uppercase;margin:0 0 14px;">markets closed</div>
+<h1 style="font-family:'Outfit','Helvetica Neue',Arial,sans-serif;font-size:26px;font-weight:300;letter-spacing:-0.01em;color:#ffffff;margin:0 0 16px;line-height:1.3;">the week in review, {{ name|e }}.</h1>
+<p style="font-family:'JetBrains Mono','Consolas','Courier New',monospace;color:rgba(255,255,255,0.6);font-size:12px;line-height:1.6;letter-spacing:0.06em;margin:0 0 24px;">
 {{ period_start|e }} &mdash; {{ period_end|e }}
 </p>
-<div style="border-top:1px solid rgba(255,255,255,0.08);padding-top:20px;">
+<div style="border-top:1px solid rgba(255,255,255,0.08);">
 {% for item in highlights %}
-  <div style="padding:14px 0;border-bottom:1px solid rgba(255,255,255,0.06);color:rgba(255,255,255,0.8);font-size:14px;line-height:1.65;">
-    <span style="color:#00ff87;font-family:'JetBrains Mono',monospace;font-size:11px;margin-right:10px;">&bull;</span>{{ item|e }}
+  <div style="font-family:'Outfit','Helvetica Neue',Arial,sans-serif;padding:14px 0;border-bottom:1px solid rgba(255,255,255,0.08);color:rgba(255,255,255,0.6);font-size:14px;line-height:1.65;">
+    <span style="color:#00ff87;font-family:'JetBrains Mono','Consolas','Courier New',monospace;font-size:11px;margin-right:10px;">&bull;</span>{{ item|e }}
   </div>
 {% endfor %}
 </div>
-<p style="color:rgba(255,255,255,0.5);font-size:13px;line-height:1.6;margin:24px 0 0;">
-Markets reopen on the next business day. blank picks up where it left off.
+<p style="font-family:'Outfit','Helvetica Neue',Arial,sans-serif;color:rgba(255,255,255,0.32);font-size:13px;line-height:1.65;margin:24px 0 0;">
+markets reopen on the next business day. blank picks up where it left off.
 </p>
 {% endblock %}

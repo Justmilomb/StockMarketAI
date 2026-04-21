@@ -17,6 +17,9 @@ venv/
 .idea/
 .vs/
 
+# Claude Code worktrees
+.claude/worktrees/
+
 # OS
 Thumbs.db
 desktop.ini

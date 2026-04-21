@@ -24,7 +24,7 @@ from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
-from PySide6.QtCore import Qt, QTimer, Slot
+from PySide6.QtCore import Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QDockWidget,
@@ -38,6 +38,7 @@ from PySide6.QtWidgets import (
 from desktop import tokens as T
 from desktop.state import init_state, load_config, resolve_config_path
 from desktop.panels.settings import SettingsPanel
+from desktop.panels.your_ai import YourAIPanel
 from desktop.panels.watchlist import WatchlistPanel
 from desktop.panels.positions import PositionsPanel
 from desktop.panels.orders import OrdersPanel
@@ -62,6 +63,12 @@ from desktop.dev_monitor import DevMonitor
 
 class MainWindow(QMainWindow):
     """Terminal-style trading terminal window."""
+
+    #: Cross-thread bridge for the scraper watchdog. The scraper runner
+    #: lives on a plain ``threading.Thread`` with no Qt event loop, so
+    #: it cannot safely touch widgets; emitting this signal hops the
+    #: payload onto the GUI thread via Qt's queued-connection machinery.
+    _breaking_news_emitted = Signal(str)
 
     def __init__(
         self,
@@ -296,6 +303,7 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central)
 
         self.settings_panel = SettingsPanel(self.state)
+        self.your_ai_panel = YourAIPanel(self.state)
         self.chat_panel = ChatPanel(self.state)
         self.agent_log_panel = AgentLogPanel(self.state)
         self.watchlist_panel = WatchlistPanel(self.state)
@@ -306,15 +314,17 @@ class MainWindow(QMainWindow):
 
         self._watchlist_dock = self._make_dock("WATCHLIST", self.watchlist_panel)
         self._settings_dock = self._make_dock("SETTINGS", self.settings_panel)
+        self._your_ai_dock = self._make_dock("YOUR BLANK ADVISOR", self.your_ai_panel)
         self._positions_dock = self._make_dock("POSITIONS", self.positions_panel)
         self._exchanges_dock = self._make_dock("MARKETS", self.exchanges_panel)
         self._orders_dock = self._make_dock("ORDERS", self.orders_panel)
         self._chat_dock = self._make_dock("CHAT", self.chat_panel)
         self._news_dock = self._make_dock("INFORMATION", self.news_panel)
-        self._agent_dock = self._make_dock("AGENT", self.agent_log_panel)
+        self._agent_dock = self._make_dock("ADVISOR LOG", self.agent_log_panel)
 
         self.addDockWidget(Qt.TopDockWidgetArea, self._watchlist_dock)
         self.addDockWidget(Qt.LeftDockWidgetArea, self._settings_dock)
+        self.addDockWidget(Qt.LeftDockWidgetArea, self._your_ai_dock)
         self.addDockWidget(Qt.LeftDockWidgetArea, self._positions_dock)
         self.addDockWidget(Qt.LeftDockWidgetArea, self._exchanges_dock)
         self.addDockWidget(Qt.RightDockWidgetArea, self._chat_dock)
@@ -331,7 +341,8 @@ class MainWindow(QMainWindow):
         self._all_docks = [
             self._watchlist_dock, self._positions_dock,
             self._exchanges_dock, self._orders_dock, self._news_dock,
-            self._settings_dock, self._chat_dock, self._agent_dock,
+            self._settings_dock, self._your_ai_dock,
+            self._chat_dock, self._agent_dock,
         ]
 
         self._apply_dock_layout()
@@ -353,7 +364,7 @@ class MainWindow(QMainWindow):
             f" font-size: 10px; letter-spacing: 2px; padding: 0 10px;"
         )
 
-        self._ai_status = QLabel("AI ON")
+        self._ai_status = QLabel("ADVISOR ON")
         self._ai_status.setStyleSheet(status_pill)
         status.addPermanentWidget(self._ai_status)
 
@@ -906,6 +917,7 @@ class MainWindow(QMainWindow):
         """Refresh all panels. All DB/IO work has already been done on the
         background thread and applied to state before this is called."""
         self.settings_panel.refresh_view(self.state)
+        self.your_ai_panel.refresh_view(self.state)
         self.chat_panel.refresh_view(self.state)
         self.chart_panel.refresh_view(self.state)
         self.agent_log_panel.refresh_view(self.state)
@@ -1086,10 +1098,10 @@ class MainWindow(QMainWindow):
         if not self.agent_pool.can_spawn_chat_worker():
             active = self.agent_pool.active_chat_count()
             self.statusBar().showMessage(
-                f"AI busy ({active} workers) — queuing...", 4000,
+                f"your blank advisor is busy ({active} workers) — queuing...", 4000,
             )
         else:
-            self.statusBar().showMessage("AI thinking...", 10000)
+            self.statusBar().showMessage("your blank advisor is thinking...", 10000)
         self.agent_pool.spawn_chat_worker(message)
 
     # ── Agent pool lifecycle ─────────────────────────────────────────
@@ -1256,10 +1268,10 @@ class MainWindow(QMainWindow):
         reply = QMessageBox.question(
             self,
             "Clear All Chats & History",
-            "Wipe every chat message, agent memory entry, research "
+            "Wipe every chat message, advisor memory entry, research "
             "finding, journal line, AND the active watchlist?\n\n"
-            "This gives the AI a true blank slate. Broker settings and "
-            "config are kept.\n\nThis cannot be undone.",
+            "This gives your blank advisor a true blank slate. Broker "
+            "settings and config are kept.\n\nThis cannot be undone.",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
@@ -1302,7 +1314,7 @@ class MainWindow(QMainWindow):
 
         total = sum(counts.values())
         self.statusBar().showMessage(
-            f"Cleared {total} rows + watchlist — AI has a blank slate.", 5000,
+            f"Cleared {total} rows + watchlist — your blank advisor has a clean slate.", 5000,
         )
 
     def _watchlist_config_key(self) -> str:
@@ -1334,7 +1346,12 @@ class MainWindow(QMainWindow):
             db=self.history_manager,
             watchlist_provider=self._get_active_tickers,
             cadence_seconds=cadence,
+            wake_callback=self._on_breaking_news,
         )
+        # Queued-connection bridge for cross-thread log lines from the
+        # scraper watchdog. Without this the wake callback would touch
+        # UI widgets from the scraper thread.
+        self._breaking_news_emitted.connect(self._on_agent_log_line)
         self.scraper_runner.start()
 
     def _ensure_agent_pool(self) -> None:
@@ -1374,6 +1391,8 @@ class MainWindow(QMainWindow):
         sup.iteration_started.connect(self._on_agent_iteration_started)
         sup.iteration_finished.connect(self._on_agent_iteration_finished)
         sup.error_occurred.connect(self._on_agent_error_occurred)
+        sup.cadence_changed.connect(self._on_agent_cadence_changed)
+        sup.usage_limit_paused.connect(self._on_agent_usage_limit_paused)
 
         # Chat worker signals are forwarded by the pool.
         self.agent_pool.chat_text.connect(self._on_chat_worker_text)
@@ -1418,6 +1437,9 @@ class MainWindow(QMainWindow):
     @Slot(bool)
     def _on_agent_status_changed(self, running: bool) -> None:
         self.state.agent_running = running
+        if not running:
+            self.state.agent_iteration_active = False
+            self.state.agent_wait_start_ts = None
         self._agent_start_action.setEnabled(not running)
         self._agent_stop_action.setEnabled(running)
         self._agent_kill_action.setEnabled(running)
@@ -1450,6 +1472,8 @@ class MainWindow(QMainWindow):
     def _on_agent_iteration_started(self, iteration_id: str) -> None:
         from datetime import datetime
         self.state.last_iteration_ts = datetime.now()
+        self.state.agent_iteration_active = True
+        self.state.agent_wait_start_ts = None
         self._agent_text_buffer.clear()
 
     @Slot(str, str)
@@ -1458,6 +1482,7 @@ class MainWindow(QMainWindow):
         # stream of every thought the agent had (which is unreadable).
         # The full detail is already in the agent log panel.
         self._agent_text_buffer.clear()
+        self.state.agent_iteration_active = False
         message = summary
         if message:
             self.state.last_summary = summary
@@ -1469,6 +1494,61 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f"Agent error: {msg}", 8000)
         self._on_agent_log_line(f"[error] {msg}")
 
+    @Slot(str, int)
+    def _on_agent_usage_limit_paused(self, msg: str, seconds: int) -> None:
+        """Show the paused-for-usage banner until the pause window expires.
+
+        Called on the GUI thread via QueuedConnection. The seconds the
+        runner returns already accounts for the parsed reset clock plus
+        a 1-minute buffer, so we just clamp to the status bar's ms API.
+        """
+        ms = max(1000, int(seconds) * 1000)
+        self.statusBar().showMessage(msg, ms)
+
+    @Slot(int)
+    def _on_agent_cadence_changed(self, seconds: int) -> None:
+        """Update the settings panel readout whenever the runner reschedules.
+
+        ``cadence_changed`` fires right before the runner enters its sleep,
+        so we record the wait-start timestamp here. The settings panel's
+        1Hz timer derives the countdown from this plus ``agent_cadence_seconds``.
+        """
+        from datetime import datetime
+        self.state.agent_cadence_seconds = int(seconds)
+        self.state.agent_wait_start_ts = datetime.now()
+
+    def _on_breaking_news(self, hot_items: list) -> None:
+        """Wake the supervisor when the scraper flags material headlines.
+
+        Called from the scraper thread. ``notify_chat_activity`` is
+        thread-safe (just flips a bool); the log line is pushed to the
+        GUI via a Qt signal so Qt's queued-connection machinery does
+        the thread hop for us.
+        """
+        if not hot_items:
+            return
+        try:
+            sup = self.agent_pool.supervisor()
+        except Exception:
+            sup = None
+        if sup is None:
+            return
+
+        tickers = sorted({
+            str(it.get("ticker") or "").upper() for it in hot_items
+        } - {""})
+        headline = str(hot_items[0].get("title") or "").strip()
+        if len(headline) > 120:
+            headline = headline[:117] + "…"
+        tlist = ",".join(tickers[:5]) or "—"
+        self._breaking_news_emitted.emit(
+            f"[scraper] breaking news wake (tickers={tlist}): {headline}",
+        )
+        try:
+            sup.notify_chat_activity()
+        except Exception:
+            pass
+
     # ── Chat worker signal slots ─────────────────────────────────────
 
     @Slot(str)
@@ -1479,7 +1559,7 @@ class MainWindow(QMainWindow):
         count = len(self._chat_worker_ids)
         if count > 1:
             self.statusBar().showMessage(
-                f"AI thinking ({count} workers)...", 10000,
+                f"your blank advisor is thinking ({count} workers)...", 10000,
             )
 
     @Slot(str, str)
@@ -1733,7 +1813,8 @@ class MainWindow(QMainWindow):
 
     def _add_ticker_to_watchlist(self, ticker: str) -> None:
         """Add a ticker to the active watchlist and refresh."""
-        ticker = ticker.upper().strip()
+        # Preserve case — T212 LSE tickers use lowercase `l` (e.g. RRl_EQ).
+        ticker = ticker.strip()
         if not ticker:
             return
         asset = self.state.active_asset_class
@@ -1753,7 +1834,7 @@ class MainWindow(QMainWindow):
 
     def _remove_ticker_from_watchlist(self, ticker: str) -> bool:
         """Programmatically remove a ticker from the active watchlist."""
-        ticker = ticker.upper().strip()
+        ticker = ticker.strip()
         if not ticker:
             return False
         asset = self.state.active_asset_class
@@ -1863,7 +1944,7 @@ class MainWindow(QMainWindow):
         if self._ai_client and getattr(self._ai_client, "available", False):
             return True
         self.statusBar().showMessage(
-            f"{action_name} requires the blank AI engine — see the setup wizard",
+            f"{action_name} requires the blank advisor engine — see the setup wizard",
             5000,
         )
         return False

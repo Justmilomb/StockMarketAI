@@ -348,7 +348,9 @@ def _run_strategy_backtest(
     },
 )
 async def backtest_strategy(args: Dict[str, Any]) -> Dict[str, Any]:
-    ticker = str(args.get("ticker", "")).strip().upper()
+    # Preserve original case — Trading 212 LSE tickers use a lowercase
+    # `l` marker (e.g. ``RRl_EQ``) that case-normalisation would destroy.
+    ticker = str(args.get("ticker", "")).strip()
     if not ticker:
         return _text_result({"error": "ticker is required"})
 

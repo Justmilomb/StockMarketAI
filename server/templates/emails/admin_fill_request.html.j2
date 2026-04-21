@@ -1,32 +1,33 @@
 {% extends "_layout.html.j2" %}
 {% block content %}
-<h1 style="font-size:22px;font-weight:200;letter-spacing:-0.01em;margin:0 0 14px;color:#ffffff;">fill needed before this email goes out</h1>
-<p style="color:rgba(255,255,255,0.6);font-size:14px;line-height:1.65;margin:0 0 22px;">
-  blank is holding the following email until you fill in the missing fields. click the button below to open the fill-in form.
+<div style="font-family:'JetBrains Mono','Consolas','Courier New',monospace;color:#00ff87;font-size:11px;letter-spacing:0.28em;text-transform:uppercase;margin:0 0 14px;">draft held</div>
+<h1 style="font-family:'Outfit','Helvetica Neue',Arial,sans-serif;font-size:24px;font-weight:300;letter-spacing:-0.01em;color:#ffffff;margin:0 0 14px;line-height:1.3;">fill needed before this email goes out</h1>
+<p style="font-family:'Outfit','Helvetica Neue',Arial,sans-serif;color:rgba(255,255,255,0.6);font-size:14px;line-height:1.65;margin:0 0 22px;">
+blank is holding the following email until you fill in the missing fields. click the button below to open the fill-in form.
 </p>
 
-<div style="background:#000000;border:1px solid rgba(255,255,255,0.1);padding:14px 16px;margin:0 0 10px;">
-  <div style="font-family:'Outfit','Inter',-apple-system,sans-serif;font-size:10px;color:rgba(255,255,255,0.35);letter-spacing:0.2em;text-transform:uppercase;margin-bottom:5px;">template</div>
-  <div style="font-size:15px;color:#ffffff;">{{ template_label|e }}</div>
+<div style="background:#000000;border:1px solid rgba(255,255,255,0.08);padding:14px 16px;margin:0 0 10px;">
+  <div style="font-family:'JetBrains Mono','Consolas','Courier New',monospace;font-size:10px;color:rgba(255,255,255,0.32);letter-spacing:0.28em;text-transform:uppercase;margin-bottom:6px;">template</div>
+  <div style="font-family:'Outfit','Helvetica Neue',Arial,sans-serif;font-size:15px;color:#ffffff;">{{ template_label|e }}</div>
 </div>
 
-<div style="background:#000000;border:1px solid rgba(255,255,255,0.1);padding:14px 16px;margin:0 0 10px;">
-  <div style="font-family:'Outfit','Inter',-apple-system,sans-serif;font-size:10px;color:rgba(255,255,255,0.35);letter-spacing:0.2em;text-transform:uppercase;margin-bottom:5px;">recipient</div>
-  <div style="font-size:15px;color:#ffffff;">{{ draft_recipient|e }}</div>
+<div style="background:#000000;border:1px solid rgba(255,255,255,0.08);padding:14px 16px;margin:0 0 10px;">
+  <div style="font-family:'JetBrains Mono','Consolas','Courier New',monospace;font-size:10px;color:rgba(255,255,255,0.32);letter-spacing:0.28em;text-transform:uppercase;margin-bottom:6px;">recipient</div>
+  <div style="font-family:'JetBrains Mono','Consolas','Courier New',monospace;font-size:14px;color:#ffffff;">{{ draft_recipient|e }}</div>
 </div>
 
-<div style="background:#000000;border:1px solid rgba(255,255,255,0.1);padding:14px 16px;margin:0 0 26px;">
-  <div style="font-family:'Outfit','Inter',-apple-system,sans-serif;font-size:10px;color:rgba(255,255,255,0.35);letter-spacing:0.2em;text-transform:uppercase;margin-bottom:8px;">fields to fill in</div>
+<div style="background:#000000;border:1px solid rgba(255,255,255,0.08);padding:14px 16px;margin:0 0 26px;">
+  <div style="font-family:'JetBrains Mono','Consolas','Courier New',monospace;font-size:10px;color:rgba(255,255,255,0.32);letter-spacing:0.28em;text-transform:uppercase;margin-bottom:8px;">fields to fill in</div>
   {% for f in admin_fields %}
-  <div style="font-size:13px;color:#00ff87;padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.06);">{{ f|e }}</div>
+  <div style="font-family:'JetBrains Mono','Consolas','Courier New',monospace;font-size:13px;color:#00ff87;padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.08);letter-spacing:0.04em;">{{ f|e }}</div>
   {% endfor %}
 </div>
 
-<p style="margin:0 0 22px;text-align:center;">
-  <a href="{{ fill_url|e }}" style="display:inline-block;background:#00ff87;color:#000000;text-decoration:none;font-family:'Outfit','Inter',-apple-system,sans-serif;font-size:12px;font-weight:500;letter-spacing:0.1em;text-transform:uppercase;padding:14px 32px;">fill in &amp; send &rarr;</a>
+<p style="margin:0 0 22px;">
+<a href="{{ fill_url|e }}" style="display:inline-block;background:#00ff87;color:#000000;text-decoration:none;font-family:'JetBrains Mono','Consolas','Courier New',monospace;font-size:12px;letter-spacing:0.15em;text-transform:uppercase;padding:14px 28px;border:1px solid #00ff87;font-weight:500;">fill in &amp; send &rarr;</a>
 </p>
 
-<p style="color:rgba(255,255,255,0.3);font-size:12px;line-height:1.6;text-align:center;margin:0;">
-  this link expires in 7 days. after that the draft is discarded and the email will not be sent.
+<p style="font-family:'Outfit','Helvetica Neue',Arial,sans-serif;color:rgba(255,255,255,0.32);font-size:12px;line-height:1.65;margin:0;">
+this link expires in 7 days. after that the draft is discarded and the email will not be sent.
 </p>
 {% endblock %}

@@ -53,7 +53,7 @@ class RiskDisclosureDialog(BaseDialog):
         body = self.body_layout()
 
         text = QLabel(
-            "blank is an autonomous AI trading tool. When connected to a"
+            "blank is an autonomous trading tool. When connected to a"
             " live account it places real orders using your funds without"
             " asking for approval on each trade. Trading carries risk of"
             " financial loss. Only trade with money you can afford to lose."

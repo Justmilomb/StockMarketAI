@@ -256,6 +256,25 @@ class _PriceCache:
                 self._cache[t] = (now + self._ttl, price)
         return {t: self._cache[t][1] for t in tickers}
 
+    def get_fresh(self, ticker: str) -> float:
+        """Force a fresh fetch, bypassing TTL. Updates cache on success.
+
+        Used at fill time so a paper order always books against the
+        live market price, not a 30-second-stale cached quote. The 30s
+        cache is fine for position/account displays but would book CVX
+        at $150 when the actual tape has rallied to $183.
+        """
+        try:
+            from data_loader import fetch_live_prices
+            live = fetch_live_prices([ticker])
+        except Exception as e:  # pragma: no cover — network errors
+            logger.warning("paper: fresh price fetch failed for %s: %s", ticker, e)
+            return 0.0
+        price = float((live.get(ticker) or {}).get("price", 0.0) or 0.0)
+        if price > 0:
+            self._cache[ticker] = (time.monotonic() + self._ttl, price)
+        return price
+
 
 # ─────────────────────────────────────────────────────────────────────
 # The broker
@@ -579,10 +598,16 @@ class PaperBroker(Broker):
 
     def _reservation_price(self, order_type: str, limit_price: Optional[float],
                            ticker: str) -> float:
-        """Best-guess price for cash reservation when queueing a buy."""
+        """Best-guess price for cash reservation when queueing a buy.
+
+        Uses a fresh price fetch (not the 30s cache) because this value
+        becomes the actual fill price on an immediate market buy — a
+        stale quote would book CVX at last-cached $150 even when the
+        live tape is at $183.
+        """
         if order_type == "limit" and limit_price:
             return float(limit_price)
-        live = self._prices.get_many([ticker]).get(ticker, 0.0)
+        live = self._prices.get_fresh(ticker)
         return float(live) if live > 0 else 0.0
 
     # ── Broker interface ─────────────────────────────────────────────
@@ -709,7 +734,9 @@ class PaperBroker(Broker):
             # ── SELL path ────────────────────────────────────────────
             if side_upper == "SELL":
                 if is_open:
-                    live_px = self._prices.get_many([ticker]).get(ticker, 0.0)
+                    # Fresh fetch — this becomes the fill price, so a
+                    # 30s-stale cache would book at the wrong level.
+                    live_px = self._prices.get_fresh(ticker)
                     if live_px <= 0:
                         return self._reject(
                             order_id, ticker, side_upper, quantity,

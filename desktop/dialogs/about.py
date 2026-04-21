@@ -30,7 +30,7 @@ class AboutDialog(BaseDialog):
         )
         body.addWidget(version_label)
 
-        tagline = QLabel("AI-driven trading terminal.")
+        tagline = QLabel("advisor-driven trading terminal.")
         tagline.setAlignment(Qt.AlignCenter)
         tagline.setStyleSheet(
             f"color: {T.FG_2_HEX}; font-family: {T.FONT_SANS};"

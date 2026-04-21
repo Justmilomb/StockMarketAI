@@ -46,13 +46,14 @@ from . import subprocess_patch  # noqa: F401
 import asyncio
 import json
 import logging
+import re
 import sqlite3
 import tempfile
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from PySide6.QtCore import QThread, Signal
 
@@ -69,12 +70,34 @@ DEFAULT_WAKE_PROMPT: str = (
 CADENCE_FLOOR_SECONDS: int = 30
 
 #: Default cadence when all major markets are closed and no agent
-#: preference has been learned yet. 10 minutes.
-CADENCE_MARKET_CLOSED_DEFAULT: int = 600
+#: preference has been learned yet. 2 minutes — keeps the supervisor
+#: responsive enough for fast day-trading decisions without burning
+#: subscription quota when nothing's moving.
+CADENCE_MARKET_CLOSED_DEFAULT: int = 120
 
 #: Upper bound on how many journal-tail lines we keep in memory so the
 #: panel doesn't grow unbounded over a long session.
 JOURNAL_TAIL_MAX: int = 500
+
+#: Fallback sleep when Claude's subscription quota is exhausted and the
+#: error text doesn't carry a parseable reset clock. Five minutes is
+#: long enough that we don't thrash the CLI, short enough that a quota
+#: restoration gets picked up quickly.
+USAGE_LIMIT_BACKOFF_SECONDS: int = 300
+
+#: Substrings (case-insensitive) that mean the Claude CLI refused the
+#: request because the account is out of quota, not because of a
+#: programming error. When any of these appear in the combined
+#: assistant text + stderr tail we enter the paused state instead of
+#: raising an error to the UI.
+USAGE_LIMIT_PATTERNS: Tuple[str, ...] = (
+    "out of extra usage",
+    "out of usage",
+    "usage limit",
+    "rate limit",
+    "quota exceeded",
+    "quota reached",
+)
 
 
 class AgentRunner(QThread):
@@ -89,6 +112,8 @@ class AgentRunner(QThread):
     text_chunk = Signal(str)                    # assistant text block
     log_line = Signal(str)                      # pre-formatted journal line
     error_occurred = Signal(str)                # fatal runner error
+    cadence_changed = Signal(int)               # next sleep duration in seconds
+    usage_limit_paused = Signal(str, int)       # user-facing message, seconds
 
     def __init__(
         self,
@@ -104,6 +129,11 @@ class AgentRunner(QThread):
 
         self._stop_requested: bool = False
         self._interrupt_sleep: bool = False
+        # Set by ``force_fast_iteration`` when a chat message signals
+        # day-trading urgency. Clamps the *next* cadence to the 30s
+        # floor so the supervisor doesn't fall back to a learned 5-min
+        # wait the moment after a panicked "trade now" prompt.
+        self._force_fast_next_cadence: bool = False
 
         # Per-iteration counters, reset on each run.
         self._tool_call_count: int = 0
@@ -119,6 +149,12 @@ class AgentRunner(QThread):
         # learned timing preferences between iterations. Set at the start
         # of each iteration; None before the first iteration completes.
         self._cached_personality: Optional[Any] = None
+
+        # Usage-limit backoff window: when Claude's subscription quota is
+        # exhausted, the main loop skips iterations until this monotonic
+        # deadline and shows ``_usage_pause_msg`` in the status bar.
+        self._usage_pause_until: float = 0.0
+        self._usage_pause_msg: str = ""
 
     # ── public API ───────────────────────────────────────────────────
 
@@ -145,6 +181,19 @@ class AgentRunner(QThread):
         """
         self._interrupt_sleep = True
 
+    def force_fast_iteration(self) -> None:
+        """Force an immediate iteration with the minimum-cadence next wait.
+
+        Called by :class:`AgentPool` when a chat message contains a
+        day-trading urgency keyword (``trade now``, ``wake up``,
+        ``hurry`` …). Wakes the supervisor out of any current sleep
+        *and* clamps the next computed cadence to the 30s floor so the
+        agent actually day-trades instead of sliding back to a learned
+        5-minute wait the moment after the user asked for urgency.
+        """
+        self._interrupt_sleep = True
+        self._force_fast_next_cadence = True
+
     # ── QThread entry point ──────────────────────────────────────────
 
     def run(self) -> None:  # noqa: D401 — QThread API
@@ -170,6 +219,26 @@ class AgentRunner(QThread):
 
     async def _main_loop(self) -> None:
         while not self._stop_requested:
+            # Honour the usage-limit pause window before spawning a
+            # subprocess. The window was set by ``_enter_usage_pause``
+            # when a prior iteration detected exhausted quota, and is
+            # sized to land exactly 1 minute after Claude's reported
+            # reset time (or USAGE_LIMIT_BACKOFF_SECONDS if we couldn't
+            # parse a clock out of the error text).
+            if self._usage_pause_until > time.monotonic():
+                remaining = self._usage_pause_until - time.monotonic()
+                if self._usage_pause_msg:
+                    self.log_line.emit(f"[runner] {self._usage_pause_msg}")
+                self.cadence_changed.emit(int(remaining))
+                await self._sleep_with_interrupt(remaining)
+                if self._stop_requested:
+                    break
+                # Pause expired — clear state and fall through to a
+                # fresh iteration immediately.
+                self._usage_pause_until = 0.0
+                self._usage_pause_msg = ""
+                continue
+
             self._agent_requested_wait_minutes = 0
             try:
                 await self._run_one_iteration()
@@ -182,12 +251,18 @@ class AgentRunner(QThread):
 
             if self._stop_requested:
                 break
+            # If the iteration just tripped a usage-limit pause, skip
+            # the normal cadence — the top-of-loop check will sleep
+            # through the pause window on the next pass.
+            if self._usage_pause_until > time.monotonic():
+                continue
             wait_secs = self._compute_wait_seconds(self._agent_requested_wait_minutes)
             market_open = self._any_market_open()
             label = "market open" if market_open else "market closed"
             self.log_line.emit(
                 f"[runner] next check-in in {wait_secs:.0f}s ({label})",
             )
+            self.cadence_changed.emit(int(wait_secs))
             await self._sleep_with_interrupt(wait_secs)
 
     # ── iteration plumbing ───────────────────────────────────────────
@@ -210,6 +285,12 @@ class AgentRunner(QThread):
         The config cadence_seconds is used as the open-market default.
         """
         market_open = self._any_market_open()
+        if self._force_fast_next_cadence:
+            # Urgent chat override — one-shot clamp to the 30s floor so
+            # a "trade now" prompt actually produces sub-minute follow-up,
+            # even if the agent last asked for a 5-minute wait.
+            self._force_fast_next_cadence = False
+            return float(CADENCE_FLOOR_SECONDS)
         if agent_requested_minutes > 0:
             secs = float(max(CADENCE_FLOOR_SECONDS, agent_requested_minutes * 60))
             self._learn_cadence(secs, market_open)
@@ -247,7 +328,7 @@ class AgentRunner(QThread):
                 learned = float(prefs.get("closed_seconds", 0.0))
                 samples = int(prefs.get("sample_count", 0))
                 if learned > 0 and samples >= 3:
-                    return min(learned, 900.0)  # cap at 15 min
+                    return min(learned, 300.0)  # cap at 5 min
         except Exception:
             pass
         return float(CADENCE_MARKET_CLOSED_DEFAULT)
@@ -422,6 +503,7 @@ class AgentRunner(QThread):
 
         start = time.monotonic()
         summary: str = ""
+        last_assistant_text: str = ""
 
         try:
             async for message in query(prompt=prompt_text, options=options):
@@ -433,6 +515,7 @@ class AgentRunner(QThread):
                 if isinstance(message, AssistantMessage):
                     for block in message.content:
                         if isinstance(block, TextBlock):
+                            last_assistant_text = block.text
                             self.text_chunk.emit(block.text)
                             self.log_line.emit(f"[ai] {block.text}")
                             transcript_lines.append(f"[thought] {block.text}")
@@ -484,6 +567,13 @@ class AgentRunner(QThread):
                         self.log_line.emit(
                             f"[runner] result=error reason={message.stop_reason}",
                         )
+                        combined = (
+                            last_assistant_text
+                            + "\n"
+                            + "\n".join(stderr_lines[-10:])
+                        )
+                        if self._looks_like_usage_limit(combined):
+                            self._enter_usage_pause(combined)
                     else:
                         self.log_line.emit(
                             f"[runner] result=ok turns={message.num_turns} "
@@ -497,7 +587,11 @@ class AgentRunner(QThread):
             detail = str(e)
             if stderr_lines:
                 detail += " | stderr: " + " ".join(stderr_lines[-5:])
-            self.error_occurred.emit(f"query failed: {detail}")
+            combined = last_assistant_text + "\n" + detail
+            if self._looks_like_usage_limit(combined):
+                self._enter_usage_pause(combined)
+            else:
+                self.error_occurred.emit(f"query failed: {detail}")
         finally:
             # Pull the summary + requested sleep the agent wrote via
             # end_iteration, if any — must happen before clear_agent_context.
@@ -674,3 +768,81 @@ class AgentRunner(QThread):
                     parts.append(str(c))
             return " ".join(parts)
         return str(content)
+
+    # ── usage-limit handling ─────────────────────────────────────────
+
+    @staticmethod
+    def _looks_like_usage_limit(text: str) -> bool:
+        if not text:
+            return False
+        lower = text.lower()
+        return any(p in lower for p in USAGE_LIMIT_PATTERNS)
+
+    @staticmethod
+    def _parse_reset_target(text: str) -> Optional[Tuple[datetime, datetime]]:
+        """Parse Claude's "resets 10am" clock hint from an error message.
+
+        Returns ``(reset_at, resume_at)`` where ``resume_at`` is one
+        minute after the parsed reset time — that's when the loop fires
+        its next iteration. Both are naive local ``datetime`` objects.
+        Returns ``None`` if no clock is found so the caller can fall
+        back to ``USAGE_LIMIT_BACKOFF_SECONDS``.
+        """
+        match = re.search(
+            r"resets?(?:\s+at)?\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?",
+            text,
+            re.IGNORECASE,
+        )
+        if not match:
+            return None
+        try:
+            hour = int(match.group(1))
+            minute = int(match.group(2) or 0)
+            meridiem = (match.group(3) or "").lower()
+            if meridiem == "pm" and hour < 12:
+                hour += 12
+            elif meridiem == "am" and hour == 12:
+                hour = 0
+            if not (0 <= hour <= 23 and 0 <= minute <= 59):
+                return None
+            now = datetime.now()
+            reset_at = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+            if reset_at <= now:
+                reset_at = reset_at + timedelta(days=1)
+            resume_at = reset_at + timedelta(minutes=1)
+            return reset_at, resume_at
+        except Exception:
+            return None
+
+    def _enter_usage_pause(self, detail: str) -> None:
+        """Arm the pause window and tell the UI what's happening.
+
+        Called when an iteration's error output matches a usage-limit
+        pattern. Parses the reset clock if present and sleeps until
+        exactly 1 minute after reset, otherwise falls back to a 5-minute
+        blind retry. Either way, the user sees a plain-English message
+        in the status bar that tells them when the advisor will resume.
+        """
+        snippet = self._truncate(detail.strip().replace("\n", " "), 160)
+        parsed = self._parse_reset_target(detail)
+        if parsed is not None:
+            reset_at, resume_at = parsed
+            seconds = max(1, int((resume_at - datetime.now()).total_seconds()))
+            fmt = "%H:%M"
+            self._usage_pause_msg = (
+                f"blank advisor paused — usage resets at "
+                f"{reset_at.strftime(fmt)}, will resume at "
+                f"{resume_at.strftime(fmt)}"
+            )
+        else:
+            seconds = USAGE_LIMIT_BACKOFF_SECONDS
+            resume_at = datetime.now() + timedelta(seconds=seconds)
+            hint = snippet or "no reset time given"
+            self._usage_pause_msg = (
+                f"blank advisor paused — usage limit reached "
+                f"({hint}). Will retry at {resume_at.strftime('%H:%M')}."
+            )
+        self._usage_pause_until = time.monotonic() + seconds
+        self.log_line.emit(f"[runner] {self._usage_pause_msg}")
+        self.usage_limit_paused.emit(self._usage_pause_msg, seconds)
+        self.cadence_changed.emit(seconds)

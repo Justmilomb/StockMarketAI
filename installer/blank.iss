@@ -73,11 +73,42 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"
 Filename: "{app}\blank.exe"; Description: "Launch blank"; Flags: nowait postinstall skipifsilent unchecked
 
 [UninstallDelete]
-; User state lives in %LOCALAPPDATA%\blank\ now — never touch it here.
-; These entries only clean transient cruft inside the install dir plus
-; the bundled engine tree (which was created by the installer, not
-; the user).
+; User state lives in %LOCALAPPDATA%\blank\ now — by default, never touch
+; it here (so updates that uninstall+reinstall preserve watchlists, chat
+; history, agent journal). The [Code] section below prompts the user
+; during a genuine uninstall and wipes the data dir if they opt in.
 Type: filesandordirs; Name: "{app}\__pycache__"
 Type: filesandordirs; Name: "{app}\engine"
 Type: files; Name: "{app}\*.log"
 Type: files; Name: "{app}\*.pyc"
+
+[Code]
+// Prompt on genuine uninstall to optionally wipe %LOCALAPPDATA%\blank\
+// (watchlists, chat history, agent journal, paper broker state).
+// Silent uninstalls (auto-updater) skip the prompt and keep the data.
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  UserDataDir: String;
+  Response: Integer;
+begin
+  if CurUninstallStep = usUninstall then
+  begin
+    if UninstallSilent then
+      Exit;
+
+    UserDataDir := ExpandConstant('{localappdata}\blank');
+    if not DirExists(UserDataDir) then
+      Exit;
+
+    Response := MsgBox(
+      'Also remove your blank user data?' + #13#10#13#10 +
+      'This deletes your watchlists, chat history, agent journal,' + #13#10 +
+      'and paper broker state in:' + #13#10 +
+      UserDataDir + #13#10#13#10 +
+      'Choose No to keep this data for a future reinstall.',
+      mbConfirmation, MB_YESNO or MB_DEFBUTTON2);
+
+    if Response = IDYES then
+      DelTree(UserDataDir, True, True, True);
+  end;
+end;

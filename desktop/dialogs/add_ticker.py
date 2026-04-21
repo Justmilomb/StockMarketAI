@@ -44,6 +44,8 @@ class AddTickerDialog(BaseDialog):
         self.add_footer_button("ADD", variant="primary", slot=self._accept)
 
     def _accept(self) -> None:
-        self.ticker = self._input.text().strip().upper()
+        # Preserve case — Trading 212 LSE tickers use a lowercase `l`
+        # (e.g. RRl_EQ, BPl_EQ) that case-normalisation would destroy.
+        self.ticker = self._input.text().strip()
         if self.ticker:
             self.accept()

@@ -4,8 +4,7 @@ Renders a single column of key / value rows:
 
 * agent status (running / offline)
 * cadence
-* seconds since last iteration
-* tool calls in the current/last iteration
+* next iteration countdown (or "RUNNING" mid-iteration)
 * account balance / invested / total / unrealised PnL
 
 Mode (paper vs live) is deliberately **not** shown — the only paper-mode
@@ -20,6 +19,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
+from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QFrame, QGridLayout, QGroupBox, QLabel, QVBoxLayout
 
 from desktop import tokens as T
@@ -28,8 +28,7 @@ from desktop import tokens as T
 _FIELDS: list[tuple[str, str]] = [
     ("agent", "AGENT"),
     ("cadence", "CADENCE"),
-    ("last_iter", "LAST ITER"),
-    ("tool_calls", "TOOL CALLS"),
+    ("next_iter", "NEXT ITER"),
     ("balance", "BALANCE"),
     ("invested", "INVESTED"),
     ("total", "TOTAL"),
@@ -42,6 +41,7 @@ class SettingsPanel(QGroupBox):
 
     def __init__(self, state: Any) -> None:
         super().__init__("STATUS")
+        self._state = state
         self._value_labels: dict[str, QLabel] = {}
 
         root = QVBoxLayout(self)
@@ -69,6 +69,15 @@ class SettingsPanel(QGroupBox):
         grid.setColumnStretch(1, 1)
         root.addWidget(grid_host)
         root.addStretch()
+
+        # 1 Hz tick so the NEXT ITER countdown updates smoothly even when
+        # nothing else in the app is refreshing. Cheap — single label
+        # repaint on the GUI thread.
+        self._tick = QTimer(self)
+        self._tick.setInterval(1000)
+        self._tick.timeout.connect(self._on_tick)
+        self._tick.start()
+
         self.refresh_view(state)
 
     @staticmethod
@@ -79,7 +88,12 @@ class SettingsPanel(QGroupBox):
             f" font-size: 12px; font-weight: {weight};"
         )
 
+    def _on_tick(self) -> None:
+        self.refresh_view(self._state)
+
     def refresh_view(self, state: Any) -> None:
+        self._state = state
+
         running = bool(getattr(state, "agent_running", False))
         agent_colour = T.ACCENT_HEX if running else T.FG_2_HEX
         self._value_labels["agent"].setText("RUNNING" if running else "OFFLINE")
@@ -91,18 +105,11 @@ class SettingsPanel(QGroupBox):
         self._value_labels["cadence"].setText(f"{cadence}s")
         self._value_labels["cadence"].setStyleSheet(self._value_style(T.FG_0))
 
-        last_ts = getattr(state, "last_iteration_ts", None)
-        if isinstance(last_ts, datetime):
-            delta = int((datetime.now() - last_ts).total_seconds())
-            self._value_labels["last_iter"].setText(f"{delta}s ago")
-            self._value_labels["last_iter"].setStyleSheet(self._value_style(T.FG_1_HEX))
-        else:
-            self._value_labels["last_iter"].setText("—")
-            self._value_labels["last_iter"].setStyleSheet(self._value_style(T.FG_2_HEX))
-
-        recent = getattr(state, "recent_tool_calls", None) or []
-        self._value_labels["tool_calls"].setText(str(len(recent)))
-        self._value_labels["tool_calls"].setStyleSheet(self._value_style(T.FG_0))
+        text, colour = _next_iter_readout(state, cadence)
+        self._value_labels["next_iter"].setText(text)
+        self._value_labels["next_iter"].setStyleSheet(
+            self._value_style(colour, bold=text == "RUNNING")
+        )
 
         acct = getattr(state, "account_info", None) or {}
         for key in ("balance", "invested", "total"):
@@ -128,6 +135,31 @@ def _extract_cadence(state: Any) -> int:
     if isinstance(val, (int, float)) and val > 0:
         return int(val)
     return 90
+
+
+def _next_iter_readout(state: Any, cadence: int) -> tuple[str, str]:
+    """Return ``(label, colour)`` for the NEXT ITER cell.
+
+    * Agent off → ``"—"`` dim.
+    * Mid-iteration → ``"RUNNING"`` in accent green.
+    * Sleeping → a countdown like ``"42s"`` ticking toward the next wake.
+    * Unknown (e.g. app just started and first iteration hasn't run) →
+      show the cadence as a best-guess duration.
+    """
+    if not getattr(state, "agent_running", False):
+        return "—", T.FG_2_HEX
+
+    if getattr(state, "agent_iteration_active", False):
+        return "RUNNING", T.ACCENT_HEX
+
+    start = getattr(state, "agent_wait_start_ts", None)
+    if isinstance(start, datetime) and cadence > 0:
+        remaining = int(cadence - (datetime.now() - start).total_seconds())
+        if remaining < 0:
+            remaining = 0
+        return f"{remaining}s", T.FG_1_HEX
+
+    return f"{cadence}s", T.FG_1_HEX
 
 
 def _fmt_money(val: Any) -> str:

@@ -94,6 +94,9 @@ class AppState:
     last_summary: str = ""
     recent_tool_calls: List[Dict[str, Any]] = field(default_factory=list)
     agent_journal_tail: List[str] = field(default_factory=list)
+    agent_cadence_seconds: int = 0
+    agent_iteration_active: bool = False
+    agent_wait_start_ts: Optional[datetime] = None
 
     def switch_asset_class(self, asset_class: AssetClass) -> None:
         """Switch the active asset class, swapping cached data in/out."""
