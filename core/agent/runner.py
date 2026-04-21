@@ -273,6 +273,46 @@ class AgentRunner(QThread):
         # see paper_mode=True, regardless of what's on disk.
         return self._pool._load_config()
 
+    def _announce_next_cadence(self, minutes: int) -> None:
+        """Emit cadence_changed the moment the agent picks its next wait.
+
+        Called by the end_iteration tool via ``AgentContext.cadence_hook``
+        — fires inside the tool callback, which runs on the agent loop's
+        asyncio task. Qt auto-marshals the signal to the GUI thread via
+        ``QueuedConnection``, so it's safe to call from here. The goal
+        is a sub-second UI countdown flip instead of the ~5-20s lag from
+        waiting until the assessor + reflector stages finish.
+
+        Runs ``_compute_wait_seconds`` with a copy of the requested
+        minutes so the settings panel sees the exact same duration the
+        main loop will actually sleep for, including the 30s floor and
+        any force-fast-next-cadence override.
+        """
+        try:
+            mins = max(0, int(minutes))
+        except (TypeError, ValueError):
+            return
+        # Intentionally does not consume _force_fast_next_cadence here —
+        # _compute_wait_seconds does that when the main loop picks the
+        # real wait. This is just an early UI preview, and using the
+        # non-clamped path keeps it idempotent.
+        if self._force_fast_next_cadence:
+            secs = float(CADENCE_FLOOR_SECONDS)
+        elif mins > 0:
+            secs = float(max(CADENCE_FLOOR_SECONDS, mins * 60))
+        else:
+            market_open = self._any_market_open()
+            if market_open:
+                try:
+                    cfg = self._load_config()
+                    cadence = int(cfg.get("agent", {}).get("cadence_seconds", 90))
+                except Exception:
+                    cadence = 90
+                secs = float(max(CADENCE_FLOOR_SECONDS, cadence))
+            else:
+                secs = float(max(CADENCE_FLOOR_SECONDS, self._closed_market_cadence()))
+        self.cadence_changed.emit(int(secs))
+
     def _compute_wait_seconds(self, agent_requested_minutes: int = 0) -> float:
         """Compute sleep duration with market-aware fallback.
 
@@ -423,7 +463,7 @@ class AgentRunner(QThread):
         self._cached_personality = trader_personality
 
         iteration_id = f"iter-{uuid.uuid4().hex[:8]}"
-        init_agent_context(
+        ctx = init_agent_context(
             config=effective_config,
             broker_service=broker_service,
             db=db,
@@ -432,6 +472,13 @@ class AgentRunner(QThread):
             paper_mode=paper_mode,
             trader_personality=trader_personality,
         )
+        # Install the cadence hook so end_iteration can announce the
+        # next wake-up to the UI immediately, without waiting for the
+        # iteration-teardown phase (assessor + reflector + cleanup) to
+        # finish. _compute_wait_seconds applies the same clamping the
+        # main loop would, so the settings-panel countdown matches the
+        # real sleep duration the loop is about to enter.
+        ctx.cadence_hook = self._announce_next_cadence
 
         self._tool_call_count = 0
         self._trade_count = 0

@@ -54,6 +54,17 @@ class DevMonitor(QThread):
         _base = self._url.split("/api/")[0] if "/api/" in self._url else self._url.rsplit("/", 3)[0]
         self._telemetry_url: str = f"{_base}/api/telemetry/snapshot"
 
+        # Emit a single info-level line at startup so a user checking the
+        # log can immediately see whether telemetry is wired up at all.
+        # Previous versions only logged at debug level, which made a
+        # misconfigured install look identical to a working one.
+        logger.info(
+            "dev_monitor: start url=%s license=%s cadence=%ds",
+            self._url,
+            "set" if self._license_key else "MISSING",
+            self._cadence,
+        )
+
         # personality file path from config (same default as agent runner)
         _agent_cfg = config.get("agent", {})
         self._personality_path: Path = Path(
@@ -208,7 +219,15 @@ class DevMonitor(QThread):
             timeout=10,
         )
         if r.status_code >= 300:
-            logger.debug("dev_monitor: server returned %d", r.status_code)
+            # 4xx/5xx means the endpoint rejected us — surface at warning
+            # so the user / a support session can actually see it. The
+            # old debug level hid auth failures and stale URLs.
+            logger.warning(
+                "dev_monitor: agent-status POST %s returned %d: %s",
+                self._url,
+                r.status_code,
+                (r.text or "")[:200],
+            )
 
     def _post_telemetry(self, snapshot: Dict[str, Any]) -> None:
         if not self._license_key:
@@ -220,4 +239,13 @@ class DevMonitor(QThread):
             timeout=10,
         )
         if r.status_code >= 300:
-            logger.debug("dev_monitor: telemetry returned %d", r.status_code)
+            # Telemetry rejection (403 invalid license / 400 bad body) is
+            # the single most common reason the admin inspect panel shows
+            # nothing. Logging at warning level means a user checking
+            # their log sees the root cause immediately.
+            logger.warning(
+                "dev_monitor: telemetry POST %s returned %d: %s",
+                self._telemetry_url,
+                r.status_code,
+                (r.text or "")[:200],
+            )

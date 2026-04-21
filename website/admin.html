@@ -2029,10 +2029,27 @@
 
             if (!snap) {
                 const c = makeICard('live status', true);
+                // Pick the most informative message we can — a
+                // telemetry_error from the server beats "no snapshot",
+                // and a positive event_count means the client IS
+                // uploading but we failed to read the latest row.
+                let msg = 'no snapshot yet — dev monitor not enabled for this user, or no uploads received';
+                if (data.telemetry_error) {
+                    msg = 'telemetry read failed on server: ' + data.telemetry_error;
+                } else if (data.event_count && data.event_count > 0) {
+                    msg = 'have ' + data.event_count + ' uploads but latest snapshot failed to decode';
+                }
                 c.cardBody.appendChild(el('p', {
-                    text: 'no snapshot yet — dev monitor not enabled for this user',
+                    text: msg,
                     style: { color: 'var(--text-dim)', fontSize: '0.75rem' }
                 }));
+                if (data.first_upload || data.last_upload) {
+                    addIRow(c.cardBody, 'first upload',
+                        data.first_upload ? timeAgo(data.first_upload) : '—');
+                    addIRow(c.cardBody, 'last upload',
+                        data.last_upload ? timeAgo(data.last_upload) : '—');
+                    addIRow(c.cardBody, 'total uploads', data.event_count || 0);
+                }
                 body.appendChild(c.card);
             } else {
                 // 1. Live status

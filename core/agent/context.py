@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from contextvars import ContextVar
 from dataclasses import dataclass, field
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional
 
 from broker_service import BrokerService
 from database import HistoryManager
@@ -48,6 +48,15 @@ class AgentContext:
         end_summary       free-form summary the agent wrote on its way out.
         stats             ad-hoc counters (tool_calls, errors, …) used by
                           the runner for budget enforcement.
+        cadence_hook      optional callback fired by end_iteration the
+                          moment the agent commits to a next_check_in_
+                          minutes value. Used by the runner to emit the
+                          Qt cadence_changed signal *immediately* rather
+                          than waiting for the iteration teardown — the
+                          settings-panel countdown should update as soon
+                          as the agent announces its next wake-up, not
+                          10-20s later after the assessor + reflector
+                          stages finish.
     """
 
     config: Dict[str, Any]
@@ -61,6 +70,7 @@ class AgentContext:
     end_summary: str = ""
     stats: Dict[str, int] = field(default_factory=dict)
     trader_personality: Optional[Any] = None
+    cadence_hook: Optional[Callable[[int], None]] = None
 
 
 _context: ContextVar[Optional[AgentContext]] = ContextVar(
