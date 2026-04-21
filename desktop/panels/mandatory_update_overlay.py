@@ -45,7 +45,7 @@ QFrame#MandatoryUpdateOverlay {{
 }}
 QFrame#MandatoryUpdateOverlay QLabel {{
     background: transparent;
-    color: {T.FG_1_HEX};
+    color: {T.FG_0};
     font-family: {T.FONT_SANS};
     font-size: 12px;
 }}
@@ -64,7 +64,7 @@ QFrame#MandatoryUpdateOverlay QLabel#HeadlineLabel {{
     letter-spacing: -0.01em;
 }}
 QFrame#MandatoryUpdateOverlay QLabel#SubLabel {{
-    color: {T.FG_2_HEX};
+    color: {T.FG_1_HEX};
     font-family: {T.FONT_MONO};
     font-size: 10px;
     letter-spacing: 2px;
@@ -83,16 +83,17 @@ QFrame#MandatoryUpdateOverlay QPushButton#InstallBtn {{
 }}
 QFrame#MandatoryUpdateOverlay QPushButton#InstallBtn:hover {{
     background: {T.FG_0};
+    color: {T.BG_0};
     border-color: {T.FG_0};
 }}
 QFrame#MandatoryUpdateOverlay QPushButton#InstallBtn:disabled {{
     background: transparent;
-    color: {T.FG_2_HEX};
+    color: {T.FG_1_HEX};
     border-color: {T.BORDER_0};
 }}
 QFrame#MandatoryUpdateOverlay QPushButton#NotesToggle {{
     background: transparent;
-    color: {T.FG_1_HEX};
+    color: {T.FG_0};
     border: 1px solid {T.BORDER_1};
     border-radius: 0;
     padding: 7px 16px;
@@ -108,7 +109,7 @@ QFrame#MandatoryUpdateOverlay QPushButton#NotesToggle:hover {{
 }}
 QFrame#MandatoryUpdateOverlay QTextEdit#NotesView {{
     background: {T.BG_0};
-    color: {T.FG_1_HEX};
+    color: {T.FG_0};
     border: 1px solid {T.BORDER_0};
     border-radius: 0;
     font-family: {T.FONT_SANS};
@@ -127,7 +128,7 @@ QFrame#MandatoryUpdateOverlay QProgressBar::chunk {{
     background: {T.ALERT};
 }}
 QFrame#MandatoryUpdateOverlay QLabel#GrabLabel {{
-    color: {T.FG_2_HEX};
+    color: {T.FG_1_HEX};
     font-family: {T.FONT_MONO};
     font-size: 9px;
     letter-spacing: 2px;

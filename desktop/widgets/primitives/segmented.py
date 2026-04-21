@@ -66,7 +66,7 @@ class Segmented(QFrame):
             btn.setStyleSheet(
                 f"QPushButton {{"
                 f"  background: {T.ACCENT if active else 'transparent'};"
-                f"  color: {T.BG_0 if active else T.FG_1};"
+                f"  color: {T.BG_0 if active else T.FG_0};"
                 f"  border: none;"
                 f"  padding: 10px 16px;"
                 f"  font-family: {T.FONT_MONO};"
@@ -74,7 +74,7 @@ class Segmented(QFrame):
                 f"  letter-spacing: 2px;"
                 f"}}"
                 f"QPushButton:hover {{"
-                f"  color: {T.BG_0 if active else T.FG_0};"
+                f"  color: {T.BG_0};"
                 f"  background: {T.ACCENT if active else T.BG_3};"
                 f"}}"
             )

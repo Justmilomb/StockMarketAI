@@ -100,21 +100,15 @@ def _held_current_price(ticker: str) -> float | None:
     return None
 
 
-# ── Secondary price sources ────────────────────────────────────────────
-#
-# yfinance can return 0.0 right at market open (especially for LSE names)
-# because its batch "5d download" endpoint lags by a few minutes while the
-# book opens. These fallbacks hit single-ticker endpoints that tend to be
-# fresher and have no auth/key requirement.
-
-
-def _yahoo_v8_price(ticker: str) -> Dict[str, float] | None:
-    """Hit Yahoo Finance's v8 chart endpoint directly.
-
-    Returns ``{"price", "change_pct"}`` or ``None``. Often fresher than the
-    yfinance ``download()`` batch because it's a single-instrument call.
+def _yahoo_v8_price(ticker: str) -> Optional[Dict[str, float]]:
+    """Hit Yahoo's v8 chart endpoint directly. Catches LSE open prints
+    that yfinance's cached library misses in the first minutes of the
+    session. Returns None on any failure — never raises.
     """
-    import requests
+    try:
+        import requests
+    except Exception:
+        return None
     try:
         resp = requests.get(
             f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}",
@@ -122,14 +116,15 @@ def _yahoo_v8_price(ticker: str) -> Dict[str, float] | None:
             headers={"User-Agent": "Mozilla/5.0"},
             timeout=8,
         )
-        resp.raise_for_status()
-        body = resp.json()
-        result = (body.get("chart") or {}).get("result") or []
-        if not result:
+        if resp.status_code != 200:
             return None
-        meta = result[0].get("meta") or {}
-        price = float(meta.get("regularMarketPrice", 0.0) or 0.0)
-        prev = float(meta.get("chartPreviousClose", 0.0) or 0.0)
+        payload = resp.json() or {}
+        chart = (payload.get("chart") or {}).get("result") or []
+        if not chart:
+            return None
+        meta = chart[0].get("meta") or {}
+        price = float(meta.get("regularMarketPrice") or 0.0)
+        prev = float(meta.get("chartPreviousClose") or 0.0)
         if price <= 0:
             return None
         change_pct = ((price - prev) / prev * 100.0) if prev > 0 else 0.0
@@ -138,39 +133,45 @@ def _yahoo_v8_price(ticker: str) -> Dict[str, float] | None:
         return None
 
 
-def _stooq_price(ticker: str) -> Dict[str, float] | None:
-    """Hit Stooq's public CSV endpoint.
-
-    Stooq uses ``.UK`` for LSE (yfinance uses ``.L``). We try the ticker
-    verbatim first, then an ``.L`` → ``.UK`` rewrite.
+def _stooq_price(ticker: str) -> Optional[Dict[str, float]]:
+    """Stooq public CSV — LSE mirror uses ``.UK`` instead of ``.L``.
+    Useful as a second-line fallback when both yfinance and the Yahoo
+    v8 chart are stale. Returns None on any failure.
     """
-    import requests
-    candidates = [ticker]
-    if ticker.endswith(".L"):
-        candidates.append(ticker[:-2] + ".UK")
-    for sym in candidates:
-        try:
-            resp = requests.get(
-                "https://stooq.com/q/l/",
-                params={"s": sym.lower(), "f": "sd2t2ohlcv", "h": "", "e": "csv"},
-                timeout=8,
-            )
-            resp.raise_for_status()
-            lines = [line.strip() for line in resp.text.splitlines() if line.strip()]
-            if len(lines) < 2:
-                continue
-            cols = lines[1].split(",")
-            # Layout: Symbol,Date,Time,Open,High,Low,Close,Volume
-            if len(cols) < 7 or cols[6] in ("N/D", ""):
-                continue
-            close = float(cols[6])
-            open_px = float(cols[3]) if cols[3] not in ("N/D", "") else close
-            change_pct = ((close - open_px) / open_px * 100.0) if open_px > 0 else 0.0
-            if close > 0:
-                return {"price": close, "change_pct": change_pct}
-        except Exception:
-            continue
-    return None
+    try:
+        import requests
+    except Exception:
+        return None
+    sym = ticker.lower()
+    if sym.endswith(".l"):
+        sym = sym[:-2] + ".uk"
+    try:
+        resp = requests.get(
+            f"https://stooq.com/q/l/?s={sym}&f=sd2t2ohlcv&h&e=csv",
+            headers={"User-Agent": "Mozilla/5.0"},
+            timeout=8,
+        )
+        if resp.status_code != 200:
+            return None
+        lines = [l for l in (resp.text or "").splitlines() if l.strip()]
+        if len(lines) < 2:
+            return None
+        cols = lines[1].split(",")
+        # Columns: Symbol,Date,Time,Open,High,Low,Close,Volume
+        if len(cols) < 7:
+            return None
+        close_raw = cols[6]
+        open_raw = cols[3]
+        if not close_raw or close_raw.upper() == "N/D":
+            return None
+        price = float(close_raw)
+        opn = float(open_raw) if open_raw and open_raw.upper() != "N/D" else 0.0
+        if price <= 0:
+            return None
+        change_pct = ((price - opn) / opn * 100.0) if opn > 0 else 0.0
+        return {"price": price, "change_pct": change_pct}
+    except Exception:
+        return None
 
 
 def _yf_interval_period(interval: str, lookback_minutes: int) -> tuple[str, str]:
@@ -190,12 +191,10 @@ def _yf_interval_period(interval: str, lookback_minutes: int) -> tuple[str, str]
 
 @tool(
     "get_live_price",
-    "Return the latest known price for a ticker. Order of preference: "
-    "Trading 212 currentPrice (if held, truly live), yfinance (delayed "
-    "15-20 min), Yahoo v8 chart endpoint, Stooq. The response includes "
-    "the source so you can reason about staleness. Note: T212 only "
-    "exposes prices for tickers already in the portfolio; its public "
-    "API has no quote endpoint for arbitrary symbols.",
+    "Return the latest known price for a ticker. If we already hold it, "
+    "uses the broker's currentPrice (truly live). Otherwise uses yfinance "
+    "(delayed 15-20 min). The response includes the source so you can "
+    "reason about staleness.",
     {"ticker": str},
 )
 async def get_live_price(args: Dict[str, Any]) -> Dict[str, Any]:
@@ -203,61 +202,68 @@ async def get_live_price(args: Dict[str, Any]) -> Dict[str, Any]:
     if not ticker:
         return _text_result({"error": "ticker is required"})
 
-    ts = datetime.utcnow().isoformat() + "Z"
+    sources_tried: List[str] = []
 
     px = _held_current_price(ticker)
     if px is not None:
         return _text_result({
-            "ticker": ticker, "price": px, "source": "t212_broker_live", "ts": ts,
+            "ticker": ticker, "price": px, "source": "broker_live",
+            "ts": datetime.utcnow().isoformat() + "Z",
         })
 
-    tried: List[str] = []
-
+    # Fallback chain: yfinance → Yahoo v8 chart → Stooq. We only move to
+    # the next source when the previous one returns a zero/no-data
+    # result — LSE tickers routinely print 0.0 from yfinance in the
+    # first few minutes of the session, so a direct chart-API hit or
+    # Stooq mirror gets us a real number while yfinance's cache catches
+    # up.
     try:
         from data_loader import fetch_live_prices
         live = fetch_live_prices([ticker])
         data = live.get(ticker, {}) or {}
         price = float(data.get("price", 0.0) or 0.0)
+        sources_tried.append("yfinance")
         if price > 0:
             return _text_result({
                 "ticker": ticker,
                 "price": price,
                 "change_pct": float(data.get("change_pct", 0.0) or 0.0),
                 "source": "yfinance_delayed",
-                "ts": ts,
+                "ts": datetime.utcnow().isoformat() + "Z",
             })
-        tried.append("yfinance")
-    except Exception as e:
-        tried.append(f"yfinance({e})")
+    except Exception:
+        sources_tried.append("yfinance_error")
 
-    yahoo = _yahoo_v8_price(ticker)
-    if yahoo is not None:
+    v8 = _yahoo_v8_price(ticker)
+    sources_tried.append("yahoo_v8")
+    if v8 is not None:
         return _text_result({
             "ticker": ticker,
-            "price": yahoo["price"],
-            "change_pct": yahoo["change_pct"],
-            "source": "yahoo_chart_v8",
-            "ts": ts,
+            "price": v8["price"],
+            "change_pct": v8["change_pct"],
+            "source": "yahoo_v8",
+            "ts": datetime.utcnow().isoformat() + "Z",
         })
-    tried.append("yahoo_v8")
 
-    stooq = _stooq_price(ticker)
-    if stooq is not None:
+    stq = _stooq_price(ticker)
+    sources_tried.append("stooq")
+    if stq is not None:
         return _text_result({
             "ticker": ticker,
-            "price": stooq["price"],
-            "change_pct": stooq["change_pct"],
+            "price": stq["price"],
+            "change_pct": stq["change_pct"],
             "source": "stooq",
-            "ts": ts,
+            "ts": datetime.utcnow().isoformat() + "Z",
         })
-    tried.append("stooq")
 
     return _text_result({
         "ticker": ticker,
         "price": 0.0,
-        "error": "no source returned a price",
-        "sources_tried": tried,
-        "ts": ts,
+        "change_pct": 0.0,
+        "source": "none",
+        "sources_tried": sources_tried,
+        "error": "no live price available from any source",
+        "ts": datetime.utcnow().isoformat() + "Z",
     })
 
 

@@ -18,14 +18,17 @@ BG_3 = "#141414"  # active / pressed
 # ── Foreground text opacities ────────────────────────────────────────
 
 FG_0 = "#ffffff"
-FG_1 = "rgba(255, 255, 255, 0.60)"
-FG_2 = "rgba(255, 255, 255, 0.32)"
-FG_3 = "rgba(255, 255, 255, 0.14)"
+FG_1 = "rgba(255, 255, 255, 0.70)"
+FG_2 = "rgba(255, 255, 255, 0.50)"
+FG_3 = "rgba(255, 255, 255, 0.24)"
 
-# Hex fallbacks for anywhere QPainter / QColor can't take rgba strings
-FG_1_HEX = "#999999"
-FG_2_HEX = "#525252"
-FG_3_HEX = "#242424"
+# Hex fallbacks for anywhere QPainter / QColor can't take rgba strings.
+# Values bumped up from the original rgba equivalents so small mono
+# metadata (kickers, field labels, progress counters) stays readable on
+# a pure-black background without drowning in dim grey.
+FG_1_HEX = "#b3b3b3"
+FG_2_HEX = "#808080"
+FG_3_HEX = "#3d3d3d"
 
 # ── Accents ──────────────────────────────────────────────────────────
 
