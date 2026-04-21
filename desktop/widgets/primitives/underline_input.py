@@ -29,6 +29,6 @@ class UnderlineInput(QLineEdit):
             f"  border-bottom-color: {T.ACCENT};"
             f"}}"
             f"QLineEdit::placeholder {{"
-            f"  color: {T.FG_3};"
+            f"  color: {T.FG_2};"
             f"}}"
         )

@@ -77,7 +77,7 @@ class NewsPanel(QGroupBox):
                 f'font-size:10px;letter-spacing:2px;">NEWS UNAVAILABLE</p>'
                 f'<p style="color:{T.FG_1_HEX};margin:4px 0;">'
                 f'feedparser is not installed.</p>'
-                f'<p style="color:{T.FG_2_HEX};margin:4px 0;">'
+                f'<p style="color:{T.FG_1_HEX};margin:4px 0;">'
                 f'Run: pip install feedparser</p>'
             )
             return
@@ -86,7 +86,7 @@ class NewsPanel(QGroupBox):
             self._text.setHtml(
                 f'<p style="color:{T.WARN};font-family:{T.FONT_MONO};'
                 f'font-size:10px;letter-spacing:2px;">WAITING FOR DATA</p>'
-                f'<p style="color:{T.FG_2_HEX};margin:4px 0;">'
+                f'<p style="color:{T.FG_1_HEX};margin:4px 0;">'
                 f'Scraper runner fills this within a minute of startup.</p>'
             )
             return
@@ -126,7 +126,7 @@ class NewsPanel(QGroupBox):
                 for h in headlines[:3]:
                     title = h if isinstance(h, str) else h.get("title", "")
                     parts.append(
-                        f'<p style="color:{T.FG_2_HEX};margin:2px 0 2px 14px;'
+                        f'<p style="color:{T.FG_1_HEX};margin:2px 0 2px 14px;'
                         f'line-height:1.4;">— {escape(str(title))}</p>'
                     )
 
@@ -140,7 +140,7 @@ class NewsPanel(QGroupBox):
             active = int(swarm_status.get("active_workers", 0) or 0)
             ran = int(swarm_status.get("total_tasks_run", 0) or 0)
             parts.append(
-                f'<p style="color:{T.FG_2_HEX};margin:0 0 0 4px;">'
+                f'<p style="color:{T.FG_1_HEX};margin:0 0 0 4px;">'
                 f'Swarm running — {active} workers, {ran} tasks. '
                 f'Findings land here as workers report in.</p>'
             )

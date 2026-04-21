@@ -391,7 +391,7 @@ class SetupWizard(QDialog):
         env_line = (
             f"<span style='color:{T.ACCENT_HEX};'>CONFIGURED</span>"
             if self._env_ok
-            else f"<span style='color:{T.FG_2_HEX};'>PAPER MODE</span>"
+            else f"<span style='color:{T.FG_1_HEX};'>PAPER MODE</span>"
         )
         self._summary.setText(
             f"advisor engine &mdash; {engine_line}<br>"

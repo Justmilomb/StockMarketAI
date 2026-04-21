@@ -21,7 +21,7 @@ def _table_qss() -> str:
         f" color: {T.FG_0}; font-family: {T.FONT_SANS}; font-size: 12px; }}"
         f"QHeaderView::section {{ background: transparent; border: none;"
         f" border-bottom: 1px solid {T.BORDER_0};"
-        f" color: {T.FG_2_HEX}; font-family: {T.FONT_MONO};"
+        f" color: {T.FG_1_HEX}; font-family: {T.FONT_MONO};"
         f" font-size: 10px; letter-spacing: 2px; padding: 6px 8px; }}"
         f"QTableWidget::item {{ padding: 6px 8px; }}"
         f"QTableWidget::item:selected {{ background: {T.ACCENT_DIM};"
@@ -34,12 +34,12 @@ def _tabs_qss() -> str:
         f"QTabWidget::pane {{ background: transparent; border: none;"
         f" border-top: 1px solid {T.BORDER_0}; }}"
         f"QTabBar::tab {{ background: transparent; border: none;"
-        f" color: {T.FG_2_HEX}; font-family: {T.FONT_MONO};"
+        f" color: {T.FG_1_HEX}; font-family: {T.FONT_MONO};"
         f" font-size: 10px; letter-spacing: 2px;"
         f" padding: 8px 18px 8px 0; margin: 0 18px 0 0; }}"
         f"QTabBar::tab:selected {{ color: {T.FG_0};"
         f" border-bottom: 1px solid {T.ACCENT_HEX}; }}"
-        f"QTabBar::tab:hover {{ color: {T.FG_1_HEX}; }}"
+        f"QTabBar::tab:hover {{ color: {T.FG_0}; }}"
     )
 
 

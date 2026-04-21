@@ -100,7 +100,7 @@ class AgentLogPanel(QGroupBox):
 
     @staticmethod
     def _status_style(running: bool) -> str:
-        colour = T.ACCENT_HEX if running else T.FG_2_HEX
+        colour = T.ACCENT_HEX if running else T.FG_1_HEX
         return (
             f"color: {colour}; font-family: {T.FONT_MONO};"
             f" font-size: 10px; letter-spacing: 2px;"

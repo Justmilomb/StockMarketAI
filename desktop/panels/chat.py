@@ -167,7 +167,7 @@ class ChatPanel(QGroupBox):
             else:
                 html_parts.append(
                     f'<div style="margin:10px 0 6px;">'
-                    f'<span style="color:{T.FG_2_HEX};font-family:{T.FONT_MONO};'
+                    f'<span style="color:{T.FG_1_HEX};font-family:{T.FONT_MONO};'
                     f'font-size:10px;letter-spacing:2px;">BLANK</span></div>'
                     f'<div style="margin:0 0 10px;padding-left:2px;'
                     f'border-left:1px solid {T.BORDER_0_HEX};padding:0 0 0 12px;">{text}</div>'
@@ -176,7 +176,7 @@ class ChatPanel(QGroupBox):
             self._messages.setHtml("".join(html_parts))
         else:
             self._messages.setHtml(
-                f'<p style="color:{T.FG_2_HEX};font-family:{T.FONT_MONO};'
+                f'<p style="color:{T.FG_1_HEX};font-family:{T.FONT_MONO};'
                 f'font-size:11px;letter-spacing:2px;">NO MESSAGES YET</p>'
             )
         sb = self._messages.verticalScrollBar()

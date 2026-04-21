@@ -281,7 +281,7 @@ class MainWindow(QMainWindow):
         )
         from desktop import tokens as _T
         self._header_label.setStyleSheet(
-            f"color: {_T.FG_2_HEX}; font-family: {_T.FONT_MONO};"
+            f"color: {_T.FG_1_HEX}; font-family: {_T.FONT_MONO};"
             f" font-size: 10px; letter-spacing: 2px;"
             f" background: transparent; padding: 2px 10px;",
         )
@@ -378,7 +378,7 @@ class MainWindow(QMainWindow):
             "  ? Help | B About | R Refresh | C Chat | G Chart | Q Quit",
         )
         self._status_label.setStyleSheet(
-            f"color: {T.FG_2_HEX}; font-family: {T.FONT_MONO};"
+            f"color: {T.FG_1_HEX}; font-family: {T.FONT_MONO};"
             f" font-size: 10px; letter-spacing: 1px; padding: 0 4px;",
         )
         status.addPermanentWidget(self._status_label, 1)
@@ -1009,7 +1009,7 @@ class MainWindow(QMainWindow):
         )
         from desktop import tokens as _T
         self._header_label.setStyleSheet(
-            f"color: {_T.FG_2_HEX}; font-family: {_T.FONT_MONO};"
+            f"color: {_T.FG_1_HEX}; font-family: {_T.FONT_MONO};"
             f" font-size: 10px; letter-spacing: 2px;"
             f" background: transparent; padding: 2px 10px;",
         )

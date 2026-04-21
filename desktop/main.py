@@ -314,7 +314,7 @@ def launch(mode: str | None = None) -> None:
     painter.drawText(subtitle_rect, Qt.AlignCenter, "CERTIFIED RANDOM")
 
     painter.setFont(QFont("Outfit", 10, QFont.Thin))
-    painter.setPen(QColor(_T.FG_2_HEX))
+    painter.setPen(QColor(_T.FG_1_HEX))
     painter.drawText(
         pixmap.rect().adjusted(0, 0, 0, -20),
         Qt.AlignBottom | Qt.AlignHCenter,

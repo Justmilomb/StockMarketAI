@@ -53,7 +53,7 @@ QDockWidget {{
 
 QDockWidget::title {{
     background-color: {T.BG_1};
-    color: {T.FG_2};
+    color: {T.FG_1};
     font-family: {T.FONT_MONO};
     font-size: {T.STEP_1};
     letter-spacing: 2px;
@@ -106,7 +106,7 @@ QGroupBox::title {{
     subcontrol-origin: margin;
     subcontrol-position: top left;
     padding: 2px 8px;
-    color: {T.FG_2};
+    color: {T.FG_1};
     font-family: {T.FONT_MONO};
     font-size: {T.STEP_0};
     letter-spacing: 2px;
@@ -132,7 +132,7 @@ QTableWidget, QTableView {{
 
 QHeaderView::section {{
     background-color: {T.BG_0};
-    color: {T.FG_2};
+    color: {T.FG_1};
     font-family: {T.FONT_MONO};
     font-size: {T.STEP_0};
     font-weight: 400;
@@ -188,7 +188,7 @@ QLineEdit:focus {{
 }}
 
 QLineEdit:disabled {{
-    color: {T.FG_2};
+    color: {T.FG_1};
     border-color: {T.BORDER_0};
 }}
 
@@ -500,7 +500,7 @@ QProgressBar {{
     border: 1px solid {T.BORDER_0};
     border-radius: 0;
     text-align: center;
-    color: {T.FG_2};
+    color: {T.FG_1};
     font-family: {T.FONT_MONO};
     font-size: {T.STEP_0};
     min-height: 4px;
@@ -585,7 +585,7 @@ QTextEdit:focus, QPlainTextEdit:focus {{
 
 QStatusBar {{
     background-color: {T.BG_0};
-    color: {T.FG_2};
+    color: {T.FG_1};
     border-top: 1px solid {T.BORDER_0};
     font-family: {T.FONT_MONO};
     font-size: {T.STEP_1};
@@ -597,7 +597,7 @@ QStatusBar::item {{
 }}
 
 QStatusBar QLabel {{
-    color: {T.FG_2};
+    color: {T.FG_1};
 }}
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -644,7 +644,7 @@ QMenu::item:selected {{
 }}
 
 QMenu::item:disabled {{
-    color: {T.FG_3};
+    color: {T.FG_2};
 }}
 
 QMenu::separator {{
