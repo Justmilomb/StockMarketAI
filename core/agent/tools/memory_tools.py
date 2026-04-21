@@ -78,13 +78,24 @@ async def list_memory_keys(args: Dict[str, Any]) -> Dict[str, Any]:
 
 @tool(
     "append_journal",
-    "Append a free-form entry to the agent journal. Tags help you search later.",
-    {"entry": str, "tags": str},
+    "Append a free-form entry to the agent journal. Tags are optional "
+    "(comma-separated string) and help you search later.",
+    {
+        "type": "object",
+        "properties": {
+            "entry": {"type": "string", "description": "Journal entry text."},
+            "tags": {
+                "type": "string",
+                "description": "Optional comma-separated tags.",
+            },
+        },
+        "required": ["entry"],
+    },
 )
 async def append_journal(args: Dict[str, Any]) -> Dict[str, Any]:
     ctx = get_agent_context()
     entry = str(args.get("entry", ""))
-    tags = str(args.get("tags", ""))
+    tags = str(args.get("tags", "") or "")
     if not entry:
         return _text_result({"error": "entry is required"})
     with sqlite3.connect(ctx.db.db_path) as conn:
@@ -98,8 +109,16 @@ async def append_journal(args: Dict[str, Any]) -> Dict[str, Any]:
 
 @tool(
     "read_journal",
-    "Return the last N journal entries, optionally filtered by a tag.",
-    {"limit": int, "tag": str},
+    "Return the last N journal entries, optionally filtered by a tag. "
+    "Both arguments are optional (default limit=25, no tag filter).",
+    {
+        "type": "object",
+        "properties": {
+            "limit": {"type": "integer", "description": "Max entries (default 25)."},
+            "tag": {"type": "string", "description": "Optional tag filter."},
+        },
+        "required": [],
+    },
 )
 async def read_journal(args: Dict[str, Any]) -> Dict[str, Any]:
     ctx = get_agent_context()

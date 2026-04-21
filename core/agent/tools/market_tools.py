@@ -100,6 +100,79 @@ def _held_current_price(ticker: str) -> float | None:
     return None
 
 
+# ── Secondary price sources ────────────────────────────────────────────
+#
+# yfinance can return 0.0 right at market open (especially for LSE names)
+# because its batch "5d download" endpoint lags by a few minutes while the
+# book opens. These fallbacks hit single-ticker endpoints that tend to be
+# fresher and have no auth/key requirement.
+
+
+def _yahoo_v8_price(ticker: str) -> Dict[str, float] | None:
+    """Hit Yahoo Finance's v8 chart endpoint directly.
+
+    Returns ``{"price", "change_pct"}`` or ``None``. Often fresher than the
+    yfinance ``download()`` batch because it's a single-instrument call.
+    """
+    import requests
+    try:
+        resp = requests.get(
+            f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}",
+            params={"interval": "1d", "range": "5d", "includePrePost": "false"},
+            headers={"User-Agent": "Mozilla/5.0"},
+            timeout=8,
+        )
+        resp.raise_for_status()
+        body = resp.json()
+        result = (body.get("chart") or {}).get("result") or []
+        if not result:
+            return None
+        meta = result[0].get("meta") or {}
+        price = float(meta.get("regularMarketPrice", 0.0) or 0.0)
+        prev = float(meta.get("chartPreviousClose", 0.0) or 0.0)
+        if price <= 0:
+            return None
+        change_pct = ((price - prev) / prev * 100.0) if prev > 0 else 0.0
+        return {"price": price, "change_pct": change_pct}
+    except Exception:
+        return None
+
+
+def _stooq_price(ticker: str) -> Dict[str, float] | None:
+    """Hit Stooq's public CSV endpoint.
+
+    Stooq uses ``.UK`` for LSE (yfinance uses ``.L``). We try the ticker
+    verbatim first, then an ``.L`` → ``.UK`` rewrite.
+    """
+    import requests
+    candidates = [ticker]
+    if ticker.endswith(".L"):
+        candidates.append(ticker[:-2] + ".UK")
+    for sym in candidates:
+        try:
+            resp = requests.get(
+                "https://stooq.com/q/l/",
+                params={"s": sym.lower(), "f": "sd2t2ohlcv", "h": "", "e": "csv"},
+                timeout=8,
+            )
+            resp.raise_for_status()
+            lines = [line.strip() for line in resp.text.splitlines() if line.strip()]
+            if len(lines) < 2:
+                continue
+            cols = lines[1].split(",")
+            # Layout: Symbol,Date,Time,Open,High,Low,Close,Volume
+            if len(cols) < 7 or cols[6] in ("N/D", ""):
+                continue
+            close = float(cols[6])
+            open_px = float(cols[3]) if cols[3] not in ("N/D", "") else close
+            change_pct = ((close - open_px) / open_px * 100.0) if open_px > 0 else 0.0
+            if close > 0:
+                return {"price": close, "change_pct": change_pct}
+        except Exception:
+            continue
+    return None
+
+
 def _yf_interval_period(interval: str, lookback_minutes: int) -> tuple[str, str]:
     """Map an agent request to a valid yfinance (period, interval) pair."""
     intervals = {"1m", "5m", "15m", "30m", "60m"}
@@ -117,10 +190,12 @@ def _yf_interval_period(interval: str, lookback_minutes: int) -> tuple[str, str]
 
 @tool(
     "get_live_price",
-    "Return the latest known price for a ticker. If we already hold it, "
-    "uses the broker's currentPrice (truly live). Otherwise uses yfinance "
-    "(delayed 15-20 min). The response includes the source so you can "
-    "reason about staleness.",
+    "Return the latest known price for a ticker. Order of preference: "
+    "Trading 212 currentPrice (if held, truly live), yfinance (delayed "
+    "15-20 min), Yahoo v8 chart endpoint, Stooq. The response includes "
+    "the source so you can reason about staleness. Note: T212 only "
+    "exposes prices for tickers already in the portfolio; its public "
+    "API has no quote endpoint for arbitrary symbols.",
     {"ticker": str},
 )
 async def get_live_price(args: Dict[str, Any]) -> Dict[str, Any]:
@@ -128,27 +203,62 @@ async def get_live_price(args: Dict[str, Any]) -> Dict[str, Any]:
     if not ticker:
         return _text_result({"error": "ticker is required"})
 
+    ts = datetime.utcnow().isoformat() + "Z"
+
     px = _held_current_price(ticker)
     if px is not None:
         return _text_result({
-            "ticker": ticker, "price": px, "source": "broker_live",
-            "ts": datetime.utcnow().isoformat() + "Z",
+            "ticker": ticker, "price": px, "source": "t212_broker_live", "ts": ts,
         })
+
+    tried: List[str] = []
 
     try:
         from data_loader import fetch_live_prices
         live = fetch_live_prices([ticker])
         data = live.get(ticker, {}) or {}
         price = float(data.get("price", 0.0) or 0.0)
+        if price > 0:
+            return _text_result({
+                "ticker": ticker,
+                "price": price,
+                "change_pct": float(data.get("change_pct", 0.0) or 0.0),
+                "source": "yfinance_delayed",
+                "ts": ts,
+            })
+        tried.append("yfinance")
+    except Exception as e:
+        tried.append(f"yfinance({e})")
+
+    yahoo = _yahoo_v8_price(ticker)
+    if yahoo is not None:
         return _text_result({
             "ticker": ticker,
-            "price": price,
-            "change_pct": float(data.get("change_pct", 0.0) or 0.0),
-            "source": "yfinance_delayed",
-            "ts": datetime.utcnow().isoformat() + "Z",
+            "price": yahoo["price"],
+            "change_pct": yahoo["change_pct"],
+            "source": "yahoo_chart_v8",
+            "ts": ts,
         })
-    except Exception as e:
-        return _text_result({"ticker": ticker, "error": str(e)})
+    tried.append("yahoo_v8")
+
+    stooq = _stooq_price(ticker)
+    if stooq is not None:
+        return _text_result({
+            "ticker": ticker,
+            "price": stooq["price"],
+            "change_pct": stooq["change_pct"],
+            "source": "stooq",
+            "ts": ts,
+        })
+    tried.append("stooq")
+
+    return _text_result({
+        "ticker": ticker,
+        "price": 0.0,
+        "error": "no source returned a price",
+        "sources_tried": tried,
+        "ts": ts,
+    })
 
 
 @tool(
