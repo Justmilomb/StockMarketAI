@@ -160,6 +160,7 @@ class SignInDialog(QDialog):
         auth_state().set_signed_in(
             email=result.get("email", ""),
             name=result.get("name", ""),
+            avatar_id=int(result.get("avatar_id") or 0),
         )
         self.signed_in.emit()
         self.accept()

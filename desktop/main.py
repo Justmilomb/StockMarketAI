@@ -218,6 +218,7 @@ def launch(mode: str | None = None) -> None:
         auth_state().set_signed_in(
             email=me.get("email", ""),
             name=me.get("name", ""),
+            avatar_id=int(me.get("avatar_id") or 0),
         )
         result = me
         logger.info("Resumed session for %s", me.get("email", "<unknown>"))

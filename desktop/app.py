@@ -296,6 +296,8 @@ class MainWindow(QMainWindow):
         self.profile_button = ProfileButton()
         self.profile_button.signin_requested.connect(self._open_signin_dialog)
         self.profile_button.signout_requested.connect(self._on_signed_out)
+        self.profile_button.dashboard_requested.connect(self._open_account_dashboard)
+        self.profile_button.settings_requested.connect(self._open_account_settings)
         corner_row.addWidget(self.profile_button)
         menu_bar.setCornerWidget(corner, Qt.TopRightCorner)
 
@@ -1180,6 +1182,24 @@ class MainWindow(QMainWindow):
         clear_token()
         auth_state().set_signed_out()
         self.statusBar().showMessage("signed out", 3000)
+
+    @Slot()
+    def _open_account_dashboard(self) -> None:
+        """Show the full account dashboard (analytics + payment info)."""
+        if not auth_state().is_signed_in:
+            self._open_signin_dialog()
+            return
+        from desktop.dialogs.account_dashboard import AccountDashboardDialog
+        AccountDashboardDialog(self).run()
+
+    @Slot()
+    def _open_account_settings(self) -> None:
+        """Show the account Settings dialog (analytics + preferences)."""
+        if not auth_state().is_signed_in:
+            self._open_signin_dialog()
+            return
+        from desktop.dialogs.account_settings import AccountSettingsDialog
+        AccountSettingsDialog(self).run()
 
     @Slot()
     def _on_auth_changed(self) -> None:

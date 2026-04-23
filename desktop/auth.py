@@ -78,3 +78,47 @@ def fetch_me(
     except Exception:
         return {"ok": False, "reason": "malformed server response"}
     return {"ok": True, **body}
+
+
+def api_call(
+    path: str,
+    method: str = "GET",
+    *,
+    json_body: Optional[dict[str, Any]] = None,
+    token: Optional[str] = None,
+    server_url: Optional[str] = None,
+    timeout: float = 20.0,
+) -> dict[str, Any]:
+    """Authenticated call to ``server_url + path``.
+
+    Returns ``{"ok": bool, "data"?, "reason"?, "status"?}``. Same
+    offline-tolerant contract as :func:`fetch_me`. Callers that need
+    to dispatch several requests serialise on the returned dict
+    instead of raising. 401/403 clears the stored token so the next
+    launch stays signed-out.
+    """
+    token = token or read_token()
+    if not token:
+        return {"ok": False, "reason": "no session token"}
+    server_url = server_url or _read_server_url()
+    url = f"{server_url.rstrip('/')}{path}"
+    try:
+        resp = requests.request(
+            method.upper(), url,
+            headers={"Authorization": f"Bearer {token}"},
+            json=json_body,
+            timeout=timeout,
+        )
+    except requests.RequestException as exc:
+        logger.info("api %s %s network error: %s", method, path, exc)
+        return {"ok": False, "reason": "offline"}
+    if resp.status_code in (401, 403):
+        clear_token()
+        return {"ok": False, "reason": "unauthorised", "status": resp.status_code}
+    if resp.status_code >= 400:
+        return {"ok": False, "reason": f"server returned {resp.status_code}", "status": resp.status_code}
+    try:
+        body = resp.json()
+    except Exception:
+        return {"ok": False, "reason": "malformed server response"}
+    return {"ok": True, "data": body, "status": resp.status_code}

@@ -145,6 +145,28 @@ input:focus { border-bottom-color: var(--accent); }
 .step { display: none; }
 .step.active { display: block; }
 
+.avatar-grid {
+  display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px;
+  max-height: 320px; overflow-y: auto; margin-top: 12px;
+  padding: 4px; border: 1px solid var(--mid);
+  background: rgba(255,255,255,0.02);
+}
+.avatar-opt {
+  aspect-ratio: 1; cursor: pointer; position: relative;
+  border: 2px solid transparent; background: #000;
+  transition: border-color 0.08s ease;
+}
+.avatar-opt img {
+  width: 100%; height: 100%; display: block; object-fit: cover;
+  opacity: 0.85;
+}
+.avatar-opt:hover { border-color: var(--mid); }
+.avatar-opt:hover img { opacity: 1; }
+.avatar-opt.selected {
+  border-color: var(--accent);
+}
+.avatar-opt.selected img { opacity: 1; }
+
 .success {
   text-align: center; padding: 20px 0;
 }
@@ -219,11 +241,12 @@ input:focus { border-bottom-color: var(--accent); }
     <div class="pip"></div>
     <div class="pip"></div>
     <div class="pip"></div>
+    <div class="pip"></div>
   </div>
 
   <!-- Step 1: email -->
   <section class="step active" data-step="0">
-    <p class="step-label">step 1 / 6</p>
+    <p class="step-label">step 1 / 7</p>
     <h2 class="step-title">Your email</h2>
     <p class="step-desc">We'll use this to sign you in and send your access details.</p>
     <label for="email">Email address</label>
@@ -236,7 +259,7 @@ input:focus { border-bottom-color: var(--accent); }
 
   <!-- Step 2: name -->
   <section class="step" data-step="1">
-    <p class="step-label">step 2 / 6</p>
+    <p class="step-label">step 2 / 7</p>
     <h2 class="step-title">Legal name</h2>
     <p class="step-desc">Use the name on your payment card. This is needed for billing.</p>
     <div class="row">
@@ -258,7 +281,7 @@ input:focus { border-bottom-color: var(--accent); }
 
   <!-- Step 3: password -->
   <section class="step" data-step="2">
-    <p class="step-label">step 3 / 6</p>
+    <p class="step-label">step 3 / 7</p>
     <h2 class="step-title">Choose a password</h2>
     <p class="step-desc">At least 8 characters.</p>
     <label for="pwd">Password</label>
@@ -274,7 +297,7 @@ input:focus { border-bottom-color: var(--accent); }
 
   <!-- Step 4: phone + OTP -->
   <section class="step" data-step="3">
-    <p class="step-label">step 4 / 6</p>
+    <p class="step-label">step 4 / 7</p>
     <h2 class="step-title">Verify your phone</h2>
     <p class="step-desc">We'll text you a 6-digit code. Used to secure your account.</p>
     <label for="phone">Phone number</label>
@@ -299,7 +322,7 @@ input:focus { border-bottom-color: var(--accent); }
 
   <!-- Step 5: card -->
   <section class="step" data-step="4">
-    <p class="step-label">step 5 / 6</p>
+    <p class="step-label">step 5 / 7</p>
     <h2 class="step-title">Payment card</h2>
     <p class="step-desc">We place a £1 hold to verify the card. It's released straight away — you won't be charged for the app itself, only the 20% performance fee on net trading profits.</p>
     <label>Card details</label>
@@ -312,9 +335,22 @@ input:focus { border-bottom-color: var(--accent); }
     </div>
   </section>
 
-  <!-- Step 6: agreements -->
+  <!-- Step 6: avatar picker -->
   <section class="step" data-step="5">
-    <p class="step-label">step 6 / 6</p>
+    <p class="step-label">step 6 / 7</p>
+    <h2 class="step-title">Pick an avatar</h2>
+    <p class="step-desc">Choose a profile picture. You can change it any time from Settings.</p>
+    <div class="avatar-grid" id="avatarGrid"></div>
+    <p class="err" id="err-avatar"></p>
+    <div class="actions">
+      <button class="btn btn-ghost" data-back>Back</button>
+      <button class="btn" id="btn-avatar-next" disabled>Continue</button>
+    </div>
+  </section>
+
+  <!-- Step 7: agreements -->
+  <section class="step" data-step="6">
+    <p class="step-label">step 7 / 7</p>
     <h2 class="step-title">Agreements</h2>
     <p class="step-desc">Tick each box. Click any document to read it.</p>
 
@@ -346,7 +382,7 @@ input:focus { border-bottom-color: var(--accent); }
   </section>
 
   <!-- Success -->
-  <section class="step" data-step="6">
+  <section class="step" data-step="7">
     <div class="success">
       <div class="check">&#10003;</div>
       <h2 class="step-title">Welcome to blank.</h2>
@@ -457,12 +493,12 @@ input:focus { border-bottom-color: var(--accent); }
   const state = {
     email: "", firstName: "", lastName: "",
     password: "", phone: "", phoneVerified: false,
-    cardSetup: false,
+    cardSetup: false, avatarId: 0,
     stripe: null, elements: null, cardEl: null,
     config: { stripe_publishable_key: "", stripe_enabled: false, sms_enabled: false, dev_otp: "" },
     step: 0,
   };
-  const TOTAL = 6; // 0..5 active steps + 6 success
+  const TOTAL = 7; // 0..6 active steps + 7 success
 
   // ── Step navigation ────────────────────────────────────────
   function go(n) {
@@ -476,6 +512,7 @@ input:focus { border-bottom-color: var(--accent); }
     const target = document.querySelector('.step[data-step="' + n + '"]');
     if (target) target.classList.add("active");
     if (n === 4) ensureStripeMount();
+    if (n === 5) ensureAvatarGrid();
   }
 
   $$("[data-back]").forEach((b) => b.addEventListener("click", () => go(state.step - 1)));
@@ -621,7 +658,8 @@ input:focus { border-bottom-color: var(--accent); }
           btn.disabled = false;
           if (!ok) { setErr("err-card", (j && j.detail) || "Card authorisation failed."); return; }
           state.cardSetup = true;
-          go(5);
+          go(5); // avatar picker
+
         })
         .catch(() => { btn.disabled = false; setErr("err-card", "Network error."); });
     };
@@ -654,16 +692,17 @@ input:focus { border-bottom-color: var(--accent); }
     if (!all) { setErr("err-agree", "All agreements must be ticked."); return; }
     const btn = $("#btn-submit");
     btn.disabled = true;
+    const fullName = (state.firstName + " " + state.lastName).trim();
     fetch("/api/auth/register", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         email: state.email,
-        first_name: state.firstName,
-        last_name: state.lastName,
+        full_name: fullName,
         password: state.password,
         phone: state.phone,
-        agree_eula: true, agree_terms: true, agree_privacy: true,
-        agree_risk: true, agree_fee: true,
+        avatar_id: state.avatarId || 0,
+        agreed_eula: true, agreed_terms: true, agreed_privacy: true,
+        agreed_risk: true, agreed_commission: true,
       }),
     })
       .then((r) => r.json().then((j) => ({ ok: r.ok, j })))
@@ -671,7 +710,7 @@ input:focus { border-bottom-color: var(--accent); }
         btn.disabled = false;
         if (!ok) { setErr("err-agree", (j && j.detail) || "Sign-up failed."); return; }
         loadDownloadLink();
-        go(6);
+        go(7);
       })
       .catch(() => { btn.disabled = false; setErr("err-agree", "Network error."); });
   }
@@ -684,6 +723,41 @@ input:focus { border-bottom-color: var(--accent); }
       })
       .catch(() => {});
   }
+
+  // ── Avatar picker ──────────────────────────────────────────
+  let _avatarsBuilt = false;
+  function ensureAvatarGrid() {
+    if (_avatarsBuilt) return;
+    _avatarsBuilt = true;
+    const grid = $("#avatarGrid");
+    const total = 100;
+    for (let i = 1; i <= total; i++) {
+      const cell = document.createElement("div");
+      cell.className = "avatar-opt";
+      cell.setAttribute("data-avatar", String(i));
+      const img = document.createElement("img");
+      img.src = "/api/avatars/" + i + ".svg";
+      img.alt = "Avatar " + i;
+      img.loading = "lazy";
+      cell.appendChild(img);
+      cell.addEventListener("click", () => selectAvatar(i));
+      grid.appendChild(cell);
+    }
+  }
+
+  function selectAvatar(id) {
+    state.avatarId = id;
+    document.querySelectorAll(".avatar-opt").forEach((c) => {
+      c.classList.toggle("selected", Number(c.getAttribute("data-avatar")) === id);
+    });
+    $("#btn-avatar-next").disabled = false;
+  }
+
+  $("#btn-avatar-next").addEventListener("click", () => {
+    if (!state.avatarId) { setErr("err-avatar", "Pick an avatar first."); return; }
+    setErr("err-avatar", "");
+    go(6);
+  });
 
   // ── Legal modal (safe DOM cloning, no innerHTML) ───────────
   const TITLES = {

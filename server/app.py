@@ -35,6 +35,11 @@ if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 ADMIN_KEY = os.environ.get("BLANK_ADMIN_KEY", "admin")
 WEBSITE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "website")
+# Avatars live under desktop/ so the PyInstaller bundle picks them up
+# automatically. Serving them from FastAPI lets the signup page render a
+# selection grid without bundling SVGs into the website source.
+AVATARS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "desktop", "assets", "avatars")
+AVATAR_COUNT = 100
 
 # JWT secret used to sign user auth tokens. Production MUST set
 # BLANK_JWT_SECRET — without it tokens become trivially forgeable once
@@ -202,6 +207,9 @@ def _init_db(conn: psycopg2.extensions.connection) -> None:
             "ALTER TABLE licenses ADD COLUMN IF NOT EXISTS card_last4 TEXT DEFAULT ''",
             "ALTER TABLE licenses ADD COLUMN IF NOT EXISTS card_name TEXT DEFAULT ''",
             "ALTER TABLE licenses ADD COLUMN IF NOT EXISTS card_verified BOOLEAN DEFAULT FALSE",
+            # avatar_id: integer 1..100 referencing desktop/assets/avatars/avatar_NNN.svg.
+            # 0 means unset — the desktop app renders a neutral placeholder.
+            "ALTER TABLE licenses ADD COLUMN IF NOT EXISTS avatar_id INTEGER DEFAULT 0",
             "CREATE INDEX IF NOT EXISTS idx_licenses_phone ON licenses(phone_number)",
             "CREATE INDEX IF NOT EXISTS idx_licenses_card_fp ON licenses(card_fingerprint)",
         ):
@@ -429,11 +437,17 @@ class RegisterRequest(BaseModel):
     full_name: str
     password: str
     phone: str
+    avatar_id: int = 0
     agreed_eula: bool = False
     agreed_terms: bool = False
     agreed_privacy: bool = False
     agreed_risk: bool = False
     agreed_commission: bool = False
+
+
+class AvatarUpdateRequest(BaseModel):
+    """POST /api/me/avatar — set the signed-in user's chosen avatar."""
+    avatar_id: int
 
 
 class LicenseUpdateRequest(BaseModel):
@@ -1037,9 +1051,265 @@ def auth_me(
     return {
         "email": row["email"],
         "name": row.get("name") or "",
+        "full_name": row.get("full_name") or row.get("name") or "",
+        "avatar_id": int(row.get("avatar_id") or 0),
         "status": row["status"],
         "expires_at": row["expires_at"].isoformat() if row["expires_at"] else None,
         "config": cfg,
+    }
+
+
+# ── Avatars ─────────────────────────────────────────────────────────────
+
+@app.get("/api/avatars")
+def list_avatars() -> dict[str, Any]:
+    """List all available avatar ids. Clients pair the id with
+    /api/avatars/{id}.svg to render a picker grid."""
+    return {
+        "count": AVATAR_COUNT,
+        "avatars": [
+            {"id": i, "url": f"/api/avatars/{i}.svg"}
+            for i in range(1, AVATAR_COUNT + 1)
+        ],
+    }
+
+
+@app.get("/api/avatars/{avatar_id}.svg")
+def get_avatar_svg(avatar_id: int) -> Response:
+    """Serve a single avatar SVG. Returns 404 if the id is out of range
+    or the file is missing from the deploy (e.g. someone regenerated
+    locally but didn't commit)."""
+    if avatar_id < 1 or avatar_id > AVATAR_COUNT:
+        raise HTTPException(status_code=404, detail="avatar not found")
+    path = os.path.join(AVATARS_DIR, f"avatar_{avatar_id:03d}.svg")
+    if not os.path.isfile(path):
+        raise HTTPException(status_code=404, detail="avatar file missing")
+    with open(path, "rb") as f:
+        svg = f.read()
+    return Response(
+        content=svg,
+        media_type="image/svg+xml",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
+@app.post("/api/me/avatar")
+def set_my_avatar(
+    body: AvatarUpdateRequest,
+    claims: dict[str, Any] = Depends(require_auth),
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> dict[str, Any]:
+    """Change the signed-in user's chosen avatar. 0 clears the choice."""
+    avatar_id = int(body.avatar_id or 0)
+    if avatar_id < 0 or avatar_id > AVATAR_COUNT:
+        raise HTTPException(status_code=400, detail="invalid avatar id")
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE licenses SET avatar_id = %s WHERE key = %s RETURNING id",
+            (avatar_id, claims["sub"]),
+        )
+        row = cur.fetchone()
+    conn.commit()
+    if not row:
+        raise HTTPException(status_code=404, detail="account not found")
+    return {"status": "ok", "avatar_id": avatar_id}
+
+
+# ── User dashboard + analytics ──────────────────────────────────────────
+
+def _compute_user_analytics(
+    conn: psycopg2.extensions.connection, license_key: str,
+) -> dict[str, Any]:
+    """Aggregate telemetry_events for a licence key into the stat blob
+    both /api/me/dashboard and /api/me/analytics return.
+
+    Trades come in via ``telemetry_snapshot_push`` — each snapshot may
+    contain a ``trades`` array. We dedupe by (side, ticker, ts) before
+    computing win rate / P/L so a user whose desktop re-uploads the
+    same snapshot doesn't double-count.
+    """
+    now = datetime.now(timezone.utc)
+    since_all = now - timedelta(days=3650)
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT snapshot, uploaded_at FROM telemetry_events "
+            "WHERE license_key = %s AND uploaded_at >= %s "
+            "ORDER BY uploaded_at DESC LIMIT 2000",
+            (license_key, since_all),
+        )
+        rows = cur.fetchall()
+
+    seen: set[tuple[Any, Any, Any]] = set()
+    trades: List[Dict[str, Any]] = []
+    latest_positions: List[Dict[str, Any]] = []
+    latest_ts: Optional[datetime] = None
+    for r in rows:
+        raw = r["snapshot"]
+        snap = raw if isinstance(raw, dict) else json.loads(raw)
+        ts: Optional[datetime] = r["uploaded_at"]
+        if ts and (latest_ts is None or ts > latest_ts):
+            latest_ts = ts
+            latest_positions = list(snap.get("positions") or [])
+        for t in (snap.get("trades") or []):
+            sig = (t.get("side"), t.get("ticker"), t.get("ts"))
+            if sig in seen:
+                continue
+            seen.add(sig)
+            # Use the snapshot's upload timestamp when the trade itself
+            # has no ts so time-window slicing still works.
+            trade_ts = t.get("ts") or (ts.isoformat() if ts else None)
+            trades.append({**t, "ts": trade_ts})
+
+    def _profit(t: Dict[str, Any]) -> float:
+        for k in ("profit", "pnl", "realised_pnl", "realized_pnl"):
+            v = t.get(k)
+            if v is not None:
+                try:
+                    return float(v)
+                except (TypeError, ValueError):
+                    pass
+        return 0.0
+
+    def _within(t: Dict[str, Any], since: datetime) -> bool:
+        raw = t.get("ts")
+        if not raw:
+            return False
+        try:
+            dt = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+        except ValueError:
+            return False
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt >= since
+
+    total_trades = len(trades)
+    profits = [_profit(t) for t in trades]
+    wins = sum(1 for p in profits if p > 0)
+    win_rate = (wins / total_trades * 100.0) if total_trades else 0.0
+    total_pnl = sum(profits)
+
+    def _window_pnl(days: int) -> float:
+        since = now - timedelta(days=days)
+        return sum(_profit(t) for t in trades if _within(t, since))
+
+    best = max(trades, key=_profit, default=None)
+    worst = min(trades, key=_profit, default=None)
+
+    return {
+        "total_trades": total_trades,
+        "win_rate": round(win_rate, 1),
+        "total_pnl": round(total_pnl, 2),
+        "pnl_today": round(_window_pnl(1), 2),
+        "pnl_7d": round(_window_pnl(7), 2),
+        "pnl_30d": round(_window_pnl(30), 2),
+        "pnl_all": round(total_pnl, 2),
+        "best_trade": {
+            "ticker": best.get("ticker") if best else "",
+            "profit": round(_profit(best), 2) if best else 0.0,
+            "ts": best.get("ts") if best else None,
+        } if best else None,
+        "worst_trade": {
+            "ticker": worst.get("ticker") if worst else "",
+            "profit": round(_profit(worst), 2) if worst else 0.0,
+            "ts": worst.get("ts") if worst else None,
+        } if worst else None,
+        "open_positions": len(latest_positions),
+        "last_snapshot_at": latest_ts.isoformat() if latest_ts else None,
+    }
+
+
+def _next_monday_0900(now: datetime) -> datetime:
+    """Performance fee billing anchor — Monday 09:00 UTC."""
+    days_ahead = (0 - now.weekday()) % 7
+    if days_ahead == 0 and (now.hour >= 9):
+        days_ahead = 7
+    target = (now + timedelta(days=days_ahead)).replace(
+        hour=9, minute=0, second=0, microsecond=0,
+    )
+    return target
+
+
+@app.get("/api/me/analytics")
+def my_analytics(
+    claims: dict[str, Any] = Depends(require_auth),
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> dict[str, Any]:
+    """Compact analytics blob for the Settings panel — no payment info."""
+    return _compute_user_analytics(conn, claims["sub"])
+
+
+@app.get("/api/me/dashboard")
+def my_dashboard(
+    claims: dict[str, Any] = Depends(require_auth),
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> dict[str, Any]:
+    """Full dashboard payload: identity, analytics, payment status.
+
+    The desktop Account Dashboard panel renders everything here. Payment
+    data is a stub for now — the real invoicing pipeline lands later;
+    until then ``amount_due`` reflects 20% of realised profit since the
+    last Monday 09:00 cutoff so the figure is still informative.
+    """
+    with conn.cursor() as cur:
+        cur.execute("SELECT * FROM licenses WHERE key = %s", (claims["sub"],))
+        row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=401, detail="account no longer exists")
+
+    stats = _compute_user_analytics(conn, claims["sub"])
+
+    # Amount due this cycle = 20% of realised profit since last Monday 09:00.
+    now = datetime.now(timezone.utc)
+    last_monday = _next_monday_0900(now) - timedelta(days=7)
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT snapshot FROM telemetry_events "
+            "WHERE license_key = %s AND uploaded_at >= %s",
+            (claims["sub"], last_monday),
+        )
+        cycle_rows = cur.fetchall()
+    cycle_trades: List[Dict[str, Any]] = []
+    seen: set[tuple[Any, Any, Any]] = set()
+    for r in cycle_rows:
+        raw = r["snapshot"]
+        snap = raw if isinstance(raw, dict) else json.loads(raw)
+        for t in (snap.get("trades") or []):
+            sig = (t.get("side"), t.get("ticker"), t.get("ts"))
+            if sig in seen:
+                continue
+            seen.add(sig)
+            cycle_trades.append(t)
+    cycle_profit = 0.0
+    for t in cycle_trades:
+        for k in ("profit", "pnl", "realised_pnl", "realized_pnl"):
+            v = t.get(k)
+            if v is not None:
+                try:
+                    cycle_profit += float(v)
+                except (TypeError, ValueError):
+                    pass
+                break
+    amount_due = round(max(0.0, cycle_profit) * 0.20, 2)
+
+    return {
+        "user": {
+            "email": row["email"],
+            "name": row.get("name") or "",
+            "full_name": row.get("full_name") or row.get("name") or "",
+            "avatar_id": int(row.get("avatar_id") or 0),
+            "status": row["status"],
+            "created_at": row["created_at"].isoformat() if row.get("created_at") else None,
+        },
+        "analytics": stats,
+        "payment": {
+            "amount_due": amount_due,
+            "currency": "GBP",
+            "fee_rate_pct": 20,
+            "next_payment_at": _next_monday_0900(now).isoformat(),
+            "history": [],  # populated when billing infra lands
+            "card_last4": row.get("card_last4") or "",
+            "card_verified": bool(row.get("card_verified")),
+        },
     }
 
 
@@ -1757,6 +2027,10 @@ def auth_register(
     password_hash = _hash_password(body.password)
     expires = datetime.now(timezone.utc) + timedelta(days=365)
 
+    avatar_id = int(body.avatar_id or 0)
+    if avatar_id < 0 or avatar_id > AVATAR_COUNT:
+        avatar_id = 0
+
     if existing:
         # Pre-auth row from the legacy /api/signup flow. Promote it.
         key = None
@@ -1766,7 +2040,7 @@ def auth_register(
                 "phone_number = %s, phone_verified = TRUE, "
                 "stripe_customer_id = %s, card_stripe_id = %s, "
                 "card_fingerprint = %s, card_last4 = %s, card_name = %s, "
-                "card_verified = TRUE, expires_at = %s "
+                "card_verified = TRUE, avatar_id = %s, expires_at = %s "
                 "WHERE id = %s RETURNING key",
                 (
                     full_name, full_name, password_hash, phone,
@@ -1774,7 +2048,7 @@ def auth_register(
                     pending.get("card_payment_method_id") or "",
                     fp, pending.get("card_last4") or "",
                     pending.get("card_name") or "",
-                    expires, existing["id"],
+                    avatar_id, expires, existing["id"],
                 ),
             )
             key = cur.fetchone()["key"]
@@ -1787,9 +2061,9 @@ def auth_register(
                 "INSERT INTO licenses ("
                 "key, email, name, full_name, status, expires_at, password_hash, "
                 "phone_number, phone_verified, stripe_customer_id, card_stripe_id, "
-                "card_fingerprint, card_last4, card_name, card_verified"
+                "card_fingerprint, card_last4, card_name, card_verified, avatar_id"
                 ") VALUES (%s, %s, %s, %s, 'active', %s, %s, "
-                "%s, TRUE, %s, %s, %s, %s, %s, TRUE) RETURNING id",
+                "%s, TRUE, %s, %s, %s, %s, %s, TRUE, %s) RETURNING id",
                 (
                     key, email, full_name, full_name, expires, password_hash,
                     phone,
@@ -1797,6 +2071,7 @@ def auth_register(
                     pending.get("card_payment_method_id") or "",
                     fp, pending.get("card_last4") or "",
                     pending.get("card_name") or "",
+                    avatar_id,
                 ),
             )
             license_id = cur.fetchone()["id"]

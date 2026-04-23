@@ -16,6 +16,7 @@ class AuthSnapshot:
     is_signed_in: bool = False
     email: str = ""
     name: str = ""
+    avatar_id: int = 0
 
 
 class AuthState(QObject):
@@ -41,8 +42,26 @@ class AuthState(QObject):
     def name(self) -> str:
         return self._snap.name
 
-    def set_signed_in(self, email: str, name: str = "") -> None:
-        self._snap = AuthSnapshot(is_signed_in=True, email=email, name=name)
+    @property
+    def avatar_id(self) -> int:
+        return self._snap.avatar_id
+
+    def set_signed_in(self, email: str, name: str = "", avatar_id: int = 0) -> None:
+        self._snap = AuthSnapshot(
+            is_signed_in=True, email=email, name=name, avatar_id=avatar_id,
+        )
+        self.changed.emit()
+
+    def set_avatar(self, avatar_id: int) -> None:
+        """Update the avatar without otherwise touching sign-in state."""
+        if not self._snap.is_signed_in:
+            return
+        self._snap = AuthSnapshot(
+            is_signed_in=True,
+            email=self._snap.email,
+            name=self._snap.name,
+            avatar_id=int(avatar_id),
+        )
         self.changed.emit()
 
     def set_signed_out(self) -> None:
