@@ -61,6 +61,25 @@ SITE_URL = os.environ.get("BLANK_SITE_URL", "https://stockmarketai-3qhs.onrender
 SUPPORT_URL = os.environ.get("BLANK_SUPPORT_URL", SITE_URL)
 ADMIN_EMAIL = os.environ.get("BLANK_ADMIN_EMAIL", "milomilomilomb@gmail.com")
 
+# Stripe — used during signup to attach a card and place a £1 auth hold
+# (immediately released) so the cardholder name + fingerprint are
+# captured for fraud checks. When STRIPE_SECRET_KEY is unset we
+# soft-fail: signups still proceed with placeholder card values so dev
+# environments don't need Stripe wired up. The publishable key is
+# served back to the signup page so the browser can mount Stripe.js.
+STRIPE_SECRET_KEY = os.environ.get("STRIPE_SECRET_KEY", "")
+STRIPE_PUBLISHABLE_KEY = os.environ.get("STRIPE_PUBLISHABLE_KEY", "")
+
+# Twilio — used to send the SMS one-time code during phone verification.
+# Same soft-fail story: when any of these are unset we accept "123456"
+# as the OTP so dev/CI can drive the flow without sending real SMS.
+TWILIO_SID = os.environ.get("TWILIO_SID", "")
+TWILIO_AUTH_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN", "")
+TWILIO_PHONE_NUMBER = os.environ.get("TWILIO_PHONE_NUMBER", "")
+
+OTP_TTL_SECONDS = 600  # 10 minutes
+DEV_FALLBACK_OTP = "123456"
+
 # ── Database ─────────────────────────────────────────────────────────────
 
 def _init_db(conn: psycopg2.extensions.connection) -> None:
@@ -170,6 +189,73 @@ def _init_db(conn: psycopg2.extensions.connection) -> None:
         )
         cur.execute(
             "ALTER TABLE licenses ADD COLUMN IF NOT EXISTS password_hash TEXT",
+        )
+        # Account fields added by the full signup flow (KYC-lite + payment auth).
+        # Each ALTER is independent and idempotent so partial migrations are safe.
+        for stmt in (
+            "ALTER TABLE licenses ADD COLUMN IF NOT EXISTS full_name TEXT DEFAULT ''",
+            "ALTER TABLE licenses ADD COLUMN IF NOT EXISTS phone_number TEXT DEFAULT ''",
+            "ALTER TABLE licenses ADD COLUMN IF NOT EXISTS phone_verified BOOLEAN DEFAULT FALSE",
+            "ALTER TABLE licenses ADD COLUMN IF NOT EXISTS stripe_customer_id TEXT DEFAULT ''",
+            "ALTER TABLE licenses ADD COLUMN IF NOT EXISTS card_stripe_id TEXT DEFAULT ''",
+            "ALTER TABLE licenses ADD COLUMN IF NOT EXISTS card_fingerprint TEXT DEFAULT ''",
+            "ALTER TABLE licenses ADD COLUMN IF NOT EXISTS card_last4 TEXT DEFAULT ''",
+            "ALTER TABLE licenses ADD COLUMN IF NOT EXISTS card_name TEXT DEFAULT ''",
+            "ALTER TABLE licenses ADD COLUMN IF NOT EXISTS card_verified BOOLEAN DEFAULT FALSE",
+            "CREATE INDEX IF NOT EXISTS idx_licenses_phone ON licenses(phone_number)",
+            "CREATE INDEX IF NOT EXISTS idx_licenses_card_fp ON licenses(card_fingerprint)",
+        ):
+            cur.execute(stmt)
+        # Anti-fraud audit table — admin reviews and resolves entries from
+        # the /api/admin/flags endpoint. ``details`` holds the structured
+        # context for the flag (e.g. the conflicting account id).
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS admin_flags (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER,
+                user_email TEXT DEFAULT '',
+                flag_type TEXT NOT NULL,
+                details JSONB DEFAULT '{}'::jsonb,
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                resolved BOOLEAN DEFAULT FALSE,
+                resolved_at TIMESTAMPTZ,
+                resolved_by TEXT DEFAULT ''
+            )
+            """,
+        )
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS idx_admin_flags_unresolved "
+            "ON admin_flags(resolved, created_at DESC)",
+        )
+        # Pending signups: holds OTPs and card-setup state for an
+        # in-progress registration. Rows are created on the first
+        # /api/auth/verify-phone call, updated by /api/auth/setup-card,
+        # and consumed (deleted) by /api/auth/register on success. A
+        # nightly sweep drops rows older than 24 h so abandoned signups
+        # don't accumulate.
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS pending_signups (
+                email TEXT PRIMARY KEY,
+                full_name TEXT DEFAULT '',
+                phone_number TEXT DEFAULT '',
+                phone_otp_hash TEXT DEFAULT '',
+                phone_otp_expires_at TIMESTAMPTZ,
+                phone_verified BOOLEAN DEFAULT FALSE,
+                stripe_customer_id TEXT DEFAULT '',
+                card_payment_method_id TEXT DEFAULT '',
+                card_fingerprint TEXT DEFAULT '',
+                card_last4 TEXT DEFAULT '',
+                card_name TEXT DEFAULT '',
+                card_verified BOOLEAN DEFAULT FALSE,
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                updated_at TIMESTAMPTZ DEFAULT NOW()
+            )
+            """,
+        )
+        cur.execute(
+            "DELETE FROM pending_signups WHERE created_at < NOW() - INTERVAL '24 hours'",
         )
         cur.execute(
             "CREATE INDEX IF NOT EXISTS idx_releases_schedule ON releases(scheduled_at)",
@@ -310,6 +396,44 @@ class SignupRequest(BaseModel):
 class LoginRequest(BaseModel):
     email: str
     password: str
+
+
+class VerifyPhoneRequest(BaseModel):
+    """Step 1 of phone verification — sends an SMS OTP to the number."""
+    email: str
+    phone: str
+    full_name: str = ""
+
+
+class ConfirmPhoneRequest(BaseModel):
+    """Step 2 of phone verification — checks the OTP the user entered."""
+    email: str
+    otp: str
+
+
+class SetupCardRequest(BaseModel):
+    """Step 3 of signup — creates the Stripe customer + auth hold.
+
+    The browser hands us a Stripe-tokenised PaymentMethod id; we never
+    see the raw card details. Stripe returns the fingerprint we use for
+    multi-account fraud checks.
+    """
+    email: str
+    payment_method_id: str
+
+
+class RegisterRequest(BaseModel):
+    """Final signup submit — collects everything, validates agreements,
+    materialises the licence row, and consumes the pending_signups row."""
+    email: str
+    full_name: str
+    password: str
+    phone: str
+    agreed_eula: bool = False
+    agreed_terms: bool = False
+    agreed_privacy: bool = False
+    agreed_risk: bool = False
+    agreed_commission: bool = False
 
 
 class LicenseUpdateRequest(BaseModel):
@@ -1151,6 +1275,624 @@ def public_signup(
         "email": email,
         "token": token,
     }
+
+
+# ── Full signup flow (KYC-lite + payment auth + multi-step OTP) ─────────
+#
+# This sits alongside the legacy `/api/signup` (which is a single-step
+# email→key flow used by the marketing landing page). The full flow is
+# driven from /signup and posts to four endpoints in sequence:
+#
+#   /api/auth/verify-phone   → sends Twilio SMS OTP
+#   /api/auth/confirm-phone  → checks the OTP
+#   /api/auth/setup-card     → tokenises the card via Stripe + £1 hold
+#   /api/auth/register       → final commit, mints JWT, issues licence
+#
+# Anti-fraud lives inside register: card fingerprint dedup, phone
+# uniqueness, and name-mismatch flagging (recorded in admin_flags
+# without blocking the signup).
+
+_PHONE_RE = re.compile(r"^\+?[0-9 \-().]{7,20}$")
+
+
+def _normalise_phone(raw: str) -> str:
+    """Strip whitespace and punctuation for unique-match lookups.
+
+    We accept user input with spaces/dashes/parens but store and
+    compare on the digits-only canonical form (with a leading + if the
+    user supplied one).
+    """
+    raw = (raw or "").strip()
+    if not raw:
+        return ""
+    keep_plus = raw.startswith("+")
+    digits = re.sub(r"[^0-9]", "", raw)
+    if not digits:
+        return ""
+    return ("+" + digits) if keep_plus else digits
+
+
+def _is_valid_phone(raw: str) -> bool:
+    return bool(_PHONE_RE.match((raw or "").strip()))
+
+
+def _hash_otp(raw: str) -> str:
+    """OTPs are short-lived but we still avoid storing them plaintext."""
+    return hashlib.sha256((raw or "").encode()).hexdigest()
+
+
+def _stripe_enabled() -> bool:
+    return bool(STRIPE_SECRET_KEY)
+
+
+def _twilio_enabled() -> bool:
+    return bool(TWILIO_SID and TWILIO_AUTH_TOKEN and TWILIO_PHONE_NUMBER)
+
+
+def _send_otp_via_twilio(phone: str, otp: str) -> bool:
+    """Dispatch the SMS. Returns True on success.
+
+    When Twilio is unconfigured we log and return False — the caller
+    falls back to accepting `DEV_FALLBACK_OTP` so the UI flow still
+    completes end-to-end without a real Twilio account. Failures are
+    non-fatal: the OTP row is still written so the user can resend or
+    the admin can read it from the logs in dev.
+    """
+    if not _twilio_enabled():
+        logger.warning(
+            "twilio unconfigured — pretending to send OTP %s to %s "
+            "(dev fallback %s will be accepted)",
+            otp, phone, DEV_FALLBACK_OTP,
+        )
+        return False
+    try:
+        from twilio.rest import Client as TwilioClient
+        client = TwilioClient(TWILIO_SID, TWILIO_AUTH_TOKEN)
+        client.messages.create(
+            to=phone,
+            from_=TWILIO_PHONE_NUMBER,
+            body=f"Your blank verification code is {otp}. It expires in 10 minutes.",
+        )
+        return True
+    except Exception as e:
+        logger.error("twilio send failed for %s: %s", phone, e)
+        return False
+
+
+def _stripe_setup_card(email: str, payment_method_id: str) -> Dict[str, Any]:
+    """Attach a PaymentMethod to a fresh Stripe customer and place a
+    £1 manual-capture authorisation hold that is then cancelled.
+
+    Returns a dict with: customer_id, payment_method_id, fingerprint,
+    last4, name, ok (bool), error (str).
+    """
+    if not _stripe_enabled():
+        # Dev path — synthesise a deterministic fingerprint per email so
+        # the uniqueness check still distinguishes "two accounts using
+        # the same dev card" from "two accounts using different dev
+        # cards" without ever talking to Stripe.
+        digest = hashlib.sha256(f"dev:{email}".encode()).hexdigest()[:24]
+        logger.warning(
+            "stripe unconfigured — using dev placeholder card for %s", email,
+        )
+        return {
+            "ok": True,
+            "customer_id": f"cus_dev_{digest[:14]}",
+            "payment_method_id": payment_method_id or f"pm_dev_{digest[:14]}",
+            "fingerprint": f"dev_{digest}",
+            "last4": "0000",
+            "name": "",
+            "error": "",
+        }
+    try:
+        import stripe
+        stripe.api_key = STRIPE_SECRET_KEY
+        pm = stripe.PaymentMethod.retrieve(payment_method_id)
+        if pm.get("type") != "card":
+            return {"ok": False, "error": "only card payment methods are supported"}
+        card = pm.get("card") or {}
+        billing = pm.get("billing_details") or {}
+        customer = stripe.Customer.create(email=email)
+        stripe.PaymentMethod.attach(payment_method_id, customer=customer["id"])
+        stripe.Customer.modify(
+            customer["id"],
+            invoice_settings={"default_payment_method": payment_method_id},
+        )
+        # £1 manual-capture authorisation — confirm it (placing the hold
+        # on the card) then cancel immediately so funds are released.
+        intent = stripe.PaymentIntent.create(
+            amount=100,  # 100 pence
+            currency="gbp",
+            customer=customer["id"],
+            payment_method=payment_method_id,
+            confirm=True,
+            off_session=False,
+            capture_method="manual",
+            description="blank account verification (released immediately)",
+        )
+        if intent.get("status") not in ("requires_capture", "succeeded"):
+            return {
+                "ok": False,
+                "error": f"card authorisation failed: {intent.get('status')}",
+            }
+        try:
+            stripe.PaymentIntent.cancel(intent["id"])
+        except Exception as cancel_err:
+            logger.warning(
+                "could not cancel auth hold %s for %s: %s",
+                intent["id"], email, cancel_err,
+            )
+        return {
+            "ok": True,
+            "customer_id": customer["id"],
+            "payment_method_id": payment_method_id,
+            "fingerprint": card.get("fingerprint") or "",
+            "last4": card.get("last4") or "",
+            "name": billing.get("name") or "",
+            "error": "",
+        }
+    except Exception as e:  # pragma: no cover — exercised in prod
+        logger.error("stripe setup-card failed for %s: %s", email, e)
+        return {"ok": False, "error": f"card setup failed: {e}"}
+
+
+def _record_admin_flag(
+    conn: psycopg2.extensions.connection,
+    *,
+    user_id: Optional[int],
+    user_email: str,
+    flag_type: str,
+    details: Dict[str, Any],
+) -> None:
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO admin_flags (user_id, user_email, flag_type, details) "
+            "VALUES (%s, %s, %s, %s::jsonb)",
+            (user_id, user_email, flag_type, json.dumps(details)),
+        )
+    conn.commit()
+
+
+def _upsert_pending_signup(
+    conn: psycopg2.extensions.connection, email: str, **fields: Any,
+) -> None:
+    """Idempotent upsert keyed on the email column."""
+    if not fields:
+        return
+    fields["updated_at"] = datetime.now(timezone.utc)
+    cols = ["email", *fields.keys()]
+    placeholders = ", ".join(["%s"] * len(cols))
+    update_cols = [c for c in cols if c != "email"]
+    update_sql = ", ".join(f"{c} = EXCLUDED.{c}" for c in update_cols)
+    sql = (
+        f"INSERT INTO pending_signups ({', '.join(cols)}) VALUES ({placeholders}) "
+        f"ON CONFLICT (email) DO UPDATE SET {update_sql}"
+    )
+    values = [email, *fields.values()]
+    with conn.cursor() as cur:
+        cur.execute(sql, values)
+    conn.commit()
+
+
+def _get_pending_signup(
+    conn: psycopg2.extensions.connection, email: str,
+) -> Optional[dict[str, Any]]:
+    with conn.cursor() as cur:
+        cur.execute("SELECT * FROM pending_signups WHERE email = %s", (email,))
+        row = cur.fetchone()
+    return dict(row) if row else None
+
+
+@app.get("/signup", response_class=HTMLResponse)
+def signup_page() -> HTMLResponse:
+    """Serve the multi-step signup page."""
+    with open(os.path.join(WEBSITE_DIR, "signup.html"), encoding="utf-8") as f:
+        return HTMLResponse(content=f.read())
+
+
+@app.get("/api/auth/signup-config")
+def signup_config() -> dict[str, Any]:
+    """Tell the signup page which third-party services are wired up.
+
+    The frontend uses this to decide whether to mount Stripe.js and
+    whether to surface the dev-only OTP shortcut. We never expose
+    secrets here — only the publishable key (designed for the browser)
+    and boolean feature flags.
+    """
+    return {
+        "stripe_publishable_key": STRIPE_PUBLISHABLE_KEY,
+        "stripe_enabled": _stripe_enabled(),
+        "sms_enabled": _twilio_enabled(),
+        "dev_otp": "" if _twilio_enabled() else DEV_FALLBACK_OTP,
+    }
+
+
+@app.post("/api/auth/verify-phone")
+def auth_verify_phone(
+    body: VerifyPhoneRequest,
+    request: Request,
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> dict[str, Any]:
+    """Send (or re-send) the SMS OTP for this phone number.
+
+    Rate-limited per IP using the same hourly bucket as the legacy
+    signup endpoint so attackers can't brute-force OTPs.
+    """
+    email = (body.email or "").strip().lower()
+    phone = _normalise_phone(body.phone)
+    if not _is_valid_email(email):
+        raise HTTPException(status_code=400, detail="please enter a valid email address")
+    if not phone or not _is_valid_phone(body.phone):
+        raise HTTPException(status_code=400, detail="please enter a valid phone number")
+
+    ip = request.client.host if request.client else "unknown"
+    if not _signup_rate_ok(ip):
+        raise HTTPException(
+            status_code=429,
+            detail="too many signup attempts — try again in an hour",
+        )
+
+    # Reject if some other completed account already owns this phone
+    # number. Checking pending_signups too would block honest re-tries
+    # so we only enforce against persisted licences.
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT id, email FROM licenses WHERE phone_number = %s AND phone_verified = TRUE",
+            (phone,),
+        )
+        owner = cur.fetchone()
+    if owner and (owner["email"] or "").lower() != email:
+        raise HTTPException(
+            status_code=409,
+            detail="this phone number is already linked to another account",
+        )
+
+    otp = f"{secrets.randbelow(1_000_000):06d}"
+    expires = datetime.now(timezone.utc) + timedelta(seconds=OTP_TTL_SECONDS)
+    _upsert_pending_signup(
+        conn, email,
+        full_name=(body.full_name or "").strip(),
+        phone_number=phone,
+        phone_otp_hash=_hash_otp(otp),
+        phone_otp_expires_at=expires,
+        phone_verified=False,
+    )
+    sent = _send_otp_via_twilio(phone, otp)
+    return {
+        "status": "ok",
+        "sent": sent,
+        "sms_enabled": _twilio_enabled(),
+        # In dev (Twilio off) tell the page to surface the fallback OTP
+        # banner. The fallback itself is never returned here.
+        "dev_mode": not _twilio_enabled(),
+    }
+
+
+@app.post("/api/auth/confirm-phone")
+def auth_confirm_phone(
+    body: ConfirmPhoneRequest,
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> dict[str, Any]:
+    """Verify the SMS OTP. Marks pending_signups.phone_verified."""
+    email = (body.email or "").strip().lower()
+    submitted = (body.otp or "").strip()
+    if not submitted or len(submitted) < 4:
+        raise HTTPException(status_code=400, detail="enter the 6-digit code")
+
+    pending = _get_pending_signup(conn, email)
+    if not pending:
+        raise HTTPException(status_code=404, detail="start the phone step again")
+
+    expires = pending.get("phone_otp_expires_at")
+    if expires and expires.tzinfo is None:
+        expires = expires.replace(tzinfo=timezone.utc)
+    if expires and datetime.now(timezone.utc) > expires:
+        raise HTTPException(status_code=410, detail="code expired — request a new one")
+
+    expected_hash = pending.get("phone_otp_hash") or ""
+    matches = secrets.compare_digest(_hash_otp(submitted), expected_hash)
+    # Dev fallback: when Twilio is unconfigured the user can also enter
+    # the well-known DEV_FALLBACK_OTP so signups work without SMS.
+    if not matches and not _twilio_enabled() and submitted == DEV_FALLBACK_OTP:
+        matches = True
+    if not matches:
+        raise HTTPException(status_code=401, detail="that code is incorrect")
+
+    _upsert_pending_signup(
+        conn, email,
+        phone_verified=True,
+        phone_otp_hash="",  # one-shot — clear so it can't be replayed
+    )
+    return {"status": "ok"}
+
+
+@app.post("/api/auth/setup-card")
+def auth_setup_card(
+    body: SetupCardRequest,
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> dict[str, Any]:
+    """Tokenise the card via Stripe and place a £1 auth hold (released).
+
+    Anti-fraud: rejects the request when the card fingerprint is already
+    linked to another account. Same-card-different-pending flow is
+    allowed (re-trying signup with the same card on the same email).
+    """
+    email = (body.email or "").strip().lower()
+    if not _is_valid_email(email):
+        raise HTTPException(status_code=400, detail="please enter a valid email address")
+    pending = _get_pending_signup(conn, email)
+    if not pending or not pending.get("phone_verified"):
+        raise HTTPException(status_code=400, detail="verify your phone before adding a card")
+
+    result = _stripe_setup_card(email, body.payment_method_id)
+    if not result["ok"]:
+        raise HTTPException(status_code=402, detail=result["error"] or "card was declined")
+
+    fingerprint = result["fingerprint"]
+    if fingerprint:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, email FROM licenses WHERE card_fingerprint = %s "
+                "AND card_verified = TRUE LIMIT 1",
+                (fingerprint,),
+            )
+            owner = cur.fetchone()
+        if owner and (owner["email"] or "").lower() != email:
+            raise HTTPException(
+                status_code=409,
+                detail="this card is already linked to another account",
+            )
+
+    _upsert_pending_signup(
+        conn, email,
+        stripe_customer_id=result["customer_id"],
+        card_payment_method_id=result["payment_method_id"],
+        card_fingerprint=fingerprint,
+        card_last4=result["last4"],
+        card_name=result["name"],
+        card_verified=True,
+    )
+    return {
+        "status": "ok",
+        "last4": result["last4"],
+        "name_on_card": result["name"],
+    }
+
+
+@app.post("/api/auth/register")
+def auth_register(
+    body: RegisterRequest,
+    request: Request,
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> dict[str, Any]:
+    """Final signup commit. All five legal agreements must be ticked,
+    pending_signups must show phone+card verified, and email+phone+card
+    must be unique across active accounts."""
+    email = (body.email or "").strip().lower()
+    full_name = (body.full_name or "").strip()
+    phone = _normalise_phone(body.phone)
+
+    if not _is_valid_email(email):
+        raise HTTPException(status_code=400, detail="please enter a valid email address")
+    if not full_name or " " not in full_name:
+        raise HTTPException(status_code=400, detail="please enter your full legal name (first and last)")
+    if not body.password or len(body.password) < 8:
+        raise HTTPException(status_code=400, detail="please choose a password of at least 8 characters")
+    missing = [name for name, ok in (
+        ("End User Licence Agreement", body.agreed_eula),
+        ("Terms of Service", body.agreed_terms),
+        ("Privacy Policy", body.agreed_privacy),
+        ("Risk Disclosure", body.agreed_risk),
+        ("Commission Agreement", body.agreed_commission),
+    ) if not ok]
+    if missing:
+        raise HTTPException(
+            status_code=400,
+            detail="please agree to: " + ", ".join(missing),
+        )
+
+    ip = request.client.host if request.client else "unknown"
+    if not _signup_rate_ok(ip):
+        raise HTTPException(
+            status_code=429,
+            detail="too many signup attempts — try again in an hour",
+        )
+
+    pending = _get_pending_signup(conn, email)
+    if not pending or not pending.get("phone_verified"):
+        raise HTTPException(status_code=400, detail="verify your phone first")
+    if not pending.get("card_verified"):
+        raise HTTPException(status_code=400, detail="add your payment card first")
+
+    # Re-check uniqueness: the user's pending row was created before
+    # other concurrent signups may have completed. We block on
+    # email/phone/card collisions and flag (don't block) on shared name.
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT id, password_hash FROM licenses WHERE LOWER(email) = %s "
+            "ORDER BY created_at DESC LIMIT 1",
+            (email,),
+        )
+        existing = cur.fetchone()
+        if existing and existing.get("password_hash"):
+            raise HTTPException(
+                status_code=409,
+                detail="an account already exists for this email — please sign in",
+            )
+
+        cur.execute(
+            "SELECT id, email FROM licenses WHERE phone_number = %s "
+            "AND phone_verified = TRUE LIMIT 1",
+            (phone,),
+        )
+        phone_owner = cur.fetchone()
+        if phone_owner and (phone_owner["email"] or "").lower() != email:
+            raise HTTPException(
+                status_code=409,
+                detail="this phone number is already linked to another account",
+            )
+
+        fp = pending.get("card_fingerprint") or ""
+        if fp:
+            cur.execute(
+                "SELECT id, email FROM licenses WHERE card_fingerprint = %s "
+                "AND card_verified = TRUE LIMIT 1",
+                (fp,),
+            )
+            card_owner = cur.fetchone()
+            if card_owner and (card_owner["email"] or "").lower() != email:
+                raise HTTPException(
+                    status_code=409,
+                    detail="this card is already linked to another account",
+                )
+
+        # Same-name flag (informational only).
+        cur.execute(
+            "SELECT id, email FROM licenses WHERE LOWER(full_name) = %s "
+            "AND LOWER(email) <> %s LIMIT 5",
+            (full_name.lower(), email),
+        )
+        same_name_rows = cur.fetchall()
+
+    password_hash = _hash_password(body.password)
+    expires = datetime.now(timezone.utc) + timedelta(days=365)
+
+    if existing:
+        # Pre-auth row from the legacy /api/signup flow. Promote it.
+        key = None
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE licenses SET full_name = %s, name = %s, password_hash = %s, "
+                "phone_number = %s, phone_verified = TRUE, "
+                "stripe_customer_id = %s, card_stripe_id = %s, "
+                "card_fingerprint = %s, card_last4 = %s, card_name = %s, "
+                "card_verified = TRUE, expires_at = %s "
+                "WHERE id = %s RETURNING key",
+                (
+                    full_name, full_name, password_hash, phone,
+                    pending.get("stripe_customer_id") or "",
+                    pending.get("card_payment_method_id") or "",
+                    fp, pending.get("card_last4") or "",
+                    pending.get("card_name") or "",
+                    expires, existing["id"],
+                ),
+            )
+            key = cur.fetchone()["key"]
+        conn.commit()
+        license_id = existing["id"]
+    else:
+        key = _generate_license_key()
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO licenses ("
+                "key, email, name, full_name, status, expires_at, password_hash, "
+                "phone_number, phone_verified, stripe_customer_id, card_stripe_id, "
+                "card_fingerprint, card_last4, card_name, card_verified"
+                ") VALUES (%s, %s, %s, %s, 'active', %s, %s, "
+                "%s, TRUE, %s, %s, %s, %s, %s, TRUE) RETURNING id",
+                (
+                    key, email, full_name, full_name, expires, password_hash,
+                    phone,
+                    pending.get("stripe_customer_id") or "",
+                    pending.get("card_payment_method_id") or "",
+                    fp, pending.get("card_last4") or "",
+                    pending.get("card_name") or "",
+                ),
+            )
+            license_id = cur.fetchone()["id"]
+        conn.commit()
+
+    # Anti-fraud flag: cardholder name vs account name mismatch.
+    card_name = (pending.get("card_name") or "").strip().lower()
+    if card_name and card_name != full_name.lower():
+        _record_admin_flag(
+            conn,
+            user_id=license_id,
+            user_email=email,
+            flag_type="card_name_mismatch",
+            details={
+                "account_name": full_name,
+                "card_name": pending.get("card_name") or "",
+            },
+        )
+    if same_name_rows:
+        _record_admin_flag(
+            conn,
+            user_id=license_id,
+            user_email=email,
+            flag_type="duplicate_full_name",
+            details={
+                "name": full_name,
+                "matches": [
+                    {"id": r["id"], "email": r["email"]} for r in same_name_rows
+                ],
+            },
+        )
+
+    # Best-effort: drop the pending row so the email is free for retries
+    # against new flows.
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM pending_signups WHERE email = %s", (email,))
+    conn.commit()
+
+    with conn.cursor() as cur:
+        cur.execute("SELECT * FROM licenses WHERE id = %s", (license_id,))
+        row = cur.fetchone()
+    token = _issue_jwt(dict(row)) if row else None
+
+    # Welcome email — same dedup key as the legacy signup so a user who
+    # hit both flows still only gets one welcome.
+    send_template_once(
+        conn,
+        "welcome_new_license",
+        {
+            "name": full_name.split(" ")[0] or full_name or "there",
+            "license_key": key,
+            "download_url": DOWNLOAD_URL,
+        },
+        recipient=email,
+        reason_key=f"issue:{key}",
+    )
+
+    return {
+        "status": "ok",
+        "token": token,
+        "email": email,
+        "name": full_name,
+        "license_key": key,
+    }
+
+
+@app.get("/api/admin/flags")
+def admin_list_flags(
+    resolved: bool = False,
+    _: str = Depends(require_admin),
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> dict[str, Any]:
+    """Return open (or resolved) anti-fraud flags for the admin panel."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT id, user_id, user_email, flag_type, details, created_at, "
+            "resolved, resolved_at, resolved_by "
+            "FROM admin_flags WHERE resolved = %s "
+            "ORDER BY created_at DESC LIMIT 200",
+            (resolved,),
+        )
+        rows = cur.fetchall()
+    items = []
+    for r in rows:
+        items.append({
+            "id": r["id"],
+            "user_id": r["user_id"],
+            "user_email": r["user_email"],
+            "flag_type": r["flag_type"],
+            "details": r["details"] or {},
+            "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+            "resolved": bool(r["resolved"]),
+            "resolved_at": r["resolved_at"].isoformat() if r["resolved_at"] else None,
+            "resolved_by": r["resolved_by"] or "",
+        })
+    return {"flags": items, "count": len(items)}
 
 
 # ── Waitlist (coming-soon page — no access key) ─────────────────────────

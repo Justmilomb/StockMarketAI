@@ -1,0 +1,723 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>create account · blank</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<script src="https://js.stripe.com/v3/"></script>
+<style>
+:root {
+  --fg: #fff;
+  --dim: rgba(255,255,255,0.62);
+  --faint: rgba(255,255,255,0.38);
+  --mid: rgba(255,255,255,0.14);
+  --soft: rgba(255,255,255,0.06);
+  --accent: #00ff87;
+  --alert: #ff5f57;
+  --bg: #000;
+  --bg-soft: #060606;
+}
+* { box-sizing: border-box; }
+html, body {
+  margin: 0; padding: 0; background: var(--bg); color: var(--fg);
+  font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+  font-size: 14px;
+}
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+main {
+  min-height: 100vh; display: flex; align-items: center;
+  justify-content: center; padding: 40px 20px;
+}
+.card {
+  width: 100%; max-width: 520px;
+  border: 1px solid var(--mid); padding: 36px 36px 28px; background: var(--bg-soft);
+}
+h1 { margin: 0 0 4px; font-size: 36px; letter-spacing: -0.04em; font-weight: 700; }
+.kicker {
+  margin: 0 0 24px;
+  font-family: "JetBrains Mono", ui-monospace, Menlo, monospace;
+  font-size: 10px; letter-spacing: 0.28em; color: var(--dim);
+  text-transform: uppercase;
+}
+.pips {
+  display: flex; gap: 6px; margin: 0 0 28px;
+}
+.pip {
+  flex: 1; height: 3px; background: var(--mid);
+}
+.pip.done { background: var(--accent); }
+.pip.current { background: var(--fg); }
+
+label {
+  display: block; margin: 16px 0 6px;
+  font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase;
+  color: var(--dim);
+}
+.row {
+  display: flex; gap: 12px;
+}
+.row > div { flex: 1; }
+input[type="text"], input[type="email"], input[type="password"], input[type="tel"] {
+  width: 100%; background: transparent; border: none;
+  border-bottom: 1px solid var(--mid);
+  color: var(--fg); font-size: 15px; padding: 8px 0; outline: none;
+  font-family: inherit;
+}
+input:focus { border-bottom-color: var(--accent); }
+.hint {
+  margin: 6px 0 0; font-size: 11px; color: var(--faint);
+  letter-spacing: 0.04em;
+}
+.err {
+  margin: 8px 0 0; font-size: 12px; color: var(--alert); min-height: 1em;
+}
+
+.btn {
+  display: inline-block; padding: 12px 18px;
+  background: var(--bg); color: var(--accent);
+  border: 1px solid rgba(0,255,135,0.35);
+  letter-spacing: 0.12em; font-size: 12px; text-transform: uppercase;
+  cursor: pointer; font-family: inherit;
+}
+.btn:hover:not(:disabled) {
+  background: rgba(0,255,135,0.08);
+  border-color: var(--accent);
+}
+.btn:disabled {
+  opacity: 0.4; cursor: not-allowed;
+}
+.btn-ghost {
+  background: transparent; color: var(--dim);
+  border: 1px solid var(--mid);
+}
+.btn-ghost:hover:not(:disabled) {
+  color: var(--fg); border-color: var(--fg);
+  background: transparent;
+}
+.btn-block { width: 100%; padding: 14px; margin-top: 24px; }
+
+.actions {
+  display: flex; gap: 10px; margin-top: 28px;
+}
+.actions .btn { flex: 1; padding: 14px; }
+
+.checkrow {
+  display: flex; align-items: flex-start; gap: 10px; margin: 14px 0;
+  font-size: 13px; line-height: 1.5; color: var(--fg);
+}
+.checkrow input[type="checkbox"] {
+  margin-top: 3px; flex: 0 0 auto;
+  width: 14px; height: 14px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.checkrow label {
+  margin: 0; font-size: 13px; letter-spacing: 0; text-transform: none;
+  color: var(--fg); cursor: pointer; flex: 1;
+}
+.checkrow a { cursor: pointer; }
+
+.card-mount {
+  border: 1px solid var(--mid); padding: 14px;
+  margin-top: 8px; background: rgba(255,255,255,0.02);
+  min-height: 44px;
+}
+.card-mount.empty {
+  display: flex; align-items: center; justify-content: center;
+  color: var(--faint); font-size: 12px; letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.step-label {
+  font-family: "JetBrains Mono", ui-monospace, Menlo, monospace;
+  font-size: 10px; letter-spacing: 0.28em; color: var(--dim);
+  text-transform: uppercase; margin-bottom: 16px;
+}
+.step-title {
+  font-size: 22px; margin: 0 0 6px; letter-spacing: -0.02em;
+}
+.step-desc {
+  font-size: 13px; color: var(--dim); margin: 0 0 20px; line-height: 1.55;
+}
+
+.step { display: none; }
+.step.active { display: block; }
+
+.success {
+  text-align: center; padding: 20px 0;
+}
+.success .check {
+  font-size: 48px; color: var(--accent); margin-bottom: 12px;
+}
+.success p { color: var(--dim); line-height: 1.6; }
+
+.modal-back {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.85);
+  display: none; align-items: center; justify-content: center;
+  z-index: 100; padding: 40px 20px;
+}
+.modal-back.show { display: flex; }
+.modal {
+  background: var(--bg-soft); border: 1px solid var(--mid);
+  width: 100%; max-width: 720px; max-height: 80vh;
+  display: flex; flex-direction: column;
+}
+.modal-head {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 20px 28px; border-bottom: 1px solid var(--mid);
+}
+.modal-head h2 {
+  margin: 0; font-size: 18px; letter-spacing: -0.02em;
+}
+.modal-close {
+  background: transparent; border: none; color: var(--dim);
+  font-size: 24px; cursor: pointer; padding: 0; width: 32px; height: 32px;
+  line-height: 1;
+}
+.modal-close:hover { color: var(--fg); }
+.modal-body {
+  padding: 24px 28px; overflow-y: auto; flex: 1;
+  font-size: 13px; line-height: 1.65; color: var(--dim);
+}
+.modal-body h3 {
+  color: var(--fg); margin: 18px 0 6px; font-size: 14px;
+  letter-spacing: 0; text-transform: none;
+}
+.modal-body h3:first-child { margin-top: 0; }
+.modal-body p { margin: 0 0 12px; }
+.modal-body ul { margin: 0 0 12px 18px; padding: 0; }
+.modal-body li { margin-bottom: 6px; }
+
+.foot {
+  margin-top: 28px; text-align: center;
+  font-size: 12px; color: var(--faint);
+}
+.foot a { color: var(--dim); }
+
+.spinner {
+  display: inline-block; width: 12px; height: 12px;
+  border: 2px solid rgba(0,255,135,0.3);
+  border-top-color: var(--accent);
+  border-radius: 50%; animation: spin 0.8s linear infinite;
+  margin-right: 6px; vertical-align: middle;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<main>
+<div class="card">
+  <p class="kicker">create account</p>
+  <h1>blank</h1>
+
+  <div class="pips" id="pips">
+    <div class="pip current"></div>
+    <div class="pip"></div>
+    <div class="pip"></div>
+    <div class="pip"></div>
+    <div class="pip"></div>
+    <div class="pip"></div>
+  </div>
+
+  <!-- Step 1: email -->
+  <section class="step active" data-step="0">
+    <p class="step-label">step 1 / 6</p>
+    <h2 class="step-title">Your email</h2>
+    <p class="step-desc">We'll use this to sign you in and send your access details.</p>
+    <label for="email">Email address</label>
+    <input id="email" type="email" autocomplete="email" placeholder="you@example.com"/>
+    <p class="err" id="err-email"></p>
+    <div class="actions">
+      <button class="btn btn-block" data-next="0">Continue</button>
+    </div>
+  </section>
+
+  <!-- Step 2: name -->
+  <section class="step" data-step="1">
+    <p class="step-label">step 2 / 6</p>
+    <h2 class="step-title">Legal name</h2>
+    <p class="step-desc">Use the name on your payment card. This is needed for billing.</p>
+    <div class="row">
+      <div>
+        <label for="firstName">First name</label>
+        <input id="firstName" type="text" autocomplete="given-name"/>
+      </div>
+      <div>
+        <label for="lastName">Last name</label>
+        <input id="lastName" type="text" autocomplete="family-name"/>
+      </div>
+    </div>
+    <p class="err" id="err-name"></p>
+    <div class="actions">
+      <button class="btn btn-ghost" data-back>Back</button>
+      <button class="btn" data-next="1">Continue</button>
+    </div>
+  </section>
+
+  <!-- Step 3: password -->
+  <section class="step" data-step="2">
+    <p class="step-label">step 3 / 6</p>
+    <h2 class="step-title">Choose a password</h2>
+    <p class="step-desc">At least 8 characters.</p>
+    <label for="pwd">Password</label>
+    <input id="pwd" type="password" autocomplete="new-password"/>
+    <label for="pwd2">Confirm</label>
+    <input id="pwd2" type="password" autocomplete="new-password"/>
+    <p class="err" id="err-pwd"></p>
+    <div class="actions">
+      <button class="btn btn-ghost" data-back>Back</button>
+      <button class="btn" data-next="2">Continue</button>
+    </div>
+  </section>
+
+  <!-- Step 4: phone + OTP -->
+  <section class="step" data-step="3">
+    <p class="step-label">step 4 / 6</p>
+    <h2 class="step-title">Verify your phone</h2>
+    <p class="step-desc">We'll text you a 6-digit code. Used to secure your account.</p>
+    <label for="phone">Phone number</label>
+    <input id="phone" type="tel" autocomplete="tel" placeholder="+44 7700 900000"/>
+    <p class="hint" id="phone-hint"></p>
+    <p class="err" id="err-phone"></p>
+    <div class="actions" id="phone-send-row">
+      <button class="btn btn-ghost" data-back>Back</button>
+      <button class="btn" id="btn-send-otp">Send code</button>
+    </div>
+
+    <div id="otp-block" style="display:none">
+      <label for="otp">6-digit code</label>
+      <input id="otp" type="text" inputmode="numeric" maxlength="6" autocomplete="one-time-code"/>
+      <p class="err" id="err-otp"></p>
+      <div class="actions">
+        <button class="btn btn-ghost" id="btn-resend-otp">Resend</button>
+        <button class="btn" id="btn-verify-otp">Verify</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Step 5: card -->
+  <section class="step" data-step="4">
+    <p class="step-label">step 5 / 6</p>
+    <h2 class="step-title">Payment card</h2>
+    <p class="step-desc">We place a £1 hold to verify the card. It's released straight away — you won't be charged for the app itself, only the 20% performance fee on net trading profits.</p>
+    <label>Card details</label>
+    <div class="card-mount" id="cardElement"></div>
+    <p class="hint" id="card-hint"></p>
+    <p class="err" id="err-card"></p>
+    <div class="actions">
+      <button class="btn btn-ghost" data-back>Back</button>
+      <button class="btn" id="btn-setup-card">Authorise card</button>
+    </div>
+  </section>
+
+  <!-- Step 6: agreements -->
+  <section class="step" data-step="5">
+    <p class="step-label">step 6 / 6</p>
+    <h2 class="step-title">Agreements</h2>
+    <p class="step-desc">Tick each box. Click any document to read it.</p>
+
+    <div class="checkrow">
+      <input type="checkbox" id="agree-eula"/>
+      <label for="agree-eula">I agree to the <a data-doc="eula">End User Licence Agreement</a></label>
+    </div>
+    <div class="checkrow">
+      <input type="checkbox" id="agree-terms"/>
+      <label for="agree-terms">I agree to the <a data-doc="terms">Terms of Service</a></label>
+    </div>
+    <div class="checkrow">
+      <input type="checkbox" id="agree-privacy"/>
+      <label for="agree-privacy">I agree to the <a data-doc="privacy">Privacy Policy</a></label>
+    </div>
+    <div class="checkrow">
+      <input type="checkbox" id="agree-risk"/>
+      <label for="agree-risk">I understand that trading involves risk of financial loss</label>
+    </div>
+    <div class="checkrow">
+      <input type="checkbox" id="agree-fee"/>
+      <label for="agree-fee">I agree to the 20% performance-based fee on net trading profits</label>
+    </div>
+    <p class="err" id="err-agree"></p>
+    <div class="actions">
+      <button class="btn btn-ghost" data-back>Back</button>
+      <button class="btn" id="btn-submit">Create account</button>
+    </div>
+  </section>
+
+  <!-- Success -->
+  <section class="step" data-step="6">
+    <div class="success">
+      <div class="check">&#10003;</div>
+      <h2 class="step-title">Welcome to blank.</h2>
+      <p>Your account is ready. Download the app and sign in with your email and password.</p>
+      <div class="actions">
+        <a class="btn btn-block" id="dl-link" href="#">Download for Windows</a>
+      </div>
+      <p style="margin-top:18px"><a href="/auth/login">Or sign in on the web</a></p>
+    </div>
+  </section>
+
+  <p class="foot">
+    Already have an account? <a href="/auth/login">Sign in</a>
+  </p>
+</div>
+</main>
+
+<!-- Legal modal -->
+<div class="modal-back" id="modalBack">
+  <div class="modal" role="dialog" aria-modal="true">
+    <div class="modal-head">
+      <h2 id="modalTitle"></h2>
+      <button class="modal-close" id="modalClose" aria-label="Close">&times;</button>
+    </div>
+    <div class="modal-body" id="modalBody"></div>
+  </div>
+</div>
+
+<!-- Legal docs as templates (cloned safely via DOM, never innerHTML-assigned) -->
+<template id="legal-eula">
+  <h3>blank — End User Licence Agreement</h3>
+  <p>This Agreement is between you and Certified Random Ltd ("we", "us"). By creating an account or installing blank you accept these terms.</p>
+  <h3>1. Licence</h3>
+  <p>We grant you a personal, non-transferable, revocable licence to install and run blank on devices you own or control, for your own use. You may not redistribute, decompile, or resell the application.</p>
+  <h3>2. Account</h3>
+  <p>You are responsible for keeping your sign-in details secure. We may suspend access if we suspect fraud, abuse, or breach of these terms.</p>
+  <h3>3. Trading</h3>
+  <p>blank generates trade ideas and (when configured) places orders through your linked broker. All trades are placed in your name on your account. You remain solely responsible for the financial outcome.</p>
+  <h3>4. Updates</h3>
+  <p>blank receives updates over the air. Some updates may be mandatory for security or compatibility.</p>
+  <h3>5. No warranty</h3>
+  <p>blank is provided "as is". We do not warrant uninterrupted operation, profit, or freedom from defects. Markets carry risk and you may lose money.</p>
+  <h3>6. Liability</h3>
+  <p>To the fullest extent permitted by law, our total liability is limited to the fees you have paid us in the previous 12 months.</p>
+  <h3>7. Termination</h3>
+  <p>You may stop using blank at any time. We may terminate the licence for breach. On termination you must uninstall the software.</p>
+  <h3>8. Governing law</h3>
+  <p>This Agreement is governed by the laws of England and Wales.</p>
+</template>
+
+<template id="legal-terms">
+  <h3>Terms of Service</h3>
+  <p>These Terms govern your use of the blank service operated by Certified Random Ltd.</p>
+  <h3>1. The service</h3>
+  <p>blank is a desktop application that analyses markets and (optionally) trades through your linked broker account. We provide hosted update, sign-in, and support services alongside the desktop app.</p>
+  <h3>2. Eligibility</h3>
+  <p>You must be at least 18 years old and legally able to enter into contracts where you live. You must not use blank to evade tax, sanctions, or any other law that applies to you.</p>
+  <h3>3. Your obligations</h3>
+  <ul>
+    <li>Provide accurate sign-up information.</li>
+    <li>Keep your password confidential.</li>
+    <li>Use blank only with accounts you own.</li>
+    <li>Pay the performance fee when due.</li>
+  </ul>
+  <h3>4. Performance fee</h3>
+  <p>Our fee is 20% of <em>net realised trading profits</em>, calculated weekly using a high-water mark. If your account is in drawdown, no fee is due that week. The fee is collected on Mondays at 09:00 UK time from the card on file.</p>
+  <h3>5. Suspension</h3>
+  <p>We may suspend or close accounts that breach these Terms or that we reasonably believe pose a fraud, security, or compliance risk.</p>
+  <h3>6. Changes</h3>
+  <p>We may change these Terms with reasonable notice. Continued use after the effective date is acceptance.</p>
+  <h3>7. Contact</h3>
+  <p>Questions: <a href="mailto:hello@certifiedrandom.app">hello@certifiedrandom.app</a></p>
+</template>
+
+<template id="legal-privacy">
+  <h3>Privacy Policy</h3>
+  <p>Certified Random Ltd is the data controller for personal data processed by blank.</p>
+  <h3>1. What we collect</h3>
+  <ul>
+    <li>Account details: name, email, phone number, hashed password.</li>
+    <li>Payment details: a Stripe customer reference and the last four digits of your card. We never see or store the full card number — Stripe handles that.</li>
+    <li>Trading activity created by your use of blank, for analytics and fee calculation.</li>
+    <li>Telemetry: app version, error reports, anonymous usage signals.</li>
+  </ul>
+  <h3>2. How we use it</h3>
+  <ul>
+    <li>To run your account and the service.</li>
+    <li>To collect fees and prevent fraud.</li>
+    <li>To improve the product and fix bugs.</li>
+    <li>To send you essential service emails. Marketing only with your consent.</li>
+  </ul>
+  <h3>3. Sharing</h3>
+  <p>We share data with processors who help us run the service: Stripe (payments), Twilio (SMS), Resend (email), Render (hosting). We do not sell your data.</p>
+  <h3>4. Retention</h3>
+  <p>We retain account data for as long as your account is open, plus 6 years for accounting and tax records.</p>
+  <h3>5. Your rights</h3>
+  <p>You can request access, correction, deletion, or export of your personal data. Email <a href="mailto:hello@certifiedrandom.app">hello@certifiedrandom.app</a>.</p>
+  <h3>6. Cookies</h3>
+  <p>The website uses essential cookies only. The desktop app does not use cookies.</p>
+</template>
+
+<script>
+(function () {
+  const $ = (s) => document.querySelector(s);
+  const $$ = (s) => document.querySelectorAll(s);
+
+  // Form state
+  const state = {
+    email: "", firstName: "", lastName: "",
+    password: "", phone: "", phoneVerified: false,
+    cardSetup: false,
+    stripe: null, elements: null, cardEl: null,
+    config: { stripe_publishable_key: "", stripe_enabled: false, sms_enabled: false, dev_otp: "" },
+    step: 0,
+  };
+  const TOTAL = 6; // 0..5 active steps + 6 success
+
+  // ── Step navigation ────────────────────────────────────────
+  function go(n) {
+    state.step = n;
+    $$(".step").forEach((s) => s.classList.remove("active"));
+    $$(".pip").forEach((p, i) => {
+      p.classList.remove("done", "current");
+      if (i < n) p.classList.add("done");
+      else if (i === n) p.classList.add("current");
+    });
+    const target = document.querySelector('.step[data-step="' + n + '"]');
+    if (target) target.classList.add("active");
+    if (n === 4) ensureStripeMount();
+  }
+
+  $$("[data-back]").forEach((b) => b.addEventListener("click", () => go(state.step - 1)));
+  $$("[data-next]").forEach((b) => b.addEventListener("click", (e) => {
+    const i = Number(e.currentTarget.getAttribute("data-next"));
+    if (validateStep(i)) go(i + 1);
+  }));
+
+  function setErr(id, msg) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = msg || "";
+  }
+  function clearErrs() { $$(".err").forEach((e) => e.textContent = ""); }
+
+  function validateStep(i) {
+    clearErrs();
+    if (i === 0) {
+      const v = $("#email").value.trim();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) {
+        setErr("err-email", "Enter a valid email."); return false;
+      }
+      state.email = v;
+    }
+    if (i === 1) {
+      const f = $("#firstName").value.trim();
+      const l = $("#lastName").value.trim();
+      if (!f || !l) { setErr("err-name", "First and last name required."); return false; }
+      state.firstName = f; state.lastName = l;
+    }
+    if (i === 2) {
+      const p1 = $("#pwd").value;
+      const p2 = $("#pwd2").value;
+      if (p1.length < 8) { setErr("err-pwd", "At least 8 characters."); return false; }
+      if (p1 !== p2) { setErr("err-pwd", "Passwords don't match."); return false; }
+      state.password = p1;
+    }
+    return true;
+  }
+
+  // ── Bootstrap config ───────────────────────────────────────
+  fetch("/api/auth/signup-config")
+    .then((r) => r.json())
+    .then((cfg) => {
+      state.config = cfg || state.config;
+      if (cfg && !cfg.sms_enabled) {
+        $("#phone-hint").textContent = "Dev mode: SMS disabled. Use code " + (cfg.dev_otp || "123456") + ".";
+      }
+      if (cfg && !cfg.stripe_enabled) {
+        $("#card-hint").textContent = "Dev mode: Stripe disabled. Click Authorise to continue with a placeholder.";
+      }
+    })
+    .catch(() => {});
+
+  // ── Phone OTP ──────────────────────────────────────────────
+  $("#btn-send-otp").addEventListener("click", () => sendOtp(false));
+  $("#btn-resend-otp").addEventListener("click", () => sendOtp(true));
+  $("#btn-verify-otp").addEventListener("click", verifyOtp);
+
+  function sendOtp(resend) {
+    clearErrs();
+    const phone = $("#phone").value.trim();
+    if (phone.length < 6) { setErr("err-phone", "Enter your phone number."); return; }
+    state.phone = phone;
+    const btn = resend ? $("#btn-resend-otp") : $("#btn-send-otp");
+    btn.disabled = true;
+    fetch("/api/auth/verify-phone", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: state.email, phone: phone }),
+    })
+      .then((r) => r.json().then((j) => ({ ok: r.ok, j })))
+      .then(({ ok, j }) => {
+        btn.disabled = false;
+        if (!ok) { setErr("err-phone", (j && j.detail) || "Could not send code."); return; }
+        $("#otp-block").style.display = "block";
+        $("#otp").focus();
+      })
+      .catch(() => { btn.disabled = false; setErr("err-phone", "Network error."); });
+  }
+
+  function verifyOtp() {
+    clearErrs();
+    const code = $("#otp").value.trim();
+    if (code.length !== 6) { setErr("err-otp", "6-digit code required."); return; }
+    const btn = $("#btn-verify-otp");
+    btn.disabled = true;
+    fetch("/api/auth/confirm-phone", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: state.email, phone: state.phone, otp: code }),
+    })
+      .then((r) => r.json().then((j) => ({ ok: r.ok, j })))
+      .then(({ ok, j }) => {
+        btn.disabled = false;
+        if (!ok) { setErr("err-otp", (j && j.detail) || "Wrong code."); return; }
+        state.phoneVerified = true;
+        go(4);
+      })
+      .catch(() => { btn.disabled = false; setErr("err-otp", "Network error."); });
+  }
+
+  // ── Stripe card ────────────────────────────────────────────
+  function ensureStripeMount() {
+    if (state.cardEl) return;
+    const mount = $("#cardElement");
+    if (!state.config.stripe_enabled || !state.config.stripe_publishable_key || !window.Stripe) {
+      mount.classList.add("empty");
+      mount.textContent = "Card collection unavailable in this environment";
+      return;
+    }
+    state.stripe = window.Stripe(state.config.stripe_publishable_key);
+    state.elements = state.stripe.elements();
+    state.cardEl = state.elements.create("card", {
+      style: {
+        base: {
+          color: "#fff", fontSize: "15px",
+          fontFamily: '-apple-system, "Segoe UI", Helvetica, Arial, sans-serif',
+          "::placeholder": { color: "rgba(255,255,255,0.38)" },
+        },
+        invalid: { color: "#ff5f57" },
+      },
+    });
+    state.cardEl.mount(mount);
+  }
+
+  $("#btn-setup-card").addEventListener("click", setupCard);
+
+  function setupCard() {
+    clearErrs();
+    const btn = $("#btn-setup-card");
+    btn.disabled = true;
+    const fullName = (state.firstName + " " + state.lastName).trim();
+
+    const proceed = (paymentMethodId) => {
+      fetch("/api/auth/setup-card", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: state.email,
+          full_name: fullName,
+          payment_method_id: paymentMethodId,
+        }),
+      })
+        .then((r) => r.json().then((j) => ({ ok: r.ok, j })))
+        .then(({ ok, j }) => {
+          btn.disabled = false;
+          if (!ok) { setErr("err-card", (j && j.detail) || "Card authorisation failed."); return; }
+          state.cardSetup = true;
+          go(5);
+        })
+        .catch(() => { btn.disabled = false; setErr("err-card", "Network error."); });
+    };
+
+    if (!state.config.stripe_enabled || !state.cardEl) {
+      proceed("dev_placeholder");
+      return;
+    }
+
+    state.stripe.createPaymentMethod({
+      type: "card", card: state.cardEl,
+      billing_details: { name: fullName, email: state.email },
+    }).then((res) => {
+      if (res.error) {
+        btn.disabled = false;
+        setErr("err-card", res.error.message || "Card error.");
+        return;
+      }
+      proceed(res.paymentMethod.id);
+    });
+  }
+
+  // ── Agreements + submit ────────────────────────────────────
+  $("#btn-submit").addEventListener("click", submit);
+
+  function submit() {
+    clearErrs();
+    const ids = ["agree-eula", "agree-terms", "agree-privacy", "agree-risk", "agree-fee"];
+    const all = ids.every((id) => document.getElementById(id).checked);
+    if (!all) { setErr("err-agree", "All agreements must be ticked."); return; }
+    const btn = $("#btn-submit");
+    btn.disabled = true;
+    fetch("/api/auth/register", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: state.email,
+        first_name: state.firstName,
+        last_name: state.lastName,
+        password: state.password,
+        phone: state.phone,
+        agree_eula: true, agree_terms: true, agree_privacy: true,
+        agree_risk: true, agree_fee: true,
+      }),
+    })
+      .then((r) => r.json().then((j) => ({ ok: r.ok, j })))
+      .then(({ ok, j }) => {
+        btn.disabled = false;
+        if (!ok) { setErr("err-agree", (j && j.detail) || "Sign-up failed."); return; }
+        loadDownloadLink();
+        go(6);
+      })
+      .catch(() => { btn.disabled = false; setErr("err-agree", "Network error."); });
+  }
+
+  function loadDownloadLink() {
+    fetch("/api/version")
+      .then((r) => r.json())
+      .then((v) => {
+        if (v && v.download_url) $("#dl-link").setAttribute("href", v.download_url);
+      })
+      .catch(() => {});
+  }
+
+  // ── Legal modal (safe DOM cloning, no innerHTML) ───────────
+  const TITLES = {
+    eula: "End User Licence Agreement",
+    terms: "Terms of Service",
+    privacy: "Privacy Policy",
+  };
+
+  $$("a[data-doc]").forEach((a) => {
+    a.addEventListener("click", (e) => {
+      e.preventDefault();
+      openModal(a.getAttribute("data-doc"));
+    });
+  });
+
+  function openModal(doc) {
+    const tpl = document.getElementById("legal-" + doc);
+    const body = $("#modalBody");
+    const title = $("#modalTitle");
+    if (!tpl || !body || !title) return;
+    title.textContent = TITLES[doc] || "";
+    body.replaceChildren(tpl.content.cloneNode(true));
+    $("#modalBack").classList.add("show");
+  }
+
+  function closeModal() { $("#modalBack").classList.remove("show"); }
+  $("#modalClose").addEventListener("click", closeModal);
+  $("#modalBack").addEventListener("click", (e) => {
+    if (e.target.id === "modalBack") closeModal();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") closeModal();
+  });
+})();
+</script>
+</body>
+</html>
