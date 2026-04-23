@@ -148,8 +148,9 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "effort_assessor": "medium",
     },
     "news": {
-        "refresh_interval_minutes": 5,
-        "scraper_cadence_seconds": 300,
+        "refresh_interval_minutes": 2,
+        "scraper_cadence_seconds": 120,
+        "scraper_max_workers": 10,
     },
     "updates": {
         "auto_check": True,

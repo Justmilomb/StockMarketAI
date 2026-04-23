@@ -166,13 +166,12 @@ a = Analysis(
         'desktop.panels.watchlist',
         # dialogs
         'desktop.dialogs', 'desktop.dialogs._base',
-        'desktop.dialogs.about', 'desktop.dialogs.add_ticker',
+        'desktop.dialogs.about',
         'desktop.dialogs.help', 'desktop.dialogs.history',
-        'desktop.dialogs.instruments', 'desktop.dialogs.signin',
-        'desktop.dialogs.mode_selector', 'desktop.dialogs.pies',
+        'desktop.dialogs.signin',
+        'desktop.dialogs.mode_selector',
         'desktop.dialogs.risk_disclosure', 'desktop.dialogs.schedule_update',
-        'desktop.dialogs.search_ticker', 'desktop.dialogs.setup_wizard',
-        'desktop.dialogs.trade',
+        'desktop.dialogs.setup_wizard',
         # widgets + primitives
         'desktop.widgets', 'desktop.widgets.mode_banner',
         'desktop.widgets.mode_watermark',

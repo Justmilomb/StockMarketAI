@@ -22,7 +22,7 @@ from core.agent.research_roles import ALL_ROLES, get_role
 logger = logging.getLogger(__name__)
 
 TICK_SECONDS: float = 5.0
-DEFAULT_MAX_WORKERS: int = 4
+DEFAULT_MAX_WORKERS: int = 10
 RETENTION_DAYS: int = 30
 
 # Purge old data once per hour (every N ticks).

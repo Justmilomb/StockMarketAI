@@ -94,8 +94,8 @@ class ScraperRunner(threading.Thread):
         watchlist_provider: Callable[[], List[str]],
         *,
         scrapers: Optional[List[ScraperBase]] = None,
-        cadence_seconds: int = 300,
-        max_workers: int = 4,
+        cadence_seconds: int = 120,
+        max_workers: int = 10,
         wake_callback: Optional[Callable[[List[Dict[str, Any]]], None]] = None,
     ) -> None:
         super().__init__(daemon=True, name="scraper-runner")
