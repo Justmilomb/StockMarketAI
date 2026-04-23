@@ -151,6 +151,7 @@ a = Analysis(
         'core.finetune', 'core.finetune.terminal_finetune',
         # --- desktop (lazy imports not caught by static analysis) ---
         'desktop.paths', 'desktop.fonts', 'desktop.onboarding',
+        'desktop.onboarding_state',
         'desktop.theme', 'desktop.tokens', 'desktop.design',
         'desktop.license', 'desktop.update_service', 'desktop.updater',
         'desktop.data_export', 'desktop.workers', 'desktop.state',
@@ -169,7 +170,9 @@ a = Analysis(
         'desktop.dialogs.about',
         'desktop.dialogs.help', 'desktop.dialogs.history',
         'desktop.dialogs.signin',
+        'desktop.dialogs.live_onboarding',
         'desktop.dialogs.mode_selector',
+        'desktop.dialogs.paper_onboarding',
         'desktop.dialogs.risk_disclosure', 'desktop.dialogs.schedule_update',
         'desktop.dialogs.setup_wizard',
         # widgets + primitives

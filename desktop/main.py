@@ -337,6 +337,31 @@ def launch(mode: str | None = None) -> None:
     if selected is None:
         sys.exit(0)
 
+    # ── Per-mode onboarding ─────────────────────────────────────────
+    # Paper onboarding is a soft reassurance screen; live onboarding
+    # is mandatory until T212 creds are saved. The "don't show again"
+    # flags silently expire after 30 days (see onboarding_state).
+    from desktop.onboarding_state import (
+        has_t212_credentials,
+        reset_expired_flags,
+        should_show_live,
+        should_show_paper,
+    )
+    reset_expired_flags()
+    if selected:
+        if should_show_paper():
+            from desktop.dialogs.paper_onboarding import PaperOnboardingDialog
+            PaperOnboardingDialog().run()
+    else:
+        # Live mode: force the walkthrough whenever creds are missing,
+        # regardless of the checkbox — the T212 step is the only way
+        # to configure them. When creds are present and the flag is
+        # still active, skip the walkthrough entirely.
+        if not has_t212_credentials() or should_show_live():
+            from desktop.dialogs.live_onboarding import LiveOnboardingDialog
+            if not LiveOnboardingDialog().run():
+                sys.exit(0)
+
     splash.show()
     splash.showMessage(
         "Initialising services...",
