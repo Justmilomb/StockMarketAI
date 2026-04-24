@@ -4,6 +4,21 @@
 <meta charset="utf-8"/>
 <title>dashboard · blank</title>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
+<script>
+// Auth guard — runs before <body> paints so an unauthenticated visitor
+// is bounced to the unified sign-in page instead of staring at
+// "authenticating…" for the lifetime of the tab.
+(function () {
+  try {
+    var t = localStorage.getItem("blank_token");
+    if (!t) {
+      window.location.replace("/signup?mode=login");
+    }
+  } catch (_) {
+    window.location.replace("/signup?mode=login");
+  }
+})();
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@200;300;400;500&family=JetBrains+Mono:wght@400;500&display=swap">
@@ -395,7 +410,7 @@ button.btn.ghost:hover { border-color: var(--fg); }
 </style>
 </head>
 <body>
-<div id="loading" class="loading">authenticating&hellip;</div>
+<div id="loading" class="loading">loading your dashboard&hellip;</div>
 
 <div class="shell" id="shell" style="display:none">
 
@@ -999,10 +1014,13 @@ button.btn.ghost:hover { border-color: var(--fg); }
   function loadDashboard() {
     return fetch("/api/me/dashboard", { headers: auth.headers })
       .then((r) => {
-        if (r.status === 401) {
+        if (r.status === 401 || r.status === 403) {
           try { localStorage.removeItem(TOKEN_KEY); } catch (_) {}
           window.location.replace("/signup?mode=login");
           return null;
+        }
+        if (!r.ok) {
+          throw new Error("http " + r.status);
         }
         return r.json();
       })
@@ -1020,7 +1038,15 @@ button.btn.ghost:hover { border-color: var(--fg); }
         $("#shell").style.display = "block";
       })
       .catch(() => {
-        $("#loading").textContent = "could not reach the server. try again.";
+        const loading = $("#loading");
+        loading.replaceChildren();
+        loading.appendChild(document.createTextNode("could not reach the server \u00b7 "));
+        const a = document.createElement("a");
+        a.href = "/signup?mode=login";
+        a.textContent = "sign in again";
+        a.style.color = "var(--accent)";
+        a.style.borderBottom = "1px solid var(--accent)";
+        loading.appendChild(a);
       });
   }
 
