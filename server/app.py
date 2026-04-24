@@ -62,7 +62,7 @@ DOWNLOAD_URL = os.environ.get(
 # Public-facing URL used in outbound emails that ask the user to take
 # action (renew, contact, give feedback). No billing page yet — point at
 # the marketing site root and let the admin override per-deploy via env.
-SITE_URL = os.environ.get("BLANK_SITE_URL", "https://stockmarketai-3qhs.onrender.com/")
+SITE_URL = os.environ.get("BLANK_SITE_URL", "https://blan-api.onrender.com/")
 SUPPORT_URL = os.environ.get("BLANK_SUPPORT_URL", SITE_URL)
 ADMIN_EMAIL = os.environ.get("BLANK_ADMIN_EMAIL", "milomilomilomb@gmail.com")
 
