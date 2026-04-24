@@ -627,13 +627,19 @@ button.btn.ghost:hover { border-color: var(--fg); }
   }
 
   function renderUser(user) {
-    const display = (user.full_name || user.name || user.email || "you").trim();
-    const first = (display.split(" ")[0] || display).toLowerCase();
-    setText("topUser", first);
-    setText("welcomeName", "welcome, " + (display.split(" ")[0] || display) + ".");
-    $("#fullName").value = user.full_name || user.name || "";
-    setAvatarThumb(user.avatar_id || 0);
-    setVerifyBanner(user.email_verified ? "hidden" : "needs");
+    try {
+      user = user || {};
+      const display = ((user.full_name || user.name || user.email || "you") + "").trim() || "you";
+      const first = (display.split(" ")[0] || display).toLowerCase();
+      setText("topUser", first);
+      setText("welcomeName", "welcome, " + (display.split(" ")[0] || display) + ".");
+      const nameInput = $("#fullName");
+      if (nameInput) nameInput.value = user.full_name || user.name || "";
+      setAvatarThumb(user.avatar_id || 0);
+      setVerifyBanner(user.email_verified ? "hidden" : "needs");
+    } catch (e) {
+      console.error("renderUser failed:", e);
+    }
   }
 
   function fmtPct(n) {
@@ -642,56 +648,69 @@ button.btn.ghost:hover { border-color: var(--fg); }
   }
 
   function renderPayment(payment) {
-    const isDev = !!(state.plan && state.plan.is_dev);
-    if (isDev) {
-      setText("payDue", "\u00a30.00");
-      setText("payRate", "waived \u00b7 dev account");
-      setText("payMonthly", "waived \u00b7 dev account");
-      setText("payNext", "\u2014");
-      setText("payCard", "not required");
-      return;
+    try {
+      payment = payment || {};
+      const isDev = !!(state.plan && state.plan.is_dev);
+      if (isDev) {
+        setText("payDue", "\u00a30.00");
+        setText("payRate", "waived \u00b7 dev account");
+        setText("payMonthly", "waived \u00b7 dev account");
+        setText("payNext", "\u2014");
+        setText("payCard", "not required");
+        return;
+      }
+      const currency = payment.currency || "GBP";
+      setText("payDue", fmtMoney(payment.amount_due || 0, currency));
+      let rateText = fmtPct(payment.fee_rate_pct || 0) + " of profit";
+      if (payment.weekly_threshold_gbp != null
+          && payment.commission_pct_above_threshold != null) {
+        rateText = fmtPct(payment.fee_rate_pct || 0)
+          + " now \u00b7 drops to "
+          + fmtPct(payment.commission_pct_above_threshold)
+          + " above \u00a3" + payment.weekly_threshold_gbp + "/wk";
+      }
+      setText("payRate", rateText);
+      setText("payMonthly",
+        (payment.monthly_fee || 0) > 0
+          ? fmtMoney(payment.monthly_fee, currency) + " / month"
+          : "no monthly fee");
+      setText("payNext", fmtDate(payment.next_payment_at));
+      setText("payCard", payment.card_last4 ? "\u2022\u2022\u2022\u2022 " + payment.card_last4 : "none yet");
+    } catch (e) {
+      console.error("renderPayment failed:", e);
     }
-    setText("payDue", fmtMoney(payment.amount_due, payment.currency));
-    let rateText = fmtPct(payment.fee_rate_pct) + " of profit";
-    // When the user is on a tiered plan and hasn't yet crossed the
-    // discount threshold, show both rates so they can see what they'd
-    // pay once profit clears the line.
-    if (payment.weekly_threshold_gbp != null
-        && payment.commission_pct_above_threshold != null) {
-      rateText = fmtPct(payment.fee_rate_pct)
-        + " now \u00b7 drops to "
-        + fmtPct(payment.commission_pct_above_threshold)
-        + " above \u00a3" + payment.weekly_threshold_gbp + "/wk";
-    }
-    setText("payRate", rateText);
-    setText("payMonthly",
-      (payment.monthly_fee || 0) > 0
-        ? fmtMoney(payment.monthly_fee, payment.currency) + " / month"
-        : "no monthly fee");
-    setText("payNext", fmtDate(payment.next_payment_at));
-    setText("payCard", payment.card_last4 ? "\u2022\u2022\u2022\u2022 " + payment.card_last4 : "none yet");
   }
 
   function renderAnalytics(analytics) {
-    const rng = state.range;
-    const winKey = rng === "today" ? "pnl_today"
-      : rng === "7d" ? "pnl_7d"
-      : rng === "30d" ? "pnl_30d"
-      : "pnl_all";
-    const v = analytics[winKey] || 0;
-    const cls = v > 0 ? "pos" : v < 0 ? "neg" : "";
-    setText("statTrades", String(analytics.total_trades || 0));
-    setText("statWin", (analytics.win_rate || 0).toFixed(1) + "%");
-    const w = $("#statPnlWindow");
-    w.textContent = fmtMoney(v, "GBP");
-    w.className = "value " + cls;
-    const a = $("#statPnlAll");
-    const totalPnl = analytics.total_pnl || 0;
-    a.textContent = fmtMoney(totalPnl, "GBP");
-    a.className = "value " + (totalPnl > 0 ? "pos" : totalPnl < 0 ? "neg" : "");
+    try {
+      analytics = analytics || {};
+      const rng = state.range;
+      const winKey = rng === "today" ? "pnl_today"
+        : rng === "7d" ? "pnl_7d"
+        : rng === "30d" ? "pnl_30d"
+        : "pnl_all";
+      const v = Number(analytics[winKey]) || 0;
+      const cls = v > 0 ? "pos" : v < 0 ? "neg" : "";
+      setText("statTrades", String(analytics.total_trades || 0));
+      setText("statWin", (Number(analytics.win_rate) || 0).toFixed(1) + "%");
+      const w = $("#statPnlWindow");
+      if (w) {
+        w.textContent = fmtMoney(v, "GBP");
+        w.className = "value " + cls;
+      }
+      const a = $("#statPnlAll");
+      const totalPnl = Number(analytics.total_pnl) || 0;
+      if (a) {
+        a.textContent = fmtMoney(totalPnl, "GBP");
+        a.className = "value " + (totalPnl > 0 ? "pos" : totalPnl < 0 ? "neg" : "");
+      }
+    } catch (e) {
+      console.error("renderAnalytics failed:", e);
+    }
   }
 
   function planCommissionLabel(p) {
+    p = p || {};
     const base = fmtPct(p.commission_pct);
     if (p.weekly_threshold_gbp != null && p.commission_pct_above_threshold != null) {
       return base + " up to \u00a3" + p.weekly_threshold_gbp + "/wk \u00b7 "
@@ -701,6 +720,7 @@ button.btn.ghost:hover { border-color: var(--fg); }
   }
 
   function buildPlanCard(p, currentId, bestId) {
+    p = p || {};
     const card = document.createElement("div");
     const isDev = !!(state.plan && state.plan.is_dev);
     const isBest = bestId && p.id === bestId && !isDev;
@@ -729,30 +749,31 @@ button.btn.ghost:hover { border-color: var(--fg); }
     }
     const name = document.createElement("div");
     name.className = "plan-name";
-    name.textContent = p.label;
+    name.textContent = p.label || p.id || "plan";
     card.appendChild(name);
 
     const tag = document.createElement("div");
     tag.className = "plan-tag";
-    tag.textContent = p.tagline;
+    tag.textContent = p.tagline || "";
     card.appendChild(tag);
 
     const price = document.createElement("div");
     price.className = "plan-price";
     const num = document.createElement("span");
     num.className = "num";
-    num.textContent = (p.monthly_fee > 0 ? "\u00a3" + p.monthly_fee : "free");
+    const monthlyFee = Number(p.monthly_fee) || 0;
+    num.textContent = (monthlyFee > 0 ? "\u00a3" + monthlyFee : "free");
     price.appendChild(num);
     const per = document.createElement("span");
     per.className = "per";
-    per.textContent = (p.monthly_fee > 0 ? "/ month" : "no fee");
+    per.textContent = (monthlyFee > 0 ? "/ month" : "no fee");
     price.appendChild(per);
     card.appendChild(price);
 
     const ul = document.createElement("ul");
     (p.features || []).forEach((f) => {
       const li = document.createElement("li");
-      li.textContent = f;
+      li.textContent = String(f || "");
       ul.appendChild(li);
     });
     card.appendChild(ul);
@@ -762,28 +783,22 @@ button.btn.ghost:hover { border-color: var(--fg); }
     com.textContent = planCommissionLabel(p);
     card.appendChild(com);
 
-    // Per-plan projected weekly cost against the user's actual recent
-    // profit — set by renderPlans when it has the recommendation blob.
     const proj = document.createElement("div");
     proj.className = "plan-projection";
-    proj.dataset.planProj = p.id;
+    proj.dataset.planProj = p.id || "";
     card.appendChild(proj);
 
-    const isDev = !!(state.plan && state.plan.is_dev);
     const btn = document.createElement("button");
+    const label = (p.label || p.id || "plan").toLowerCase();
     if (isDev) {
-      if (p.id === currentId) {
-        btn.textContent = "dev \u00b7 all features";
-      } else {
-        btn.textContent = "locked for dev accounts";
-      }
+      btn.textContent = (p.id === currentId) ? "dev \u00b7 all features" : "locked for dev accounts";
       btn.disabled = true;
     } else if (p.id === currentId) {
       btn.textContent = "current";
       btn.className = "current-cta";
       btn.disabled = true;
     } else {
-      btn.textContent = "switch to " + p.label.toLowerCase();
+      btn.textContent = "switch to " + label;
       btn.addEventListener("click", () => switchPlan(p.id));
     }
     card.appendChild(btn);
@@ -791,66 +806,84 @@ button.btn.ghost:hover { border-color: var(--fg); }
   }
 
   function renderPlans() {
-    const wrap = $("#plansWrap");
-    wrap.replaceChildren();
-    const currentId = (state.plan && state.plan.id) || "starter";
-    const rec = state.recommendation || null;
-    const bestId = rec && rec.best_plan_id;
-    state.plans.forEach((p) => {
-      wrap.appendChild(buildPlanCard(p, currentId, bestId));
-    });
-    setText("planHeadline", state.plan && state.plan.is_dev
-      ? "dev account \u00b7 all features unlocked"
-      : "choose your plan");
-    renderRecommendation();
+    try {
+      const wrap = $("#plansWrap");
+      if (!wrap) return;
+      wrap.replaceChildren();
+      const currentId = (state.plan && state.plan.id) || "starter";
+      const rec = state.recommendation || null;
+      const bestId = rec && rec.best_plan_id;
+      const plans = Array.isArray(state.plans) ? state.plans : [];
+      plans.forEach((p) => {
+        try {
+          wrap.appendChild(buildPlanCard(p, currentId, bestId));
+        } catch (e) {
+          console.error("buildPlanCard failed for", p && p.id, e);
+        }
+      });
+      setText("planHeadline", state.plan && state.plan.is_dev
+        ? "dev account \u00b7 all features unlocked"
+        : "choose your plan");
+      renderRecommendation();
+    } catch (e) {
+      console.error("renderPlans failed:", e);
+    }
   }
 
   function renderRecommendation() {
-    const banner = $("#planSuggestion");
-    if (!banner) return;
-    const rec = state.recommendation;
-    const currentId = (state.plan && state.plan.id) || "starter";
-    if (state.plan && state.plan.is_dev) {
-      banner.style.display = "none";
-      return;
-    }
-    if (!rec || !rec.best_plan_id || (rec.weekly_profit_basis || 0) <= 0) {
-      banner.style.display = "none";
-    } else {
-      banner.style.display = "block";
-      banner.replaceChildren();
-      const profit = fmtMoney(rec.weekly_profit_basis, "GBP");
-      if (rec.best_plan_id === currentId) {
-        const b = document.createElement("b");
-        b.textContent = "you're on the cheapest plan for your profits.";
-        banner.appendChild(b);
-        banner.appendChild(document.createTextNode(
-          " based on " + profit + " realised in the last 7 days."));
-      } else {
-        const bestPlan = state.plans.find((p) => p.id === rec.best_plan_id);
-        const bestLabel = bestPlan ? bestPlan.label : rec.best_plan_id;
-        const saving = (rec.current_weekly_cost || 0) - (rec.best_weekly_cost || 0);
-        const b = document.createElement("b");
-        b.textContent = bestLabel + " would cost you about \u00a3"
-          + saving.toFixed(2) + " less per week.";
-        banner.appendChild(b);
-        banner.appendChild(document.createTextNode(
-          " based on " + profit + " realised in the last 7 days ("
-          + fmtMoney(rec.current_weekly_cost, "GBP") + "/wk now \u2192 "
-          + fmtMoney(rec.best_weekly_cost, "GBP") + "/wk on " + bestLabel + ")."));
-      }
-    }
-    // Per-card projected weekly costs (works even when banner is hidden).
-    const costs = (rec && rec.plan_costs) || [];
-    costs.forEach((c) => {
-      const el = document.querySelector('[data-plan-proj="' + c.plan_id + '"]');
-      if (!el) return;
-      if ((rec.weekly_profit_basis || 0) <= 0) {
-        el.textContent = "";
+    try {
+      const banner = $("#planSuggestion");
+      if (!banner) return;
+      const rec = state.recommendation;
+      const currentId = (state.plan && state.plan.id) || "starter";
+      if (state.plan && state.plan.is_dev) {
+        banner.style.display = "none";
         return;
       }
-      el.textContent = "\u2248 " + fmtMoney(c.weekly_cost, "GBP") + " / wk on your profits";
-    });
+      const profitBasis = Number(rec && rec.weekly_profit_basis) || 0;
+      if (!rec || !rec.best_plan_id || profitBasis <= 0) {
+        banner.style.display = "none";
+      } else {
+        banner.style.display = "block";
+        banner.replaceChildren();
+        const profit = fmtMoney(profitBasis, "GBP");
+        if (rec.best_plan_id === currentId) {
+          const b = document.createElement("b");
+          b.textContent = "you're on the cheapest plan for your profits.";
+          banner.appendChild(b);
+          banner.appendChild(document.createTextNode(
+            " based on " + profit + " realised in the last 7 days."));
+        } else {
+          const plans = Array.isArray(state.plans) ? state.plans : [];
+          const bestPlan = plans.find((p) => p && p.id === rec.best_plan_id);
+          const bestLabel = (bestPlan && bestPlan.label) || rec.best_plan_id;
+          const curCost = Number(rec.current_weekly_cost) || 0;
+          const bestCost = Number(rec.best_weekly_cost) || 0;
+          const saving = curCost - bestCost;
+          const b = document.createElement("b");
+          b.textContent = bestLabel + " would cost you about \u00a3"
+            + saving.toFixed(2) + " less per week.";
+          banner.appendChild(b);
+          banner.appendChild(document.createTextNode(
+            " based on " + profit + " realised in the last 7 days ("
+            + fmtMoney(curCost, "GBP") + "/wk now \u2192 "
+            + fmtMoney(bestCost, "GBP") + "/wk on " + bestLabel + ")."));
+        }
+      }
+      const costs = (rec && Array.isArray(rec.plan_costs)) ? rec.plan_costs : [];
+      costs.forEach((c) => {
+        if (!c || !c.plan_id) return;
+        const el = document.querySelector('[data-plan-proj="' + c.plan_id + '"]');
+        if (!el) return;
+        if (profitBasis <= 0) {
+          el.textContent = "";
+          return;
+        }
+        el.textContent = "\u2248 " + fmtMoney(c.weekly_cost, "GBP") + " / wk on your profits";
+      });
+    } catch (e) {
+      console.error("renderRecommendation failed:", e);
+    }
   }
 
   function ensureAvatarGrid() {
@@ -1035,9 +1068,18 @@ button.btn.ghost:hover { border-color: var(--fg); }
     loading.appendChild(out);
   }
 
+  function revealShell() {
+    const loading = $("#loading");
+    const shell = $("#shell");
+    if (loading) loading.style.display = "none";
+    if (shell) shell.style.display = "block";
+  }
+
   function loadDashboard() {
+    console.log("[dashboard] load start");
     return fetch("/api/me/dashboard", { headers: auth.headers })
       .then((r) => {
+        console.log("[dashboard] response", r.status);
         if (r.status === 401 || r.status === 403) {
           try { localStorage.removeItem(TOKEN_KEY); } catch (_) {}
           window.location.replace("/signup?mode=login");
@@ -1060,21 +1102,27 @@ button.btn.ghost:hover { border-color: var(--fg); }
       })
       .then((j) => {
         if (!j) return;
-        state.user = j.user;
-        state.plan = j.plan;
-        state.analytics = j.analytics;
+        console.log("[dashboard] payload received", Object.keys(j));
+        state.user = j.user || null;
+        state.plan = j.plan || null;
+        state.analytics = j.analytics || null;
         state.recommendation = j.recommendation || null;
-        renderUser(j.user);
-        renderPayment(j.payment);
-        renderAnalytics(j.analytics);
-        renderPlans();
-        $("#loading").style.display = "none";
-        $("#shell").style.display = "block";
+        // Each render is independent — a failure in one must not block the others.
+        try { renderUser(j.user); } catch (e) { console.error("renderUser threw:", e); }
+        try { renderPayment(j.payment); } catch (e) { console.error("renderPayment threw:", e); }
+        try { renderAnalytics(j.analytics); } catch (e) { console.error("renderAnalytics threw:", e); }
+        try { renderPlans(); } catch (e) { console.error("renderPlans threw:", e); }
+        revealShell();
+        console.log("[dashboard] render complete");
       })
       .catch((err) => {
+        console.error("[dashboard] load failed:", err);
         if (err && err.serverSide) {
           showLoadError("dashboard error: " + err.message);
         } else {
+          // Show the shell anyway so the user isn't stuck on a spinner —
+          // a render or network blip shouldn't lock them out of the page.
+          revealShell();
           showLoadError("could not reach the server");
         }
       });
