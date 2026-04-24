@@ -125,6 +125,19 @@ class BrokerService:
     def cancel_order(self, order_id: str) -> bool:
         return self.broker.cancel_order(order_id)
 
+    def modify_order(
+        self,
+        order_id: str,
+        limit_price: Optional[float] = None,
+        stop_price: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        """Adjust a pending order's trigger levels without cancel+resubmit."""
+        return self.broker.modify_order(
+            order_id=order_id,
+            limit_price=limit_price,
+            stop_price=stop_price,
+        )
+
     def reset_paper(self) -> bool:
         """Reset the paper stocks broker to its config starting cash.
 
@@ -138,6 +151,21 @@ class BrokerService:
             return False
         broker.reset()
         return True
+
+    def deposit_paper(self, amount: float) -> Dict[str, Any]:
+        """Deposit ``amount`` of account-currency cash into the paper account.
+
+        Rejects cleanly (``status="REJECTED"``) when the stocks broker
+        is not a ``PaperBroker`` — live brokers do not simulate deposits.
+        """
+        from paper_broker import PaperBroker
+        broker = self.get_broker("stocks")
+        if not isinstance(broker, PaperBroker):
+            return {
+                "status": "REJECTED",
+                "reason": "paper deposit is only available in paper mode",
+            }
+        return broker.deposit(float(amount))
 
     # ── Account Extended ──────────────────────────────────────────────
 

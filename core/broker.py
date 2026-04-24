@@ -47,6 +47,22 @@ class Broker(ABC):
 
     # ── Extended (default empty implementations) ──────────────────────
 
+    def modify_order(
+        self,
+        order_id: str,
+        limit_price: Optional[float] = None,
+        stop_price: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        """Adjust an open order's trigger levels in-place.
+
+        Default: not supported. Brokers that can edit live orders
+        (PaperBroker, and eventually Trading212Broker) override this.
+        """
+        return {
+            "status": "REJECTED",
+            "reason": "modify_order is not supported by this broker",
+        }
+
     def get_account_metadata(self) -> Dict[str, Any]:
         return {}
 

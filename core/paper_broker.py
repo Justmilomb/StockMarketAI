@@ -73,6 +73,11 @@ _GAP_BUFFER = 1.15
 # $100k toy account — paper mode in blank is a £100 sandbox by design.
 _DEFAULT_STARTING_CASH = 100.0
 
+# Background monitor cadence. A stop-loss that waits 5–15 minutes for
+# the agent to iterate is useless in a flash crash — we poll every
+# second so stops/limits fire independently of the agent loop.
+_MONITOR_TICK_SECONDS = 1.0
+
 
 # ─────────────────────────────────────────────────────────────────────
 # State model
@@ -191,6 +196,7 @@ class _State:
     realised_pnl_acct: float = 0.0
     realised_trading_acct: float = 0.0
     realised_fx_acct: float = 0.0
+    total_deposits_acct: float = 0.0
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -201,6 +207,7 @@ class _State:
             "realised_pnl_acct": self.realised_pnl_acct,
             "realised_trading_acct": self.realised_trading_acct,
             "realised_fx_acct": self.realised_fx_acct,
+            "total_deposits_acct": self.total_deposits_acct,
         }
 
     @classmethod
@@ -218,6 +225,7 @@ class _State:
             realised_pnl_acct=float(d.get("realised_pnl_acct", 0.0) or 0.0),
             realised_trading_acct=float(d.get("realised_trading_acct", 0.0) or 0.0),
             realised_fx_acct=float(d.get("realised_fx_acct", 0.0) or 0.0),
+            total_deposits_acct=float(d.get("total_deposits_acct", 0.0) or 0.0),
         )
 
 
@@ -294,6 +302,12 @@ class PaperBroker(Broker):
         self._currency = str(currency or "USD")
         self._state: _State = self._load_state(self._starting_cash, self._currency)
 
+        # Background 1 s monitor — runs forever as a daemon so stops
+        # and limits execute independently of the agent iteration.
+        self._monitor_stop = threading.Event()
+        self._monitor_thread: Optional[threading.Thread] = None
+        self._start_monitor()
+
     # ── persistence ──────────────────────────────────────────────────
 
     def _load_state(self, starting_cash: float, currency: str) -> _State:
@@ -322,7 +336,17 @@ class PaperBroker(Broker):
 
         disk_cash = float(raw.get("cash_free", 0.0) or 0.0)
         disk_currency = str(raw.get("currency", "") or "")
+        # "Has activity" = any trace the user actually used this account.
+        # Positions, pending orders, deposits, or realised P&L all count —
+        # wiping any of those on restart would destroy real state.
         has_trading = bool(raw.get("positions")) or bool(raw.get("pending_orders"))
+        has_deposits = float(raw.get("total_deposits_acct", 0.0) or 0.0) > 0.0
+        has_realised = (
+            float(raw.get("realised_pnl_acct", 0.0) or 0.0) != 0.0
+            or float(raw.get("realised_trading_acct", 0.0) or 0.0) != 0.0
+            or float(raw.get("realised_fx_acct", 0.0) or 0.0) != 0.0
+        )
+        has_activity = has_trading or has_deposits or has_realised
 
         cash_stale = (
             starting_cash > 0
@@ -333,7 +357,7 @@ class PaperBroker(Broker):
         )
         missing_currency = bool(currency) and not disk_currency
 
-        if not has_trading and (cash_stale or currency_stale or missing_currency):
+        if not has_activity and (cash_stale or currency_stale or missing_currency):
             logger.warning(
                 "paper: state file stale (disk cash=%s ccy=%s, "
                 "config cash=%s ccy=%s) — rebuilding from config",
@@ -391,6 +415,150 @@ class PaperBroker(Broker):
                 self._state.currency, self._state.cash_free,
             )
 
+    def deposit(self, amount: float) -> Dict[str, Any]:
+        """Credit the paper account with ``amount`` of account-currency cash.
+
+        Simulates a bank transfer into the sandbox — touches only
+        ``cash_free`` and the cumulative ``total_deposits_acct`` counter.
+        Realised / unrealised P&L counters are left alone so the commission
+        model (which tallies realised trade P&L, not cash balance) correctly
+        treats deposits as non-profit.
+
+        Writes an audit row tagged ``DEPOSIT`` to ``paper_orders.jsonl``.
+        The row has no ticker/side, so ``get_order_history`` (which
+        filters those out) never surfaces deposits as trades.
+        """
+        if amount <= 0:
+            raise ValueError(f"deposit amount must be positive, got {amount}")
+        with self._lock:
+            self._state.cash_free += float(amount)
+            self._state.total_deposits_acct += float(amount)
+            self._save_state()
+            self._audit({
+                "timestamp": datetime.now(tz=timezone.utc).isoformat(),
+                "status": "DEPOSIT",
+                "amount": float(amount),
+                "currency": self._state.currency,
+                "cash_free_after": self._state.cash_free,
+                "total_deposits_after": self._state.total_deposits_acct,
+            })
+            logger.info(
+                "paper: deposited %s %.2f (cash_free=%.2f, total_deposits=%.2f)",
+                self._state.currency, float(amount),
+                self._state.cash_free, self._state.total_deposits_acct,
+            )
+            return {
+                "status": "OK",
+                "amount": float(amount),
+                "currency": self._state.currency,
+                "cash_free": self._state.cash_free,
+                "total_deposits": self._state.total_deposits_acct,
+            }
+
+    def modify_order(
+        self,
+        order_id: str,
+        limit_price: Optional[float] = None,
+        stop_price: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        """Adjust an open pending order's limit_price and/or stop_price.
+
+        Does not support resizing — changing quantity would require
+        re-reserving cash on BUYs, a path that's easy to get wrong.
+        Cancel-and-resubmit is the safe way to resize.
+
+        Returns ``{"status": "OK", ...}`` on success. If the order is
+        no longer pending (already filled, already cancelled, or never
+        existed), returns ``{"status": "REJECTED", "reason": ...}``.
+        """
+        with self._lock:
+            self._reconcile_pending()
+            order = next(
+                (o for o in self._state.pending_orders if o.order_id == order_id),
+                None,
+            )
+            if order is None:
+                return {
+                    "status": "REJECTED",
+                    "reason": f"no pending order with id {order_id}",
+                }
+            if limit_price is None and stop_price is None:
+                return {
+                    "status": "REJECTED",
+                    "reason": "supply at least one of limit_price or stop_price",
+                }
+            old_limit = order.limit_price
+            old_stop = order.stop_price
+            if limit_price is not None:
+                order.limit_price = float(limit_price)
+            if stop_price is not None:
+                order.stop_price = float(stop_price)
+            self._save_state()
+            self._audit({
+                "timestamp": datetime.now(tz=timezone.utc).isoformat(),
+                "order_id": order.order_id,
+                "ticker": order.ticker,
+                "side": order.side,
+                "status": "MODIFIED",
+                "old_limit_price": old_limit,
+                "old_stop_price": old_stop,
+                "limit_price": order.limit_price,
+                "stop_price": order.stop_price,
+            })
+            logger.info(
+                "paper: modified %s %s %s → limit=%s stop=%s",
+                order.order_id, order.side, order.ticker,
+                order.limit_price, order.stop_price,
+            )
+            return {
+                "status": "OK",
+                "order_id": order.order_id,
+                "ticker": order.ticker,
+                "side": order.side,
+                "limit_price": order.limit_price,
+                "stop_price": order.stop_price,
+            }
+
+    # ── background monitor ───────────────────────────────────────────
+
+    def _start_monitor(self) -> None:
+        """Spawn the 1 s background reconciliation thread."""
+        if self._monitor_thread is not None and self._monitor_thread.is_alive():
+            return
+        t = threading.Thread(
+            target=self._monitor_loop,
+            name="paper-broker-monitor",
+            daemon=True,
+        )
+        t.start()
+        self._monitor_thread = t
+
+    def _monitor_loop(self) -> None:
+        """Tick every second, firing any triggered stops/limits.
+
+        Skips cheaply when there are no pending orders so the hot path
+        is a single list check. Errors are logged, not raised — a
+        failed tick must not kill the thread.
+        """
+        while not self._monitor_stop.is_set():
+            try:
+                # Cheap peek under the lock; heavy work runs with it.
+                with self._lock:
+                    has_pending = bool(self._state.pending_orders)
+                if has_pending:
+                    with self._lock:
+                        self._reconcile_pending()
+            except Exception:
+                logger.exception("paper: monitor tick failed")
+            self._monitor_stop.wait(_MONITOR_TICK_SECONDS)
+
+    def stop_monitor(self) -> None:
+        """Signal the monitor thread to stop and wait briefly for it to exit."""
+        self._monitor_stop.set()
+        t = self._monitor_thread
+        if t is not None:
+            t.join(timeout=2.0)
+
     def _save_state(self) -> None:
         tmp = self._state_path.with_suffix(".json.tmp")
         with tmp.open("w", encoding="utf-8") as f:
@@ -406,9 +574,18 @@ class PaperBroker(Broker):
     def _reconcile_pending(self) -> None:
         """Drain every pending order whose exchange is now open and fillable.
 
-        Runs at the top of every public entry point. Cheap when the
-        queue is empty (one dict read) and batches its price lookups
-        when it isn't.
+        Runs at the top of every public entry point AND on a 1-second
+        background tick (see ``_monitor_loop``) so stop-losses and
+        take-profits trigger autonomously without waiting on an agent
+        iteration. Cheap when the queue is empty (one list check) and
+        batches its price lookups when it isn't.
+
+        Trigger rules:
+        * ``limit`` BUY  — fills when px <= limit_price
+        * ``limit`` SELL — fills when px >= limit_price (take-profit)
+        * ``stop``  SELL — fills when px <= stop_price  (stop-loss)
+        * ``stop``  BUY  — fills when px >= stop_price  (breakout entry)
+        * ``market``     — fills as soon as the exchange is open and priceable
         """
         if not self._state.pending_orders:
             return
@@ -419,30 +596,23 @@ class PaperBroker(Broker):
         dirty = False
         for order in list(self._state.pending_orders):
             exch = exchange_for_ticker(order.ticker)
-            if exch is None:
-                # Unknown exchange (crypto, dual-listing we haven't mapped)
-                # — just fill immediately at last known price.
-                px = prices.get(order.ticker, 0.0)
-                if px <= 0:
+            if exch is not None:
+                # Only wait for market open when the ticker is tied to an
+                # exchange we know the hours for. Stops and limits both
+                # need an open book to fire — a stop-loss that triggers
+                # on after-hours data would fill against a closed market.
+                if not status(exch).get("is_open"):
                     still_pending.append(order)
                     continue
-                self._fill_order(order, px)
-                dirty = True
-                continue
-
-            st = status(exch)
-            if not st.get("is_open"):
-                still_pending.append(order)
-                continue
 
             px = prices.get(order.ticker, 0.0)
             if px <= 0:
-                # Market says it's open but we can't price the ticker
-                # — don't crash, just keep waiting.
+                # No live price — can't evaluate a trigger. Keep waiting.
                 still_pending.append(order)
                 continue
 
-            if order.order_type == "limit":
+            otype = order.order_type
+            if otype == "limit":
                 limit = float(order.limit_price or 0.0)
                 if order.side == "BUY" and px > limit:
                     still_pending.append(order)
@@ -450,6 +620,19 @@ class PaperBroker(Broker):
                 if order.side == "SELL" and px < limit:
                     still_pending.append(order)
                     continue
+            elif otype == "stop":
+                stop = float(order.stop_price or 0.0)
+                if stop <= 0:
+                    still_pending.append(order)
+                    continue
+                # Stop SELL fires on a drop; stop BUY fires on a rally.
+                if order.side == "SELL" and px > stop:
+                    still_pending.append(order)
+                    continue
+                if order.side == "BUY" and px < stop:
+                    still_pending.append(order)
+                    continue
+            # "market" falls through — it fills as soon as we have a price.
 
             self._fill_order(order, px)
             dirty = True
@@ -720,6 +903,47 @@ class PaperBroker(Broker):
             order_id = f"pp-{uuid.uuid4().hex[:10]}"
             created_at = datetime.now(tz=timezone.utc).isoformat()
             is_open = self._ticker_is_tradeable(ticker)
+
+            # ── STOP path ────────────────────────────────────────────
+            # Stop orders always queue — they wait for the 1s monitor
+            # loop to detect the trigger price, regardless of whether
+            # the market is open right now. A BUY stop still needs
+            # enough cash reserved at the stop_price to cover the fill;
+            # a SELL stop rides on the held position (no reservation).
+            if order_type == "stop":
+                if stop_price is None or float(stop_price) <= 0:
+                    return self._reject(
+                        order_id, ticker, side_upper, quantity,
+                        "stop order requires a positive stop_price",
+                        order_type, limit_price,
+                    )
+                reserved_acct = 0.0
+                queue_reason = (
+                    f"stop-{'loss' if side_upper == 'SELL' else 'entry'} "
+                    f"trigger at {float(stop_price):.4f}"
+                )
+                if side_upper == "BUY":
+                    native_ccy = ticker_currency(ticker, default="USD")
+                    account_ccy = self._state.currency
+                    rate = fx_rate(native_ccy, account_ccy)
+                    # Reserve at stop_price × gap buffer — the trigger
+                    # fills as a market order, so we could overshoot.
+                    reserved_native = float(stop_price) * quantity * _GAP_BUFFER
+                    reserved_acct = reserved_native * rate
+                    if reserved_acct > self._state.cash_free + 1e-6:
+                        return self._reject(
+                            order_id, ticker, side_upper, quantity,
+                            f"stop-BUY reservation {reserved_acct:.2f} {account_ccy} "
+                            f"> free {self._state.cash_free:.2f} {account_ccy}",
+                            order_type, limit_price,
+                        )
+                    self._state.cash_free -= reserved_acct
+                return self._enqueue_order(
+                    order_id, ticker, side_upper, quantity,
+                    "stop", limit_price, stop_price,
+                    created_at, reserved_cash=reserved_acct,
+                    queue_reason=queue_reason,
+                )
 
             # ── SELL path ────────────────────────────────────────────
             if side_upper == "SELL":

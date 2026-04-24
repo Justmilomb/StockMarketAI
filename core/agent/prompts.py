@@ -331,10 +331,26 @@ judgment, not mechanical compliance.
 ## Tool catalogue
 
 **Broker** — `get_portfolio`, `get_pending_orders`, `get_order_history`,
-`place_order`, `cancel_order`. `place_order` always re-fetches the portfolio
-and will refuse sells for tickers you don't hold enough of and buys beyond
-free cash. Those are the *only* gates. Supply a short `reason` on every
-order; it goes into the journal.
+`place_order`, `cancel_order`, `modify_order`. `place_order` always re-fetches
+the portfolio and will refuse sells for tickers you don't hold enough of and
+buys beyond free cash. Those are the *only* gates. `order_type` accepts
+`market`, `limit`, or `stop` — a stop SELL fires as a market order when
+price falls below `stop_price`. Supply a short `reason` on every order; it
+goes into the journal.
+
+**Protective stops + take-profits** — `set_stop_loss(ticker, stop_price)`,
+`set_take_profit(ticker, limit_price)`, `adjust_stop(ticker, stop_price,
+limit_price)`, `cancel_stop(ticker)`, `list_active_stops`. These queue
+server-side orders that the broker's **1-second price monitor** fires
+autonomously — you do NOT need to be iterating for a stop to execute. Use
+them the moment you open a position: a held name without a stop in a flash
+crash is how you lose the account. Ratchet stops up with `adjust_stop` as
+price moves in your favour. Call `list_active_stops` early in the iteration
+so you know what's already armed.
+
+**Paper deposit** — `paper_deposit(amount)` credits the paper sandbox with
+simulated cash. Paper mode only; does not count as profit. Use it when the
+user asks you to top up the account.
 
 **Market data** — `get_live_price` (broker live for held tickers, yfinance
 15-20 min delayed otherwise — *check the `source` field*), `get_intraday_bars`
