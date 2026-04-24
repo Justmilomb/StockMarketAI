@@ -905,8 +905,56 @@ a.cta{{display:inline-block;background:#00ff87;color:#000;text-decoration:none;f
 
 @app.get("/api/health")
 def health_check() -> dict[str, str]:
-    """Simple health check for app connectivity verification."""
-    return {"status": "ok", "version": "1.0.0"}
+    """Simple health check for app connectivity verification.
+
+    Returns the deploy commit SHA (``RENDER_GIT_COMMIT`` on Render) so we
+    can verify from the browser which revision is actually live — useful
+    when a fix is pushed and we need to confirm it rolled out.
+    """
+    return {
+        "status": "ok",
+        "version": "1.0.0",
+        "commit": os.environ.get("RENDER_GIT_COMMIT", "unknown"),
+    }
+
+
+@app.get("/api/debug/dashboard-test")
+def debug_dashboard_test(
+    email: str,
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> dict[str, Any]:
+    """No-auth probe that runs the dashboard build path for a given email.
+
+    Intentionally public so the fix can be verified from a browser
+    without a token. Returns the exception chain verbatim when the
+    build path crashes — the whole point is to make silent 500s
+    visible. Remove once the dashboard stabilises.
+    """
+    import traceback
+    with conn.cursor() as cur:
+        cur.execute("SELECT key FROM licenses WHERE email = %s LIMIT 1", (email,))
+        row = cur.fetchone()
+    if not row:
+        return {"ok": False, "stage": "lookup", "error": "no licence for that email"}
+    claims = {"sub": row["key"]}
+    try:
+        payload = _build_dashboard_payload(conn, claims)
+        return {
+            "ok": True,
+            "commit": os.environ.get("RENDER_GIT_COMMIT", "unknown"),
+            "keys": sorted(payload.keys()),
+            "user_keys": sorted((payload.get("user") or {}).keys()),
+            "analytics_keys": sorted((payload.get("analytics") or {}).keys()),
+        }
+    except HTTPException as exc:
+        return {"ok": False, "stage": "http", "status": exc.status_code, "detail": exc.detail}
+    except Exception as exc:
+        return {
+            "ok": False,
+            "stage": "build",
+            "error": f"{type(exc).__name__}: {exc}",
+            "traceback": traceback.format_exc(),
+        }
 
 
 @app.get("/api/version")
