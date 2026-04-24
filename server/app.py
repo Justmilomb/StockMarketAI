@@ -798,7 +798,18 @@ def terms_page() -> HTMLResponse:
     return HTMLResponse(content=html)
 
 
-@app.get("/auth/login", response_class=HTMLResponse)
+@app.get("/auth/login")
+def auth_login_redirect(request: Request) -> RedirectResponse:
+    """Legacy auth path. The standalone login page has been folded into
+    /signup behind a Sign in / Create account toggle so the entry point
+    is consistent. Preserve any ``callback_port`` from the desktop app's
+    local auth bridge so the handoff still works after the bounce."""
+    qs = request.url.query
+    target = "/signup?mode=login" + (("&" + qs) if qs else "")
+    return RedirectResponse(url=target, status_code=307)
+
+
+@app.get("/auth/login.legacy", response_class=HTMLResponse)
 def auth_login_page() -> HTMLResponse:
     """Serve the sign-in page. Accepts ``?callback_port=<int>`` so the
     desktop app can spin up a loopback listener and receive the token

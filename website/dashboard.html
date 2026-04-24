@@ -30,22 +30,22 @@ html, body {
 a { color: inherit; text-decoration: none; }
 
 .shell {
-  max-width: 1080px; margin: 0 auto;
-  padding: 32px 28px 64px;
+  max-width: 1140px; margin: 0 auto;
+  padding: 64px 40px 120px;
 }
 .topbar {
   display: flex; align-items: center; justify-content: space-between;
-  margin-bottom: 36px; gap: 16px;
+  margin-bottom: 56px; gap: 16px;
 }
 .brand {
   font-family: 'Outfit', sans-serif;
-  font-weight: 300; font-size: 22px; letter-spacing: -0.02em;
+  font-weight: 300; font-size: 26px; letter-spacing: -0.02em;
   position: relative;
 }
 .brand::after {
   content: ''; display: block;
-  width: 32px; height: 1px; background: var(--accent);
-  margin-top: 10px;
+  width: 36px; height: 1px; background: var(--accent);
+  margin-top: 12px;
 }
 .user-pill {
   display: flex; align-items: center; gap: 10px;
@@ -65,9 +65,9 @@ a { color: inherit; text-decoration: none; }
 .banner {
   background: rgba(255,176,0,0.06);
   border: 1px solid rgba(255,176,0,0.4);
-  padding: 14px 18px; margin-bottom: 24px;
+  padding: 18px 22px; margin-bottom: 36px;
   display: flex; align-items: center; justify-content: space-between;
-  gap: 16px; flex-wrap: wrap;
+  gap: 18px; flex-wrap: wrap;
 }
 .banner .msg { font-size: 13px; color: var(--fg); }
 .banner .msg b { color: var(--warn); font-weight: 500; }
@@ -82,24 +82,25 @@ a { color: inherit; text-decoration: none; }
 .banner.ok { border-color: rgba(0,255,135,0.3); background: rgba(0,255,135,0.04); }
 .banner.ok .msg b { color: var(--accent); }
 
-.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
 .full { grid-column: 1 / -1; }
-.panel { background: var(--panel); border: 1px solid var(--mid); padding: 24px; }
+.panel { background: var(--panel); border: 1px solid var(--mid); padding: 40px 40px 36px; }
 .panel h2 {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 11px; letter-spacing: 0.28em; color: var(--accent);
+  font-size: 11px; letter-spacing: 0.32em; color: var(--accent);
   text-transform: uppercase; font-weight: 500;
-  margin: 0 0 16px;
+  margin: 0 0 22px;
 }
 .panel h3 {
   font-family: 'Outfit', sans-serif;
-  font-size: 18px; font-weight: 300; letter-spacing: -0.01em;
-  color: var(--fg); margin: 0 0 6px;
+  font-size: 26px; font-weight: 300; letter-spacing: -0.02em;
+  color: var(--fg); margin: 0 0 10px;
+  line-height: 1.25;
 }
-.panel p.lead { color: var(--dim); font-size: 13px; margin: 0 0 18px; }
+.panel p.lead { color: var(--dim); font-size: 14px; line-height: 1.6; margin: 0 0 28px; max-width: 56ch; }
 
 label.field {
-  display: block; margin: 14px 0 6px;
+  display: block; margin: 18px 0 8px;
   font-family: 'JetBrains Mono', monospace;
   font-size: 10px; letter-spacing: 0.22em;
   text-transform: uppercase; color: var(--dim);
@@ -127,7 +128,7 @@ button.btn.ghost {
   border: 1px solid var(--mid);
 }
 button.btn.ghost:hover { border-color: var(--fg); }
-.row-actions { margin-top: 16px; display: flex; gap: 10px; flex-wrap: wrap; }
+.row-actions { margin-top: 22px; display: flex; gap: 12px; flex-wrap: wrap; }
 .feedback {
   display: block; margin-top: 10px;
   font-family: 'JetBrains Mono', monospace;
@@ -137,11 +138,11 @@ button.btn.ghost:hover { border-color: var(--fg); }
 .feedback.err { color: var(--alert); }
 
 .profile-row {
-  display: flex; align-items: center; gap: 18px;
-  margin-bottom: 14px;
+  display: flex; align-items: center; gap: 22px;
+  margin-bottom: 20px;
 }
 .avatar-thumb {
-  width: 64px; height: 64px;
+  width: 72px; height: 72px;
   background: #000; border: 1px solid var(--mid);
   display: flex; align-items: center; justify-content: center;
   flex-shrink: 0;
@@ -170,7 +171,7 @@ button.btn.ghost:hover { border-color: var(--fg); }
 
 .coming-soon {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 12px 0; border-bottom: 1px solid var(--mid);
+  padding: 16px 0; border-bottom: 1px solid var(--mid);
 }
 .coming-soon:last-child { border-bottom: none; }
 .coming-soon .lbl { font-size: 13px; color: var(--fg); }
@@ -180,33 +181,33 @@ button.btn.ghost:hover { border-color: var(--fg); }
   text-transform: uppercase; color: var(--faint);
 }
 
-.range { display: flex; gap: 6px; margin-bottom: 18px; }
+.range { display: flex; gap: 8px; margin-bottom: 26px; }
 .range button {
   flex: 1; background: transparent; border: 1px solid var(--mid);
   color: var(--dim);
   font-family: 'JetBrains Mono', monospace;
   font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase;
-  padding: 8px 0; cursor: pointer;
+  padding: 11px 0; cursor: pointer;
 }
 .range button.on { background: var(--accent); color: var(--bg); border-color: var(--accent); }
 
-.stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
-.stat { border: 1px solid var(--mid); padding: 14px; background: var(--bg); }
+.stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; }
+.stat { border: 1px solid var(--mid); padding: 22px 22px 20px; background: var(--bg); }
 .stat .label {
   font-family: 'JetBrains Mono', monospace;
   font-size: 10px; letter-spacing: 0.22em; color: var(--dim);
-  text-transform: uppercase; margin: 0 0 6px;
+  text-transform: uppercase; margin: 0 0 10px;
 }
 .stat .value {
   font-family: 'Outfit', sans-serif; font-weight: 300;
-  font-size: 26px; letter-spacing: -0.01em;
+  font-size: 30px; letter-spacing: -0.02em;
 }
 .stat .value.pos { color: var(--accent); }
 .stat .value.neg { color: var(--alert); }
 
 .payment-line {
   display: flex; justify-content: space-between; align-items: baseline;
-  padding: 12px 0; border-bottom: 1px solid var(--mid);
+  padding: 18px 0; border-bottom: 1px solid var(--mid);
 }
 .payment-line:last-child { border-bottom: none; }
 .payment-line .l {
@@ -221,13 +222,13 @@ button.btn.ghost:hover { border-color: var(--fg); }
 .payment-line .r.dim { color: var(--faint); font-size: 13px; }
 
 .plans {
-  display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px;
-  margin-top: 4px;
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px;
+  margin-top: 8px;
 }
 .plan {
   background: var(--bg); border: 1px solid var(--mid);
-  padding: 22px 18px; position: relative;
-  display: flex; flex-direction: column; gap: 12px;
+  padding: 32px 26px 28px; position: relative;
+  display: flex; flex-direction: column; gap: 16px;
 }
 .plan.recommended { border-color: rgba(0,255,135,0.4); }
 .plan.current {
@@ -382,7 +383,7 @@ button.btn.ghost:hover { border-color: var(--fg); }
         <span class="feedback" id="avatarFeedback"></span>
       </div>
 
-      <div style="margin-top:24px">
+      <div style="margin-top:36px">
         <div class="coming-soon">
           <span class="lbl">phone number</span>
           <span class="val">coming soon</span>
@@ -440,7 +441,7 @@ button.btn.ghost:hover { border-color: var(--fg); }
         <button class="btn" id="savePwdBtn">change password</button>
       </div>
 
-      <div style="margin-top:24px">
+      <div style="margin-top:36px">
         <div class="coming-soon">
           <span class="lbl">download blank</span>
           <a class="val" id="dlLink" href="#" style="color:var(--accent);letter-spacing:0.18em;text-transform:uppercase">windows installer</a>
@@ -473,7 +474,7 @@ button.btn.ghost:hover { border-color: var(--fg); }
   let token = null;
   try { token = localStorage.getItem(TOKEN_KEY); } catch (_) { token = null; }
   if (!token) {
-    window.location.replace("/auth/login");
+    window.location.replace("/signup?mode=login");
     return;
   }
 
@@ -798,7 +799,7 @@ button.btn.ghost:hover { border-color: var(--fg); }
 
   $("#signoutBtn").addEventListener("click", () => {
     try { localStorage.removeItem(TOKEN_KEY); } catch (_) {}
-    window.location.replace("/auth/login");
+    window.location.replace("/signup?mode=login");
   });
 
   $("#resendBtn").addEventListener("click", () => {
@@ -901,7 +902,7 @@ button.btn.ghost:hover { border-color: var(--fg); }
       .then((r) => {
         if (r.status === 401) {
           try { localStorage.removeItem(TOKEN_KEY); } catch (_) {}
-          window.location.replace("/auth/login");
+          window.location.replace("/signup?mode=login");
           return null;
         }
         return r.json();

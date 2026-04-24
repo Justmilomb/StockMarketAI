@@ -2,8 +2,11 @@
 <html lang="en">
 <head>
 <meta charset="utf-8"/>
-<title>create account · blank</title>
+<title>blank · sign in or create account</title>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;700&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
 <script src="https://js.stripe.com/v3/"></script>
 <style>
 :root {
@@ -16,33 +19,61 @@
   --alert: #ff5f57;
   --bg: #000;
   --bg-soft: #060606;
+  --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 * { box-sizing: border-box; }
 html, body {
   margin: 0; padding: 0; background: var(--bg); color: var(--fg);
-  font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
-  font-size: 14px;
+  font-family: 'Outfit', -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+  font-size: 15px;
 }
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
 
 main {
   min-height: 100vh; display: flex; align-items: center;
-  justify-content: center; padding: 40px 20px;
+  justify-content: center; padding: 64px 24px;
 }
 .card {
-  width: 100%; max-width: 520px;
-  border: 1px solid var(--mid); padding: 36px 36px 28px; background: var(--bg-soft);
+  width: 100%; max-width: 540px;
+  border: 1px solid var(--mid); padding: 48px 48px 36px; background: var(--bg-soft);
 }
-h1 { margin: 0 0 4px; font-size: 36px; letter-spacing: -0.04em; font-weight: 700; }
+.brand-head { text-align: center; margin-bottom: 36px; }
+h1 { margin: 0 0 6px; font-size: 44px; letter-spacing: -0.04em; font-weight: 700; }
+.tagline {
+  margin: 0; font-family: var(--mono);
+  font-size: 10px; letter-spacing: 0.32em; color: var(--dim);
+  text-transform: uppercase;
+}
+.tabbar {
+  display: grid; grid-template-columns: 1fr 1fr;
+  gap: 0; margin: 0 0 36px;
+  border-bottom: 1px solid var(--mid);
+}
+.tab {
+  background: transparent; border: none; cursor: pointer;
+  padding: 14px 0 12px; color: var(--dim);
+  font-family: var(--mono); font-size: 11px;
+  letter-spacing: 0.24em; text-transform: uppercase;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition: color 0.12s ease, border-color 0.12s ease;
+}
+.tab:hover { color: var(--fg); }
+.tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+.pane { display: none; }
+.pane.active { display: block; }
 .kicker {
   margin: 0 0 24px;
-  font-family: "JetBrains Mono", ui-monospace, Menlo, monospace;
+  font-family: var(--mono);
   font-size: 10px; letter-spacing: 0.28em; color: var(--dim);
   text-transform: uppercase;
 }
 .pips {
-  display: flex; gap: 6px; margin: 0 0 28px;
+  display: flex; gap: 6px; margin: 0 0 32px;
 }
 .pip {
   flex: 1; height: 3px; background: var(--mid);
@@ -51,8 +82,9 @@ h1 { margin: 0 0 4px; font-size: 36px; letter-spacing: -0.04em; font-weight: 700
 .pip.current { background: var(--fg); }
 
 label {
-  display: block; margin: 16px 0 6px;
-  font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase;
+  display: block; margin: 20px 0 8px;
+  font-family: var(--mono);
+  font-size: 10px; letter-spacing: 0.22em; text-transform: uppercase;
   color: var(--dim);
 }
 .row {
@@ -62,10 +94,12 @@ label {
 input[type="text"], input[type="email"], input[type="password"], input[type="tel"] {
   width: 100%; background: transparent; border: none;
   border-bottom: 1px solid var(--mid);
-  color: var(--fg); font-size: 15px; padding: 8px 0; outline: none;
+  color: var(--fg); font-size: 16px; padding: 10px 0; outline: none;
   font-family: inherit;
 }
 input:focus { border-bottom-color: var(--accent); }
+.row { gap: 16px; }
+.actions { gap: 14px; margin-top: 36px; }
 .hint {
   margin: 6px 0 0; font-size: 11px; color: var(--faint);
   letter-spacing: 0.04em;
@@ -104,8 +138,8 @@ input:focus { border-bottom-color: var(--accent); }
 .actions .btn { flex: 1; padding: 14px; }
 
 .checkrow {
-  display: flex; align-items: flex-start; gap: 10px; margin: 14px 0;
-  font-size: 13px; line-height: 1.5; color: var(--fg);
+  display: flex; align-items: flex-start; gap: 12px; margin: 18px 0;
+  font-size: 13px; line-height: 1.6; color: var(--fg);
 }
 .checkrow input[type="checkbox"] {
   margin-top: 3px; flex: 0 0 auto;
@@ -132,14 +166,15 @@ input:focus { border-bottom-color: var(--accent); }
 
 .step-label {
   font-family: "JetBrains Mono", ui-monospace, Menlo, monospace;
-  font-size: 10px; letter-spacing: 0.28em; color: var(--dim);
-  text-transform: uppercase; margin-bottom: 16px;
+  font-size: 10px; letter-spacing: 0.32em; color: var(--dim);
+  text-transform: uppercase; margin-bottom: 22px;
 }
 .step-title {
-  font-size: 22px; margin: 0 0 6px; letter-spacing: -0.02em;
+  font-size: 26px; margin: 0 0 10px; letter-spacing: -0.02em;
+  font-weight: 300; line-height: 1.25;
 }
 .step-desc {
-  font-size: 13px; color: var(--dim); margin: 0 0 20px; line-height: 1.55;
+  font-size: 14px; color: var(--dim); margin: 0 0 28px; line-height: 1.6;
 }
 
 .step { display: none; }
@@ -231,9 +266,41 @@ input:focus { border-bottom-color: var(--accent); }
 <body>
 <main>
 <div class="card">
-  <p class="kicker">create account</p>
-  <h1>blank</h1>
+  <div class="brand-head">
+    <h1>blank</h1>
+    <p class="tagline">autonomous trading terminal</p>
+  </div>
 
+  <div class="tabbar" role="tablist">
+    <button type="button" class="tab" id="tab-login" role="tab" aria-selected="false">Sign in</button>
+    <button type="button" class="tab active" id="tab-signup" role="tab" aria-selected="true">Create account</button>
+  </div>
+
+  <!-- ── LOGIN PANE ─────────────────────────────────────────── -->
+  <section class="pane" id="pane-login">
+    <p class="step-label">welcome back</p>
+    <h2 class="step-title">Sign in to blank</h2>
+    <p class="step-desc">Use the email and password from your account.</p>
+
+    <label for="login-email">Email address</label>
+    <input id="login-email" type="email" autocomplete="email" placeholder="you@example.com"/>
+
+    <label for="login-pwd">Password</label>
+    <input id="login-pwd" type="password" autocomplete="current-password"/>
+
+    <p class="err" id="err-login"></p>
+
+    <div class="actions">
+      <button class="btn btn-block" id="btn-login">Continue</button>
+    </div>
+
+    <p class="foot">
+      No account yet? <a href="#" id="switch-to-signup">Create one</a>
+    </p>
+  </section>
+
+  <!-- ── SIGNUP PANE ────────────────────────────────────────── -->
+  <section class="pane active" id="pane-signup">
   <div class="pips" id="pips">
     <div class="pip current"></div>
     <div class="pip"></div>
@@ -373,8 +440,9 @@ input:focus { border-bottom-color: var(--accent); }
   </section>
 
   <p class="foot">
-    Already have an account? <a href="/auth/login">Sign in</a>
+    Already have an account? <a href="#" id="switch-to-login">Sign in</a>
   </p>
+  </section>
 </div>
 </main>
 
@@ -467,6 +535,82 @@ input:focus { border-bottom-color: var(--accent); }
   const $ = (s) => document.querySelector(s);
   const $$ = (s) => document.querySelectorAll(s);
 
+  // ── Tab toggle (Sign in ⇄ Create account) ──────────────────
+  // Honour ?mode=login or #login so external links can land
+  // straight on the login pane (e.g. the redirect from /auth/login).
+  function setMode(mode) {
+    const isLogin = mode === "login";
+    $("#tab-login").classList.toggle("active", isLogin);
+    $("#tab-signup").classList.toggle("active", !isLogin);
+    $("#tab-login").setAttribute("aria-selected", String(isLogin));
+    $("#tab-signup").setAttribute("aria-selected", String(!isLogin));
+    $("#pane-login").classList.toggle("active", isLogin);
+    $("#pane-signup").classList.toggle("active", !isLogin);
+    try {
+      const url = new URL(window.location.href);
+      if (isLogin) url.searchParams.set("mode", "login");
+      else url.searchParams.delete("mode");
+      window.history.replaceState({}, "", url.toString());
+    } catch (_) { /* noop */ }
+  }
+  $("#tab-login").addEventListener("click", () => setMode("login"));
+  $("#tab-signup").addEventListener("click", () => setMode("signup"));
+  $("#switch-to-signup").addEventListener("click", (e) => { e.preventDefault(); setMode("signup"); });
+  $("#switch-to-login").addEventListener("click", (e) => { e.preventDefault(); setMode("login"); });
+  (function bootMode() {
+    try {
+      const url = new URL(window.location.href);
+      const mode = url.searchParams.get("mode") || (window.location.hash || "").replace(/^#/, "");
+      if (mode === "login") setMode("login");
+    } catch (_) { /* noop */ }
+  })();
+
+  // ── Login submit ───────────────────────────────────────────
+  // Mirrors the legacy /auth/login page so the unified entry
+  // point keeps the same handoff contract (callback_port for the
+  // desktop app's local auth bridge).
+  $("#btn-login").addEventListener("click", async function () {
+    const errEl = $("#err-login");
+    const btn = $("#btn-login");
+    errEl.textContent = "";
+    const email = $("#login-email").value.trim();
+    const pwd = $("#login-pwd").value;
+    if (!email || !pwd) { errEl.textContent = "Email and password required."; return; }
+    btn.disabled = true;
+    btn.textContent = "Signing in…";
+    try {
+      const r = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email, password: pwd }),
+      });
+      if (!r.ok) {
+        let detail = "Sign in failed.";
+        try { const j = await r.json(); detail = j.detail || detail; } catch (_) {}
+        throw new Error(detail);
+      }
+      const data = await r.json();
+      try {
+        if (data.token) localStorage.setItem("blank_token", data.token);
+        if (data.email) localStorage.setItem("blank_email", data.email);
+        if (data.name) localStorage.setItem("blank_name", data.name);
+      } catch (_) { /* private mode */ }
+      const callbackPort = new URLSearchParams(window.location.search).get("callback_port");
+      if (callbackPort) {
+        window.location.replace(
+          "http://127.0.0.1:" + encodeURIComponent(callbackPort)
+          + "/auth/callback?token=" + encodeURIComponent(data.token),
+        );
+      } else {
+        window.location.replace("/dashboard");
+      }
+    } catch (e) {
+      errEl.textContent = (e && e.message) || "Sign in failed.";
+      btn.disabled = false;
+      btn.textContent = "Continue";
+    }
+  });
+
   // Form state
   const state = {
     email: "", firstName: "", lastName: "",
@@ -529,6 +673,16 @@ input:focus { border-bottom-color: var(--accent); }
     }
     return true;
   }
+
+  // ── Pre-fill email from ?email=… (e.g. landing-page bounce) ─
+  try {
+    const url = new URL(window.location.href);
+    const prefill = url.searchParams.get("email");
+    if (prefill && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(prefill)) {
+      const inp = $("#email");
+      if (inp) inp.value = prefill;
+    }
+  } catch (_) { /* noop */ }
 
   // ── Bootstrap config ───────────────────────────────────────
   fetch("/api/auth/signup-config")
