@@ -2334,22 +2334,22 @@ def public_waitlist(
     request: Request,
     conn: psycopg2.extensions.connection = Depends(db_dependency),
 ) -> dict[str, Any]:
-    """Pre-launch waitlist: email only, no access key.
+    """Pre-launch waitlist: email only.
 
-    First signup: stores the email and sends a welcome email.
-    Repeat signup: sends the enthusiastic "we see you" email on every
-    re-submission — no dedup, because the user clearly wants to hear
-    from us. Always returns success so the form never shows an error.
+    Joining the waitlist is just expressing interest, not a signup —
+    the actual legal agreements (ToS, privacy, EULA, risk, fee) get
+    collected at /signup. So we don't gate on ``agreed_terms`` here;
+    the field is still on ``SignupRequest`` because the live landing
+    page's full self-serve signup uses the same model.
+
+    First submission: stores the email and sends a welcome email.
+    Repeat submission: sends the enthusiastic "we see you" email on
+    every re-submission — no dedup, because the user clearly wants to
+    hear from us. Always returns success so the form never errors.
     """
     email = (body.email or "").strip().lower()
     if not _is_valid_email(email):
         raise HTTPException(status_code=400, detail="please enter a valid email address")
-
-    if not body.agreed_terms:
-        raise HTTPException(
-            status_code=400,
-            detail="you must agree to the terms of service and privacy policy",
-        )
 
     ip = request.client.host if request.client else "unknown"
     if not _signup_rate_ok(ip):
