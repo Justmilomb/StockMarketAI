@@ -432,11 +432,16 @@ class SetupCardRequest(BaseModel):
 
 class RegisterRequest(BaseModel):
     """Final signup submit — collects everything, validates agreements,
-    materialises the licence row, and consumes the pending_signups row."""
+    materialises the licence row, and consumes the pending_signups row.
+
+    ``phone`` is currently optional because the SMS-OTP step is hidden
+    from the signup UI. The infrastructure (verify-phone /
+    confirm-phone / Twilio helpers) stays wired up, so re-enabling the
+    gate is a UI change only."""
     email: str
     full_name: str
     password: str
-    phone: str
+    phone: str = ""
     avatar_id: int = 0
     agreed_eula: bool = False
     agreed_terms: bool = False
@@ -1890,9 +1895,9 @@ def auth_setup_card(
     email = (body.email or "").strip().lower()
     if not _is_valid_email(email):
         raise HTTPException(status_code=400, detail="please enter a valid email address")
-    pending = _get_pending_signup(conn, email)
-    if not pending or not pending.get("phone_verified"):
-        raise HTTPException(status_code=400, detail="verify your phone before adding a card")
+    # Phone-OTP gate is currently disabled: the signup UI no longer
+    # collects a number, so we don't require pending.phone_verified
+    # here. _upsert_pending_signup creates the row on demand.
 
     result = _stripe_setup_card(email, body.payment_method_id)
     if not result["ok"]:
@@ -1969,14 +1974,15 @@ def auth_register(
         )
 
     pending = _get_pending_signup(conn, email)
-    if not pending or not pending.get("phone_verified"):
-        raise HTTPException(status_code=400, detail="verify your phone first")
-    if not pending.get("card_verified"):
+    # Phone-OTP gate is currently disabled — pending may legitimately
+    # have phone_verified = FALSE. We still require a card row.
+    if not pending or not pending.get("card_verified"):
         raise HTTPException(status_code=400, detail="add your payment card first")
 
     # Re-check uniqueness: the user's pending row was created before
     # other concurrent signups may have completed. We block on
-    # email/phone/card collisions and flag (don't block) on shared name.
+    # email/card collisions and flag (don't block) on shared name. Phone
+    # collision is only checked when the user actually supplied a number.
     with conn.cursor() as cur:
         cur.execute(
             "SELECT id, password_hash FROM licenses WHERE LOWER(email) = %s "
@@ -1990,17 +1996,18 @@ def auth_register(
                 detail="an account already exists for this email — please sign in",
             )
 
-        cur.execute(
-            "SELECT id, email FROM licenses WHERE phone_number = %s "
-            "AND phone_verified = TRUE LIMIT 1",
-            (phone,),
-        )
-        phone_owner = cur.fetchone()
-        if phone_owner and (phone_owner["email"] or "").lower() != email:
-            raise HTTPException(
-                status_code=409,
-                detail="this phone number is already linked to another account",
+        if phone:
+            cur.execute(
+                "SELECT id, email FROM licenses WHERE phone_number = %s "
+                "AND phone_verified = TRUE LIMIT 1",
+                (phone,),
             )
+            phone_owner = cur.fetchone()
+            if phone_owner and (phone_owner["email"] or "").lower() != email:
+                raise HTTPException(
+                    status_code=409,
+                    detail="this phone number is already linked to another account",
+                )
 
         fp = pending.get("card_fingerprint") or ""
         if fp:
@@ -2031,19 +2038,20 @@ def auth_register(
     if avatar_id < 0 or avatar_id > AVATAR_COUNT:
         avatar_id = 0
 
+    phone_verified_flag = bool(phone)
     if existing:
         # Pre-auth row from the legacy /api/signup flow. Promote it.
         key = None
         with conn.cursor() as cur:
             cur.execute(
                 "UPDATE licenses SET full_name = %s, name = %s, password_hash = %s, "
-                "phone_number = %s, phone_verified = TRUE, "
+                "phone_number = %s, phone_verified = %s, "
                 "stripe_customer_id = %s, card_stripe_id = %s, "
                 "card_fingerprint = %s, card_last4 = %s, card_name = %s, "
                 "card_verified = TRUE, avatar_id = %s, expires_at = %s "
                 "WHERE id = %s RETURNING key",
                 (
-                    full_name, full_name, password_hash, phone,
+                    full_name, full_name, password_hash, phone, phone_verified_flag,
                     pending.get("stripe_customer_id") or "",
                     pending.get("card_payment_method_id") or "",
                     fp, pending.get("card_last4") or "",
@@ -2063,10 +2071,10 @@ def auth_register(
                 "phone_number, phone_verified, stripe_customer_id, card_stripe_id, "
                 "card_fingerprint, card_last4, card_name, card_verified, avatar_id"
                 ") VALUES (%s, %s, %s, %s, 'active', %s, %s, "
-                "%s, TRUE, %s, %s, %s, %s, %s, TRUE, %s) RETURNING id",
+                "%s, %s, %s, %s, %s, %s, %s, TRUE, %s) RETURNING id",
                 (
                     key, email, full_name, full_name, expires, password_hash,
-                    phone,
+                    phone, phone_verified_flag,
                     pending.get("stripe_customer_id") or "",
                     pending.get("card_payment_method_id") or "",
                     fp, pending.get("card_last4") or "",

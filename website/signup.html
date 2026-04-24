@@ -241,12 +241,11 @@ input:focus { border-bottom-color: var(--accent); }
     <div class="pip"></div>
     <div class="pip"></div>
     <div class="pip"></div>
-    <div class="pip"></div>
   </div>
 
   <!-- Step 1: email -->
   <section class="step active" data-step="0">
-    <p class="step-label">step 1 / 7</p>
+    <p class="step-label">step 1 / 6</p>
     <h2 class="step-title">Your email</h2>
     <p class="step-desc">We'll use this to sign you in and send your access details.</p>
     <label for="email">Email address</label>
@@ -259,7 +258,7 @@ input:focus { border-bottom-color: var(--accent); }
 
   <!-- Step 2: name -->
   <section class="step" data-step="1">
-    <p class="step-label">step 2 / 7</p>
+    <p class="step-label">step 2 / 6</p>
     <h2 class="step-title">Legal name</h2>
     <p class="step-desc">Use the name on your payment card. This is needed for billing.</p>
     <div class="row">
@@ -281,7 +280,7 @@ input:focus { border-bottom-color: var(--accent); }
 
   <!-- Step 3: password -->
   <section class="step" data-step="2">
-    <p class="step-label">step 3 / 7</p>
+    <p class="step-label">step 3 / 6</p>
     <h2 class="step-title">Choose a password</h2>
     <p class="step-desc">At least 8 characters.</p>
     <label for="pwd">Password</label>
@@ -295,34 +294,14 @@ input:focus { border-bottom-color: var(--accent); }
     </div>
   </section>
 
-  <!-- Step 4: phone + OTP -->
+  <!-- Phone/OTP step intentionally omitted from the visible flow.
+       Server-side OTP infrastructure (verify-phone, confirm-phone,
+       Twilio helpers, pending_signups.phone columns) is still wired
+       up so we can re-enable the gate without a backend change. -->
+
+  <!-- Step 4: card -->
   <section class="step" data-step="3">
-    <p class="step-label">step 4 / 7</p>
-    <h2 class="step-title">Verify your phone</h2>
-    <p class="step-desc">We'll text you a 6-digit code. Used to secure your account.</p>
-    <label for="phone">Phone number</label>
-    <input id="phone" type="tel" autocomplete="tel" placeholder="+44 7700 900000"/>
-    <p class="hint" id="phone-hint"></p>
-    <p class="err" id="err-phone"></p>
-    <div class="actions" id="phone-send-row">
-      <button class="btn btn-ghost" data-back>Back</button>
-      <button class="btn" id="btn-send-otp">Send code</button>
-    </div>
-
-    <div id="otp-block" style="display:none">
-      <label for="otp">6-digit code</label>
-      <input id="otp" type="text" inputmode="numeric" maxlength="6" autocomplete="one-time-code"/>
-      <p class="err" id="err-otp"></p>
-      <div class="actions">
-        <button class="btn btn-ghost" id="btn-resend-otp">Resend</button>
-        <button class="btn" id="btn-verify-otp">Verify</button>
-      </div>
-    </div>
-  </section>
-
-  <!-- Step 5: card -->
-  <section class="step" data-step="4">
-    <p class="step-label">step 5 / 7</p>
+    <p class="step-label">step 4 / 6</p>
     <h2 class="step-title">Payment card</h2>
     <p class="step-desc">We place a £1 hold to verify the card. It's released straight away — you won't be charged for the app itself, only the 20% performance fee on net trading profits.</p>
     <label>Card details</label>
@@ -335,9 +314,9 @@ input:focus { border-bottom-color: var(--accent); }
     </div>
   </section>
 
-  <!-- Step 6: avatar picker -->
-  <section class="step" data-step="5">
-    <p class="step-label">step 6 / 7</p>
+  <!-- Step 5: avatar picker -->
+  <section class="step" data-step="4">
+    <p class="step-label">step 5 / 6</p>
     <h2 class="step-title">Pick an avatar</h2>
     <p class="step-desc">Choose a profile picture. You can change it any time from Settings.</p>
     <div class="avatar-grid" id="avatarGrid"></div>
@@ -348,9 +327,9 @@ input:focus { border-bottom-color: var(--accent); }
     </div>
   </section>
 
-  <!-- Step 7: agreements -->
-  <section class="step" data-step="6">
-    <p class="step-label">step 7 / 7</p>
+  <!-- Step 6: agreements -->
+  <section class="step" data-step="5">
+    <p class="step-label">step 6 / 6</p>
     <h2 class="step-title">Agreements</h2>
     <p class="step-desc">Tick each box. Click any document to read it.</p>
 
@@ -382,7 +361,7 @@ input:focus { border-bottom-color: var(--accent); }
   </section>
 
   <!-- Success -->
-  <section class="step" data-step="7">
+  <section class="step" data-step="6">
     <div class="success">
       <div class="check">&#10003;</div>
       <h2 class="step-title">Welcome to blank.</h2>
@@ -498,7 +477,7 @@ input:focus { border-bottom-color: var(--accent); }
     config: { stripe_publishable_key: "", stripe_enabled: false, sms_enabled: false, dev_otp: "" },
     step: 0,
   };
-  const TOTAL = 7; // 0..6 active steps + 7 success
+  const TOTAL = 6; // 0..5 active steps + 6 success (phone/OTP step disabled)
 
   // ── Step navigation ────────────────────────────────────────
   function go(n) {
@@ -511,8 +490,8 @@ input:focus { border-bottom-color: var(--accent); }
     });
     const target = document.querySelector('.step[data-step="' + n + '"]');
     if (target) target.classList.add("active");
-    if (n === 4) ensureStripeMount();
-    if (n === 5) ensureAvatarGrid();
+    if (n === 3) ensureStripeMount();
+    if (n === 4) ensureAvatarGrid();
   }
 
   $$("[data-back]").forEach((b) => b.addEventListener("click", () => go(state.step - 1)));
@@ -557,60 +536,15 @@ input:focus { border-bottom-color: var(--accent); }
     .then((r) => r.json())
     .then((cfg) => {
       state.config = cfg || state.config;
-      if (cfg && !cfg.sms_enabled) {
-        $("#phone-hint").textContent = "Dev mode: SMS disabled. Use code " + (cfg.dev_otp || "123456") + ".";
-      }
       if (cfg && !cfg.stripe_enabled) {
         $("#card-hint").textContent = "Dev mode: Stripe disabled. Click Authorise to continue with a placeholder.";
       }
     })
     .catch(() => {});
 
-  // ── Phone OTP ──────────────────────────────────────────────
-  $("#btn-send-otp").addEventListener("click", () => sendOtp(false));
-  $("#btn-resend-otp").addEventListener("click", () => sendOtp(true));
-  $("#btn-verify-otp").addEventListener("click", verifyOtp);
-
-  function sendOtp(resend) {
-    clearErrs();
-    const phone = $("#phone").value.trim();
-    if (phone.length < 6) { setErr("err-phone", "Enter your phone number."); return; }
-    state.phone = phone;
-    const btn = resend ? $("#btn-resend-otp") : $("#btn-send-otp");
-    btn.disabled = true;
-    fetch("/api/auth/verify-phone", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email: state.email, phone: phone }),
-    })
-      .then((r) => r.json().then((j) => ({ ok: r.ok, j })))
-      .then(({ ok, j }) => {
-        btn.disabled = false;
-        if (!ok) { setErr("err-phone", (j && j.detail) || "Could not send code."); return; }
-        $("#otp-block").style.display = "block";
-        $("#otp").focus();
-      })
-      .catch(() => { btn.disabled = false; setErr("err-phone", "Network error."); });
-  }
-
-  function verifyOtp() {
-    clearErrs();
-    const code = $("#otp").value.trim();
-    if (code.length !== 6) { setErr("err-otp", "6-digit code required."); return; }
-    const btn = $("#btn-verify-otp");
-    btn.disabled = true;
-    fetch("/api/auth/confirm-phone", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email: state.email, phone: state.phone, otp: code }),
-    })
-      .then((r) => r.json().then((j) => ({ ok: r.ok, j })))
-      .then(({ ok, j }) => {
-        btn.disabled = false;
-        if (!ok) { setErr("err-otp", (j && j.detail) || "Wrong code."); return; }
-        state.phoneVerified = true;
-        go(4);
-      })
-      .catch(() => { btn.disabled = false; setErr("err-otp", "Network error."); });
-  }
+  // ── Phone OTP (currently disabled in the UI; the server still
+  // accepts /api/auth/verify-phone + /api/auth/confirm-phone, so we
+  // can re-enable this flow without a backend change) ───────────────
 
   // ── Stripe card ────────────────────────────────────────────
   function ensureStripeMount() {
@@ -658,7 +592,7 @@ input:focus { border-bottom-color: var(--accent); }
           btn.disabled = false;
           if (!ok) { setErr("err-card", (j && j.detail) || "Card authorisation failed."); return; }
           state.cardSetup = true;
-          go(5); // avatar picker
+          go(4); // avatar picker
 
         })
         .catch(() => { btn.disabled = false; setErr("err-card", "Network error."); });
@@ -699,7 +633,7 @@ input:focus { border-bottom-color: var(--accent); }
         email: state.email,
         full_name: fullName,
         password: state.password,
-        phone: state.phone,
+        phone: "",
         avatar_id: state.avatarId || 0,
         agreed_eula: true, agreed_terms: true, agreed_privacy: true,
         agreed_risk: true, agreed_commission: true,
@@ -710,7 +644,7 @@ input:focus { border-bottom-color: var(--accent); }
         btn.disabled = false;
         if (!ok) { setErr("err-agree", (j && j.detail) || "Sign-up failed."); return; }
         loadDownloadLink();
-        go(7);
+        go(6);
       })
       .catch(() => { btn.disabled = false; setErr("err-agree", "Network error."); });
   }
@@ -756,7 +690,7 @@ input:focus { border-bottom-color: var(--accent); }
   $("#btn-avatar-next").addEventListener("click", () => {
     if (!state.avatarId) { setErr("err-avatar", "Pick an avatar first."); return; }
     setErr("err-avatar", "");
-    go(6);
+    go(5);
   });
 
   // ── Legal modal (safe DOM cloning, no innerHTML) ───────────
