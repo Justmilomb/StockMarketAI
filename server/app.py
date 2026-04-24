@@ -279,17 +279,41 @@ def _init_db(conn: psycopg2.extensions.connection) -> None:
             )
             """,
         )
+        # pending_signups: every column may be missing on DBs created
+        # before the column was added to the CREATE TABLE block. ADD
+        # COLUMN IF NOT EXISTS is idempotent so this is safe to re-run.
+        for stmt in (
+            "ALTER TABLE pending_signups ADD COLUMN IF NOT EXISTS full_name TEXT DEFAULT ''",
+            "ALTER TABLE pending_signups ADD COLUMN IF NOT EXISTS phone_number TEXT DEFAULT ''",
+            "ALTER TABLE pending_signups ADD COLUMN IF NOT EXISTS phone_otp_hash TEXT DEFAULT ''",
+            "ALTER TABLE pending_signups ADD COLUMN IF NOT EXISTS phone_otp_expires_at TIMESTAMPTZ",
+            "ALTER TABLE pending_signups ADD COLUMN IF NOT EXISTS phone_verified BOOLEAN DEFAULT FALSE",
+            "ALTER TABLE pending_signups ADD COLUMN IF NOT EXISTS stripe_customer_id TEXT DEFAULT ''",
+            "ALTER TABLE pending_signups ADD COLUMN IF NOT EXISTS card_payment_method_id TEXT DEFAULT ''",
+            "ALTER TABLE pending_signups ADD COLUMN IF NOT EXISTS card_fingerprint TEXT DEFAULT ''",
+            "ALTER TABLE pending_signups ADD COLUMN IF NOT EXISTS card_last4 TEXT DEFAULT ''",
+            "ALTER TABLE pending_signups ADD COLUMN IF NOT EXISTS card_name TEXT DEFAULT ''",
+            "ALTER TABLE pending_signups ADD COLUMN IF NOT EXISTS card_verified BOOLEAN DEFAULT FALSE",
+            "ALTER TABLE pending_signups ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()",
+            "ALTER TABLE pending_signups ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()",
+        ):
+            cur.execute(stmt)
         cur.execute(
             "DELETE FROM pending_signups WHERE created_at < NOW() - INTERVAL '24 hours'",
         )
         cur.execute(
             "CREATE INDEX IF NOT EXISTS idx_releases_schedule ON releases(scheduled_at)",
         )
-        # telemetry_events: uploaded_at may be missing on DBs created before the
-        # column was added to the CREATE TABLE block.
-        cur.execute(
+        # telemetry_events: every column may be missing on DBs created
+        # before the current CREATE TABLE block — Render's database
+        # predates the table itself in some cases. Each ADD COLUMN is
+        # idempotent so partial migrations are safe.
+        for stmt in (
+            "ALTER TABLE telemetry_events ADD COLUMN IF NOT EXISTS license_key TEXT",
+            "ALTER TABLE telemetry_events ADD COLUMN IF NOT EXISTS snapshot JSONB",
             "ALTER TABLE telemetry_events ADD COLUMN IF NOT EXISTS uploaded_at TIMESTAMPTZ DEFAULT NOW()",
-        )
+        ):
+            cur.execute(stmt)
         cur.execute(
             "CREATE INDEX IF NOT EXISTS idx_telemetry_key_time "
             "ON telemetry_events(license_key, uploaded_at DESC)",
