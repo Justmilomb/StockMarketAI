@@ -1011,6 +1011,30 @@ button.btn.ghost:hover { border-color: var(--fg); }
       .then((j) => { state.plans = j.plans || []; });
   }
 
+  function showLoadError(message) {
+    const loading = $("#loading");
+    loading.replaceChildren();
+    loading.appendChild(document.createTextNode(message + " \u00b7 "));
+    const retry = document.createElement("a");
+    retry.href = "#";
+    retry.textContent = "try again";
+    retry.style.color = "var(--accent)";
+    retry.style.borderBottom = "1px solid var(--accent)";
+    retry.style.marginRight = "16px";
+    retry.addEventListener("click", (e) => {
+      e.preventDefault();
+      loading.replaceChildren(document.createTextNode("loading your dashboard\u2026"));
+      loadDashboard();
+    });
+    loading.appendChild(retry);
+    const out = document.createElement("a");
+    out.href = "/signup?mode=login";
+    out.textContent = "sign in again";
+    out.style.color = "var(--muted)";
+    out.style.borderBottom = "1px solid var(--muted)";
+    loading.appendChild(out);
+  }
+
   function loadDashboard() {
     return fetch("/api/me/dashboard", { headers: auth.headers })
       .then((r) => {
@@ -1019,8 +1043,18 @@ button.btn.ghost:hover { border-color: var(--fg); }
           window.location.replace("/signup?mode=login");
           return null;
         }
+        if (r.status >= 500) {
+          return r.json().catch(() => null).then((body) => {
+            const detail = (body && body.detail) || ("server error " + r.status);
+            const err = new Error(detail);
+            err.serverSide = true;
+            throw err;
+          });
+        }
         if (!r.ok) {
-          throw new Error("http " + r.status);
+          const err = new Error("http " + r.status);
+          err.serverSide = true;
+          throw err;
         }
         return r.json();
       })
@@ -1037,16 +1071,12 @@ button.btn.ghost:hover { border-color: var(--fg); }
         $("#loading").style.display = "none";
         $("#shell").style.display = "block";
       })
-      .catch(() => {
-        const loading = $("#loading");
-        loading.replaceChildren();
-        loading.appendChild(document.createTextNode("could not reach the server \u00b7 "));
-        const a = document.createElement("a");
-        a.href = "/signup?mode=login";
-        a.textContent = "sign in again";
-        a.style.color = "var(--accent)";
-        a.style.borderBottom = "1px solid var(--accent)";
-        loading.appendChild(a);
+      .catch((err) => {
+        if (err && err.serverSide) {
+          showLoadError("dashboard error: " + err.message);
+        } else {
+          showLoadError("could not reach the server");
+        }
       });
   }
 

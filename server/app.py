@@ -1601,13 +1601,22 @@ def _compute_user_analytics(
     latest_positions: List[Dict[str, Any]] = []
     latest_ts: Optional[datetime] = None
     for r in rows:
-        raw = r["snapshot"]
-        snap = raw if isinstance(raw, dict) else json.loads(raw)
-        ts: Optional[datetime] = r["uploaded_at"]
+        raw = r.get("snapshot")
+        if raw is None:
+            continue
+        try:
+            snap = raw if isinstance(raw, dict) else json.loads(raw)
+        except (TypeError, ValueError):
+            continue
+        if not isinstance(snap, dict):
+            continue
+        ts: Optional[datetime] = r.get("uploaded_at")
         if ts and (latest_ts is None or ts > latest_ts):
             latest_ts = ts
             latest_positions = list(snap.get("positions") or [])
         for t in (snap.get("trades") or []):
+            if not isinstance(t, dict):
+                continue
             sig = (t.get("side"), t.get("ticker"), t.get("ts"))
             if sig in seen:
                 continue
@@ -1707,6 +1716,23 @@ def my_dashboard(
     until then ``amount_due`` reflects 20% of realised profit since the
     last Monday 09:00 cutoff so the figure is still informative.
     """
+    try:
+        return _build_dashboard_payload(conn, claims)
+    except HTTPException:
+        raise
+    except Exception:
+        # Without this, FastAPI swallows the traceback into a generic
+        # 500 and the user is stuck on a spinner with no clue why.
+        logger.exception("dashboard build failed for %s", claims.get("sub"))
+        raise HTTPException(
+            status_code=500,
+            detail="could not load dashboard — please try again in a moment",
+        )
+
+
+def _build_dashboard_payload(
+    conn: psycopg2.extensions.connection, claims: dict[str, Any],
+) -> dict[str, Any]:
     with conn.cursor() as cur:
         cur.execute("SELECT * FROM licenses WHERE key = %s", (claims["sub"],))
         row = cur.fetchone()
@@ -1728,9 +1754,18 @@ def my_dashboard(
     cycle_trades: List[Dict[str, Any]] = []
     seen: set[tuple[Any, Any, Any]] = set()
     for r in cycle_rows:
-        raw = r["snapshot"]
-        snap = raw if isinstance(raw, dict) else json.loads(raw)
+        raw = r.get("snapshot")
+        if raw is None:
+            continue
+        try:
+            snap = raw if isinstance(raw, dict) else json.loads(raw)
+        except (TypeError, ValueError):
+            continue
+        if not isinstance(snap, dict):
+            continue
         for t in (snap.get("trades") or []):
+            if not isinstance(t, dict):
+                continue
             sig = (t.get("side"), t.get("ticker"), t.get("ts"))
             if sig in seen:
                 continue
@@ -1778,16 +1813,17 @@ def my_dashboard(
         "best_weekly_cost": best["weekly_cost"] if best else None,
     }
 
+    created_at = row.get("created_at")
     return {
         "user": {
-            "email": row["email"],
+            "email": row.get("email") or "",
             "name": row.get("name") or "",
             "full_name": row.get("full_name") or row.get("name") or "",
             "avatar_id": int(row.get("avatar_id") or 0),
-            "status": row["status"],
+            "status": row.get("status") or "active",
             "email_verified": bool(row.get("email_verified")),
             "is_dev": bool(row.get("is_dev")),
-            "created_at": row["created_at"].isoformat() if row.get("created_at") else None,
+            "created_at": created_at.isoformat() if created_at else None,
         },
         "plan": plan,
         "analytics": stats,
