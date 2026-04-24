@@ -216,8 +216,9 @@ def _init_db(conn: psycopg2.extensions.connection) -> None:
             "ALTER TABLE licenses ADD COLUMN IF NOT EXISTS email_verified BOOLEAN DEFAULT FALSE",
             "ALTER TABLE licenses ADD COLUMN IF NOT EXISTS email_verify_token TEXT DEFAULT ''",
             "ALTER TABLE licenses ADD COLUMN IF NOT EXISTS email_verify_token_expires_at TIMESTAMPTZ",
-            # Plan tier: 'starter' (20% commission, free), 'pro' (10% +
-            # £29/mo), 'unlimited' (0% + £99/mo). Default starter so any
+            # Plan tier: 'starter' (free, 25% commission tiered down to
+            # 20% above £150/wk profit), 'pro' (£25/mo, 12.5% commission),
+            # 'unlimited' (£75/mo, 5% commission). Default starter so any
             # legacy account behaves as before. is_dev unlocks every
             # paid feature with no commission/payment — used for staff,
             # alpha testers, and demo accounts.
@@ -1208,15 +1209,20 @@ PLANS: List[Dict[str, Any]] = [
     {
         "id": "starter",
         "label": "Starter",
-        "tagline": "Perfect for getting started",
+        "tagline": "Perfect for small accounts",
         "monthly_fee": 0,
-        "commission_pct": 20,
+        # Starter is tiered: 25% on weeks where realised profit is at
+        # or below the threshold, 20% above it. The headline number we
+        # quote is 25% so the user sees the worst-case figure first.
+        "commission_pct": 25,
+        "commission_pct_above_threshold": 20,
+        "weekly_threshold_gbp": 150,
         "currency": "GBP",
         "features": [
-            "20% of net trading profit",
+            "25% of weekly profit up to £150",
+            "20% of weekly profit above £150",
             "no monthly subscription",
             "all core features",
-            "paper + live trading",
         ],
         "recommended": False,
         "is_default": True,
@@ -1224,13 +1230,15 @@ PLANS: List[Dict[str, Any]] = [
     {
         "id": "pro",
         "label": "Pro",
-        "tagline": "Best value for active traders",
-        "monthly_fee": 29,
-        "commission_pct": 10,
+        "tagline": "Best for active traders",
+        "monthly_fee": 25,
+        "commission_pct": 12.5,
+        "commission_pct_above_threshold": None,
+        "weekly_threshold_gbp": None,
         "currency": "GBP",
         "features": [
-            "10% of net trading profit",
-            "£29 / month",
+            "12.5% of weekly profit",
+            "£25 / month",
             "priority research roles",
             "all core features",
         ],
@@ -1240,13 +1248,15 @@ PLANS: List[Dict[str, Any]] = [
     {
         "id": "unlimited",
         "label": "Unlimited",
-        "tagline": "Keep all your profits",
-        "monthly_fee": 99,
-        "commission_pct": 0,
+        "tagline": "For serious traders",
+        "monthly_fee": 75,
+        "commission_pct": 5,
+        "commission_pct_above_threshold": None,
+        "weekly_threshold_gbp": None,
         "currency": "GBP",
         "features": [
-            "0% commission",
-            "£99 / month",
+            "5% of weekly profit",
+            "£75 / month",
             "all features unlocked",
             "early access to new builds",
         ],
@@ -1277,6 +1287,8 @@ def _plan_for_user(row: Dict[str, Any]) -> Dict[str, Any]:
             "id": base["id"],
             "monthly_fee": 0,
             "commission_pct": 0,
+            "commission_pct_above_threshold": None,
+            "weekly_threshold_gbp": None,
             "is_dev": True,
         }
     plan_id = (row.get("plan") or "starter").strip() or "starter"
@@ -1285,6 +1297,38 @@ def _plan_for_user(row: Dict[str, Any]) -> Dict[str, Any]:
     except HTTPException:
         base = _plan_by_id("starter")
     return {**base, "is_dev": False}
+
+
+def _effective_commission_pct(plan: Dict[str, Any], weekly_profit_gbp: float) -> float:
+    """Return the commission rate that actually applies this week.
+
+    Starter is the only tiered plan today: the better rate kicks in
+    when the user's realised weekly profit clears the threshold. Other
+    plans ignore both extra fields and just return their flat rate.
+    """
+    base = float(plan.get("commission_pct") or 0)
+    threshold = plan.get("weekly_threshold_gbp")
+    above = plan.get("commission_pct_above_threshold")
+    if threshold is None or above is None:
+        return base
+    if weekly_profit_gbp > float(threshold):
+        return float(above)
+    return base
+
+
+def _weekly_cost_for_plan(plan: Dict[str, Any], weekly_profit_gbp: float) -> float:
+    """Total weekly cost (commission + monthly fee prorated to a week).
+
+    Used by the dashboard's "best plan for you" indicator so the
+    comparison matches what each plan would actually charge against
+    the user's current trailing 7-day profit. The monthly subscription
+    is divided by 4.345 to convert it to a weekly equivalent — the
+    same denominator the dashboard quotes back to the user.
+    """
+    profit = max(0.0, float(weekly_profit_gbp))
+    rate = _effective_commission_pct(plan, profit) / 100.0
+    weekly_sub = float(plan.get("monthly_fee") or 0) / 4.345
+    return profit * rate + weekly_sub
 
 
 @app.get("/api/plans")
@@ -1668,8 +1712,36 @@ def my_dashboard(
                     pass
                 break
     plan = _plan_for_user(dict(row))
-    fee_rate_pct = float(plan.get("commission_pct") or 0)
-    amount_due = round(max(0.0, cycle_profit) * (fee_rate_pct / 100.0), 2)
+    weekly_profit = max(0.0, cycle_profit)
+    fee_rate_pct = _effective_commission_pct(plan, weekly_profit)
+    amount_due = round(weekly_profit * (fee_rate_pct / 100.0), 2)
+
+    # "Best plan for you" — model the trailing-7d profit against every
+    # plan and surface the cheapest. This is a hint, not a hard switch:
+    # the user still has to pick a plan, but they can see at a glance
+    # whether they'd save by upgrading or whether Starter is fine.
+    pnl_7d = float((stats or {}).get("pnl_7d") or 0.0)
+    plan_costs = [
+        {
+            "plan_id": p["id"],
+            "label": p["label"],
+            "weekly_cost": round(_weekly_cost_for_plan(p, pnl_7d), 2),
+            "effective_commission_pct": _effective_commission_pct(p, pnl_7d),
+            "monthly_fee": float(p.get("monthly_fee") or 0),
+        }
+        for p in PLANS
+    ]
+    best = min(plan_costs, key=lambda c: c["weekly_cost"]) if pnl_7d > 0 else None
+    recommendation = {
+        "weekly_profit_basis": round(pnl_7d, 2),
+        "plan_costs": plan_costs,
+        "best_plan_id": best["plan_id"] if best else None,
+        # Cost user pays today vs. cost on the cheapest plan, both
+        # quoted on the same trailing-7d basis. The UI uses this to
+        # phrase "you'd save £X / week by switching to Y".
+        "current_weekly_cost": round(_weekly_cost_for_plan(plan, pnl_7d), 2),
+        "best_weekly_cost": best["weekly_cost"] if best else None,
+    }
 
     return {
         "user": {
@@ -1689,11 +1761,15 @@ def my_dashboard(
             "currency": plan.get("currency") or "GBP",
             "fee_rate_pct": fee_rate_pct,
             "monthly_fee": float(plan.get("monthly_fee") or 0),
+            "weekly_threshold_gbp": plan.get("weekly_threshold_gbp"),
+            "commission_pct_above_threshold": plan.get("commission_pct_above_threshold"),
+            "weekly_profit_so_far": round(weekly_profit, 2),
             "next_payment_at": _next_monday_0900(now).isoformat(),
             "history": [],  # populated when billing infra lands
             "card_last4": row.get("card_last4") or "",
             "card_verified": bool(row.get("card_verified")),
         },
+        "recommendation": recommendation,
     }
 
 

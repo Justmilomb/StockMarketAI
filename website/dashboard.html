@@ -234,6 +234,10 @@ button.btn.ghost:hover { border-color: var(--fg); }
   border-color: var(--accent);
   box-shadow: inset 0 0 0 1px rgba(0,255,135,0.5);
 }
+.plan.best-fit {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px rgba(0,255,135,0.55);
+}
 .plan .ribbon {
   position: absolute; top: -1px; right: -1px;
   background: var(--accent); color: var(--bg);
@@ -241,6 +245,23 @@ button.btn.ghost:hover { border-color: var(--fg); }
   font-size: 9px; letter-spacing: 0.22em; text-transform: uppercase;
   padding: 4px 10px; font-weight: 500;
 }
+.plan .plan-projection {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px; letter-spacing: 0.14em;
+  color: var(--accent);
+  text-transform: uppercase;
+  min-height: 12px;
+}
+.plan-suggestion {
+  border: 1px solid rgba(0,255,135,0.35);
+  background: rgba(0,255,135,0.04);
+  padding: 12px 14px;
+  margin: 0 0 14px;
+  font-size: 13px;
+  color: var(--dim);
+  line-height: 1.55;
+}
+.plan-suggestion b { color: var(--fg); font-weight: 500; }
 .plan .plan-name {
   font-family: 'Outfit', sans-serif;
   font-size: 18px; font-weight: 300; letter-spacing: -0.01em;
@@ -435,6 +456,7 @@ button.btn.ghost:hover { border-color: var(--fg); }
       <h2>plan</h2>
       <h3 id="planHeadline">choose your plan</h3>
       <p class="lead">switch any time. paid tiers need a verified card on file (coming soon).</p>
+      <div class="plan-suggestion" id="planSuggestion" style="display:none"></div>
       <div class="plans" id="plansWrap"></div>
       <span class="feedback" id="planFeedback"></span>
     </section>
@@ -461,6 +483,7 @@ button.btn.ghost:hover { border-color: var(--fg); }
     plan: null,
     plans: [],
     analytics: null,
+    recommendation: null,
     range: "today",
     avatarGridBuilt: false,
   };
@@ -534,9 +557,25 @@ button.btn.ghost:hover { border-color: var(--fg); }
     setVerifyBanner(user.email_verified ? "hidden" : "needs");
   }
 
+  function fmtPct(n) {
+    const v = Number(n) || 0;
+    return (Math.round(v * 10) / 10) + "%";
+  }
+
   function renderPayment(payment) {
     setText("payDue", fmtMoney(payment.amount_due, payment.currency));
-    setText("payRate", (payment.fee_rate_pct || 0) + "% of profit");
+    let rateText = fmtPct(payment.fee_rate_pct) + " of profit";
+    // When the user is on a tiered plan and hasn't yet crossed the
+    // discount threshold, show both rates so they can see what they'd
+    // pay once profit clears the line.
+    if (payment.weekly_threshold_gbp != null
+        && payment.commission_pct_above_threshold != null) {
+      rateText = fmtPct(payment.fee_rate_pct)
+        + " now \u00b7 drops to "
+        + fmtPct(payment.commission_pct_above_threshold)
+        + " above \u00a3" + payment.weekly_threshold_gbp + "/wk";
+    }
+    setText("payRate", rateText);
     setText("payMonthly",
       (payment.monthly_fee || 0) > 0
         ? fmtMoney(payment.monthly_fee, payment.currency) + " / month"
@@ -564,12 +603,28 @@ button.btn.ghost:hover { border-color: var(--fg); }
     a.className = "value " + (totalPnl > 0 ? "pos" : totalPnl < 0 ? "neg" : "");
   }
 
-  function buildPlanCard(p, currentId) {
+  function planCommissionLabel(p) {
+    const base = fmtPct(p.commission_pct);
+    if (p.weekly_threshold_gbp != null && p.commission_pct_above_threshold != null) {
+      return base + " up to \u00a3" + p.weekly_threshold_gbp + "/wk \u00b7 "
+        + fmtPct(p.commission_pct_above_threshold) + " above";
+    }
+    return base + " commission";
+  }
+
+  function buildPlanCard(p, currentId, bestId) {
     const card = document.createElement("div");
+    const isBest = bestId && p.id === bestId;
     card.className = "plan"
       + (p.recommended ? " recommended" : "")
-      + (p.id === currentId ? " current" : "");
-    if (p.recommended) {
+      + (p.id === currentId ? " current" : "")
+      + (isBest ? " best-fit" : "");
+    if (isBest) {
+      const r = document.createElement("div");
+      r.className = "ribbon";
+      r.textContent = "best for you";
+      card.appendChild(r);
+    } else if (p.recommended) {
       const r = document.createElement("div");
       r.className = "ribbon";
       r.textContent = "recommended";
@@ -607,8 +662,15 @@ button.btn.ghost:hover { border-color: var(--fg); }
 
     const com = document.createElement("div");
     com.className = "plan-commission";
-    com.textContent = (p.commission_pct || 0) + "% commission";
+    com.textContent = planCommissionLabel(p);
     card.appendChild(com);
+
+    // Per-plan projected weekly cost against the user's actual recent
+    // profit — set by renderPlans when it has the recommendation blob.
+    const proj = document.createElement("div");
+    proj.className = "plan-projection";
+    proj.dataset.planProj = p.id;
+    card.appendChild(proj);
 
     const btn = document.createElement("button");
     if (p.id === currentId) {
@@ -627,12 +689,63 @@ button.btn.ghost:hover { border-color: var(--fg); }
     const wrap = $("#plansWrap");
     wrap.replaceChildren();
     const currentId = (state.plan && state.plan.id) || "starter";
+    const rec = state.recommendation || null;
+    const bestId = rec && rec.best_plan_id;
     state.plans.forEach((p) => {
-      wrap.appendChild(buildPlanCard(p, currentId));
+      wrap.appendChild(buildPlanCard(p, currentId, bestId));
     });
     setText("planHeadline", state.plan && state.plan.is_dev
       ? "dev account \u00b7 all features unlocked"
       : "choose your plan");
+    renderRecommendation();
+  }
+
+  function renderRecommendation() {
+    const banner = $("#planSuggestion");
+    if (!banner) return;
+    const rec = state.recommendation;
+    const currentId = (state.plan && state.plan.id) || "starter";
+    if (state.plan && state.plan.is_dev) {
+      banner.style.display = "none";
+      return;
+    }
+    if (!rec || !rec.best_plan_id || (rec.weekly_profit_basis || 0) <= 0) {
+      banner.style.display = "none";
+    } else {
+      banner.style.display = "block";
+      banner.replaceChildren();
+      const profit = fmtMoney(rec.weekly_profit_basis, "GBP");
+      if (rec.best_plan_id === currentId) {
+        const b = document.createElement("b");
+        b.textContent = "you're on the cheapest plan for your profits.";
+        banner.appendChild(b);
+        banner.appendChild(document.createTextNode(
+          " based on " + profit + " realised in the last 7 days."));
+      } else {
+        const bestPlan = state.plans.find((p) => p.id === rec.best_plan_id);
+        const bestLabel = bestPlan ? bestPlan.label : rec.best_plan_id;
+        const saving = (rec.current_weekly_cost || 0) - (rec.best_weekly_cost || 0);
+        const b = document.createElement("b");
+        b.textContent = bestLabel + " would cost you about \u00a3"
+          + saving.toFixed(2) + " less per week.";
+        banner.appendChild(b);
+        banner.appendChild(document.createTextNode(
+          " based on " + profit + " realised in the last 7 days ("
+          + fmtMoney(rec.current_weekly_cost, "GBP") + "/wk now \u2192 "
+          + fmtMoney(rec.best_weekly_cost, "GBP") + "/wk on " + bestLabel + ")."));
+      }
+    }
+    // Per-card projected weekly costs (works even when banner is hidden).
+    const costs = (rec && rec.plan_costs) || [];
+    costs.forEach((c) => {
+      const el = document.querySelector('[data-plan-proj="' + c.plan_id + '"]');
+      if (!el) return;
+      if ((rec.weekly_profit_basis || 0) <= 0) {
+        el.textContent = "";
+        return;
+      }
+      el.textContent = "\u2248 " + fmtMoney(c.weekly_cost, "GBP") + " / wk on your profits";
+    });
   }
 
   function ensureAvatarGrid() {
@@ -798,6 +911,7 @@ button.btn.ghost:hover { border-color: var(--fg); }
         state.user = j.user;
         state.plan = j.plan;
         state.analytics = j.analytics;
+        state.recommendation = j.recommendation || null;
         renderUser(j.user);
         renderPayment(j.payment);
         renderAnalytics(j.analytics);

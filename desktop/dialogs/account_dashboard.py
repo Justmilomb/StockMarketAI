@@ -220,9 +220,9 @@ class AccountDashboardDialog(BaseDialog):
         col.setContentsMargins(0, 12, 0, 4)
         col.setSpacing(10)
 
-        kicker = QLabel("PERFORMANCE FEE — 20% OF WEEKLY PROFIT")
-        kicker.setStyleSheet(_kicker_qss())
-        col.addWidget(kicker)
+        self._payment_kicker = QLabel("PERFORMANCE FEE")
+        self._payment_kicker.setStyleSheet(_kicker_qss())
+        col.addWidget(self._payment_kicker)
 
         amt_row = QHBoxLayout()
         amt_row.setSpacing(18)
@@ -354,6 +354,19 @@ class AccountDashboardDialog(BaseDialog):
             self._card_label.setText(f"•••• {last4}")
         else:
             self._card_label.setText("not set")
+
+        # Plan-aware kicker — server tells us the rate that applies this
+        # week, including the tier discount on Starter when profit clears
+        # the threshold. Falls back to a plain label when the server is
+        # offline / running an older build.
+        rate = payment.get("fee_rate_pct")
+        if rate is None:
+            self._payment_kicker.setText("PERFORMANCE FEE")
+        else:
+            rate_str = f"{rate:g}".rstrip("0").rstrip(".") if isinstance(rate, float) else str(rate)
+            self._payment_kicker.setText(
+                f"PERFORMANCE FEE — {rate_str}% OF WEEKLY PROFIT"
+            )
 
     def _set_pnl_window(self, key: str) -> None:
         self._active_window = key
