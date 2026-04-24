@@ -209,8 +209,24 @@ def launch(mode: str | None = None) -> None:
     # Anyone can open the app. Gated actions (trade / agent / chat)
     # nudge the user to sign in at the point of use; we never block
     # the UI behind sign-in.
-    from desktop.auth import fetch_me
+    from desktop.auth import fetch_me, fetch_plan
     from desktop.auth_state import auth_state
+
+    def _sync_plan() -> None:
+        """Pull the user's pricing plan from the server into AuthState.
+
+        Plan lives on the server so flipping it from the website (or via
+        an admin "set as dev" toggle) takes effect on the next launch
+        without requiring a config edit on the client.
+        """
+        plan = fetch_plan(server_url=server_url)
+        if plan.get("ok"):
+            auth_state().set_plan(
+                plan=plan["plan"],
+                commission_pct=plan["commission_pct"],
+                monthly_fee=plan["monthly_fee"],
+                is_dev=plan["is_dev"],
+            )
 
     result: dict = {}
     me = fetch_me(server_url=server_url)
@@ -221,6 +237,7 @@ def launch(mode: str | None = None) -> None:
             avatar_id=int(me.get("avatar_id") or 0),
         )
         result = me
+        _sync_plan()
         logger.info("Resumed session for %s", me.get("email", "<unknown>"))
     else:
         # No valid stored session — offer the sign-in dialog once, but
@@ -235,6 +252,7 @@ def launch(mode: str | None = None) -> None:
             result = fetch_me(server_url=server_url)
             if not result.get("ok"):
                 result = {}
+            _sync_plan()
 
     # ── First-run setup wizard ───────────────────────────────────────
     from desktop.dialogs.setup_wizard import SetupWizard

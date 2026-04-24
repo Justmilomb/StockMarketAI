@@ -80,6 +80,28 @@ def fetch_me(
     return {"ok": True, **body}
 
 
+def fetch_plan(
+    token: Optional[str] = None,
+    server_url: Optional[str] = None,
+) -> dict[str, Any]:
+    """Return ``{"ok": bool, "plan"?, "commission_pct"?, "monthly_fee"?, "is_dev"?}``.
+
+    Mirrors :func:`fetch_me` semantics — offline / 4xx are non-fatal so the
+    UI keeps working with whatever stored snapshot the AuthState has.
+    """
+    result = api_call("/api/me/plan", token=token, server_url=server_url)
+    if not result.get("ok"):
+        return {"ok": False, "reason": result.get("reason", "unknown")}
+    data = result.get("data") or {}
+    return {
+        "ok": True,
+        "plan": str(data.get("plan", "starter")),
+        "commission_pct": float(data.get("commission_pct", 20.0)),
+        "monthly_fee": float(data.get("monthly_fee", 0.0)),
+        "is_dev": bool(data.get("is_dev", False)),
+    }
+
+
 def api_call(
     path: str,
     method: str = "GET",

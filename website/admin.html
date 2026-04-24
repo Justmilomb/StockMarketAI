@@ -984,8 +984,22 @@
                 </div>
                 <div class="table-wrap">
                     <table>
-                        <thead><tr><th>name</th><th>email</th><th>license</th><th>status</th><th>last active</th><th>actions</th></tr></thead>
+                        <thead><tr><th>name</th><th>email</th><th>license</th><th>plan</th><th>status</th><th>last active</th><th>actions</th></tr></thead>
                         <tbody id="license-tbody"></tbody>
+                    </table>
+                </div>
+
+                <div style="display:flex; justify-content:space-between; align-items:center; margin: 2.5rem 0 1.25rem;">
+                    <p class="section-title" style="margin-bottom:0;">dev accounts</p>
+                    <span id="dev-accounts-count" style="font-size:0.6875rem; color:var(--text-dim); font-family:'JetBrains Mono', monospace; letter-spacing:0.06em;"></span>
+                </div>
+                <p style="font-size:0.6875rem; color:var(--text-dim); margin-bottom:1rem;">
+                    dev accounts skip every fee &amp; commission and unlock all features regardless of plan.
+                </p>
+                <div class="table-wrap">
+                    <table>
+                        <thead><tr><th>name</th><th>email</th><th>plan</th><th>actions</th></tr></thead>
+                        <tbody id="dev-accounts-tbody"></tbody>
                     </table>
                 </div>
             </div>
@@ -1273,7 +1287,7 @@
             return body;
         }
 
-        function loadAll() { loadStats(); loadChart(); loadLicenses(); loadConfig(); loadReleases(); loadLogs(); }
+        function loadAll() { loadStats(); loadChart(); loadLicenses(); loadDevAccounts(); loadConfig(); loadReleases(); loadLogs(); }
 
         function renderStat(label, value, change, green) {
             return el('div', { class: 'stat' }, [
@@ -1329,6 +1343,16 @@
                     style: { marginRight: '0.375rem' },
                     onclick: () => openInspect(l.key),
                 }));
+                actions.push(el('button', {
+                    text: l.is_dev ? 'remove dev' : 'set as dev',
+                    style: { background:'none',
+                        border:'1px solid ' + (l.is_dev ? 'rgba(0,255,135,0.4)' : 'rgba(255,255,255,0.16)'),
+                        color: l.is_dev ? 'var(--glow)' : 'var(--text-mid)',
+                        fontFamily:"'Outfit',sans-serif", fontSize:'0.625rem',
+                        padding:'0.2rem 0.5rem', marginRight:'0.375rem',
+                        cursor:'pointer', letterSpacing:'0.04em' },
+                    onclick: () => toggleDev(l.key, !l.is_dev),
+                }));
                 if (l.status !== 'revoked') {
                     actions.push(el('button', {
                         text: 'revoke',
@@ -1338,10 +1362,31 @@
                         onclick: () => revokeLicense(l.key),
                     }));
                 }
+                const nameCell = el('td', { text: l.name || '\u2014' });
+                if (l.is_dev) {
+                    nameCell.replaceChildren(
+                        el('span', { text: l.name || '\u2014' }),
+                        el('span', {
+                            text: 'DEV',
+                            style: { marginLeft: '0.4rem', fontSize: '0.55rem',
+                                color: 'var(--glow)',
+                                border: '1px solid rgba(0,255,135,0.4)',
+                                padding: '0.05rem 0.3rem',
+                                fontFamily: "'JetBrains Mono', monospace",
+                                letterSpacing: '0.08em' },
+                        }),
+                    );
+                }
+                const planCell = el('td', {
+                    text: (l.plan || 'starter').toUpperCase(),
+                    style: { color: 'var(--text-mid)', fontSize: '0.6875rem',
+                        fontFamily: "'JetBrains Mono', monospace", letterSpacing: '0.06em' },
+                });
                 return el('tr', {}, [
-                    el('td', { text: l.name || '\u2014' }),
+                    nameCell,
                     el('td', { text: l.email }),
                     el('td', { text: l.key, style: { color:'var(--text-dim)', fontFamily:'monospace', fontSize:'0.6875rem' } }),
+                    planCell,
                     el('td', {}, [el('span', { class: BADGE_CLASSES[l.status] || 'badge', text: l.status })]),
                     el('td', { text: timeAgo(l.last_active) }),
                     el('td', {}, actions),
@@ -1353,6 +1398,59 @@
             await api('/api/admin/licenses/' + encodeURIComponent(key), { method: 'DELETE' });
             loadLicenses();
             loadStats();
+        }
+
+        async function toggleDev(key, makeDev) {
+            await api('/api/admin/licenses/' + encodeURIComponent(key) + '/dev', {
+                method: 'POST',
+                body: JSON.stringify({ is_dev: makeDev }),
+            });
+            loadLicenses();
+            loadDevAccounts();
+        }
+
+        async function loadDevAccounts() {
+            const tbody = document.getElementById('dev-accounts-tbody');
+            const countEl = document.getElementById('dev-accounts-count');
+            if (!tbody) return;
+            let result;
+            try {
+                result = await api('/api/admin/dev-accounts');
+            } catch (e) {
+                tbody.replaceChildren(el('tr', {}, [
+                    el('td', { text: 'failed to load: ' + String(e), colspan: '4',
+                        style: { color: 'var(--red)', textAlign: 'center', padding: '1rem' } }),
+                ]));
+                if (countEl) countEl.textContent = '';
+                return;
+            }
+            const accounts = result.accounts || [];
+            if (countEl) countEl.textContent = accounts.length === 1 ? '1 account' : accounts.length + ' accounts';
+            if (accounts.length === 0) {
+                tbody.replaceChildren(el('tr', {}, [
+                    el('td', { text: 'no dev accounts \u2014 use the "set as dev" button on any licence',
+                        colspan: '4',
+                        style: { color: 'var(--text-dim)', textAlign: 'center', padding: '1.5rem' } }),
+                ]));
+                return;
+            }
+            tbody.replaceChildren(...accounts.map(a => el('tr', {}, [
+                el('td', { text: a.full_name || a.name || '\u2014' }),
+                el('td', { text: a.email }),
+                el('td', { text: (a.plan || 'starter').toUpperCase(),
+                    style: { color: 'var(--text-mid)', fontFamily: "'JetBrains Mono', monospace",
+                        fontSize: '0.6875rem', letterSpacing: '0.06em' } }),
+                el('td', {}, [
+                    el('button', {
+                        text: 'remove dev',
+                        style: { background:'none', border:'1px solid rgba(0,255,135,0.4)',
+                            color:'var(--glow)', fontFamily:"'Outfit',sans-serif",
+                            fontSize:'0.625rem', padding:'0.2rem 0.5rem',
+                            cursor:'pointer', letterSpacing:'0.04em' },
+                        onclick: () => toggleDev(a.key, false),
+                    }),
+                ]),
+            ])));
         }
 
         async function loadConfig() {
@@ -1644,7 +1742,7 @@
                 void section.offsetWidth;
                 section.style.animation = 'fadeUp 0.5s var(--ease-out) forwards';
                 if (target === 'overview') { loadStats(); loadChart(); }
-                if (target === 'users') loadLicenses();
+                if (target === 'users') { loadLicenses(); loadDevAccounts(); }
                 if (target === 'config') loadConfig();
                 if (target === 'releases') loadReleases();
                 if (target === 'system') loadLogs();

@@ -116,14 +116,20 @@ button:hover:not(:disabled) { background: rgba(0,255,135,0.08); }
         throw new Error(detail);
       }
       const data = await r.json();
-      setStatus("signed in \u2014 handing off to the app\u2026", "ok");
+      try {
+        localStorage.setItem("blank_token", data.token);
+        if (data.email) localStorage.setItem("blank_email", data.email);
+        if (data.name) localStorage.setItem("blank_name", data.name);
+      } catch (_) { /* private mode — ignore */ }
       if (callbackPort) {
+        setStatus("signed in \u2014 handing off to the app\u2026", "ok");
         window.location.replace(
           "http://127.0.0.1:" + encodeURIComponent(callbackPort)
           + "/auth/callback?token=" + encodeURIComponent(data.token)
         );
       } else {
-        setStatus("signed in \u2014 you can close this tab.", "ok");
+        setStatus("signed in \u2014 redirecting\u2026", "ok");
+        window.location.replace("/dashboard");
       }
     } catch (e) {
       setStatus((e && e.message) || "sign in failed", "err");

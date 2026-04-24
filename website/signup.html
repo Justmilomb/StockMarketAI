@@ -365,11 +365,10 @@ input:focus { border-bottom-color: var(--accent); }
     <div class="success">
       <div class="check">&#10003;</div>
       <h2 class="step-title">Welcome to blank.</h2>
-      <p>Your account is ready. Download the app and sign in with your email and password.</p>
+      <p>Your account is ready. We've sent a verification email to your inbox. Heading to your dashboard now&hellip;</p>
       <div class="actions">
-        <a class="btn btn-block" id="dl-link" href="#">Download for Windows</a>
+        <a class="btn btn-block" href="/dashboard">Open dashboard</a>
       </div>
-      <p style="margin-top:18px"><a href="/auth/login">Or sign in on the web</a></p>
     </div>
   </section>
 
@@ -643,19 +642,15 @@ input:focus { border-bottom-color: var(--accent); }
       .then(({ ok, j }) => {
         btn.disabled = false;
         if (!ok) { setErr("err-agree", (j && j.detail) || "Sign-up failed."); return; }
-        loadDownloadLink();
+        try {
+          if (j && j.token) localStorage.setItem("blank_token", j.token);
+          if (j && j.email) localStorage.setItem("blank_email", j.email);
+          if (j && j.name) localStorage.setItem("blank_name", j.name);
+        } catch (_) { /* private mode — ignore */ }
         go(6);
+        setTimeout(() => { window.location.replace("/dashboard"); }, 1200);
       })
       .catch(() => { btn.disabled = false; setErr("err-agree", "Network error."); });
-  }
-
-  function loadDownloadLink() {
-    fetch("/api/version")
-      .then((r) => r.json())
-      .then((v) => {
-        if (v && v.download_url) $("#dl-link").setAttribute("href", v.download_url);
-      })
-      .catch(() => {});
   }
 
   // ── Avatar picker ──────────────────────────────────────────

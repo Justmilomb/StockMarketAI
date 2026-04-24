@@ -210,8 +210,24 @@ def _init_db(conn: psycopg2.extensions.connection) -> None:
             # avatar_id: integer 1..100 referencing desktop/assets/avatars/avatar_NNN.svg.
             # 0 means unset — the desktop app renders a neutral placeholder.
             "ALTER TABLE licenses ADD COLUMN IF NOT EXISTS avatar_id INTEGER DEFAULT 0",
+            # Email verification: set TRUE only after the user clicks the
+            # one-time link. The token+expiry let us re-send a fresh
+            # link without keeping a separate verification table.
+            "ALTER TABLE licenses ADD COLUMN IF NOT EXISTS email_verified BOOLEAN DEFAULT FALSE",
+            "ALTER TABLE licenses ADD COLUMN IF NOT EXISTS email_verify_token TEXT DEFAULT ''",
+            "ALTER TABLE licenses ADD COLUMN IF NOT EXISTS email_verify_token_expires_at TIMESTAMPTZ",
+            # Plan tier: 'starter' (20% commission, free), 'pro' (10% +
+            # £29/mo), 'unlimited' (0% + £99/mo). Default starter so any
+            # legacy account behaves as before. is_dev unlocks every
+            # paid feature with no commission/payment — used for staff,
+            # alpha testers, and demo accounts.
+            "ALTER TABLE licenses ADD COLUMN IF NOT EXISTS plan TEXT DEFAULT 'starter'",
+            "ALTER TABLE licenses ADD COLUMN IF NOT EXISTS is_dev BOOLEAN DEFAULT FALSE",
             "CREATE INDEX IF NOT EXISTS idx_licenses_phone ON licenses(phone_number)",
             "CREATE INDEX IF NOT EXISTS idx_licenses_card_fp ON licenses(card_fingerprint)",
+            "CREATE INDEX IF NOT EXISTS idx_licenses_verify_token ON licenses(email_verify_token)",
+            "CREATE INDEX IF NOT EXISTS idx_licenses_plan ON licenses(plan)",
+            "CREATE INDEX IF NOT EXISTS idx_licenses_is_dev ON licenses(is_dev)",
         ):
             cur.execute(stmt)
         # Anti-fraud audit table — admin reviews and resolves entries from
@@ -761,9 +777,92 @@ def terms_page() -> HTMLResponse:
 def auth_login_page() -> HTMLResponse:
     """Serve the sign-in page. Accepts ``?callback_port=<int>`` so the
     desktop app can spin up a loopback listener and receive the token
-    without any shared state."""
+    without any shared state. Without that param the page redirects the
+    user to ``/dashboard`` after a successful sign-in."""
     with open(os.path.join(WEBSITE_DIR, "auth_login.html"), encoding="utf-8") as f:
         return HTMLResponse(content=f.read())
+
+
+@app.get("/dashboard", response_class=HTMLResponse)
+def dashboard_page() -> HTMLResponse:
+    """Serve the signed-in user dashboard. The page reads the JWT from
+    localStorage; if missing it bounces the visitor back to /auth/login."""
+    with open(os.path.join(WEBSITE_DIR, "dashboard.html"), encoding="utf-8") as f:
+        return HTMLResponse(content=f.read())
+
+
+@app.get("/verify-email", response_class=HTMLResponse)
+def verify_email_page(
+    token: str = "",
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> HTMLResponse:
+    """Land the verification link from the welcome email. Marks the
+    licence as verified and renders a small confirmation page so the
+    user can hop straight to their dashboard."""
+    status_label = "verified"
+    headline = "email verified."
+    body = "your blank account is fully active. head to your dashboard to keep going."
+    cta_label = "open dashboard"
+    cta_href = "/dashboard"
+    if not token:
+        status_label = "invalid link"
+        headline = "this link is missing its token."
+        body = "open the verification email again or request a fresh one from the dashboard."
+    else:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, email_verified, email_verify_token_expires_at "
+                "FROM licenses WHERE email_verify_token = %s",
+                (token,),
+            )
+            row = cur.fetchone()
+        if not row:
+            status_label = "invalid link"
+            headline = "this verification link isn't valid."
+            body = "ask for a new one from your dashboard — old links stop working after a fresh request."
+        else:
+            expires_at = row.get("email_verify_token_expires_at")
+            now = datetime.now(timezone.utc)
+            if not row["email_verified"] and expires_at and expires_at < now:
+                status_label = "link expired"
+                headline = "this link expired."
+                body = "click resend on your dashboard to get a fresh verification email."
+            else:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "UPDATE licenses SET email_verified = TRUE, "
+                        "email_verify_token = '', "
+                        "email_verify_token_expires_at = NULL "
+                        "WHERE id = %s",
+                        (row["id"],),
+                    )
+                conn.commit()
+    html = f"""<!doctype html>
+<html lang=\"en\"><head><meta charset=\"utf-8\">
+<title>blank — {status_label}</title>
+<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">
+<link rel=\"preconnect\" href=\"https://fonts.googleapis.com\">
+<link rel=\"preconnect\" href=\"https://fonts.gstatic.com\" crossorigin>
+<link rel=\"stylesheet\" href=\"https://fonts.googleapis.com/css2?family=Outfit:wght@200;300;400;500&family=JetBrains+Mono:wght@400;500&display=swap\">
+<style>
+*{{box-sizing:border-box;margin:0;padding:0}}
+body{{background:#000;color:#fff;font-family:'Outfit','Helvetica Neue',Arial,sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}}
+.card{{max-width:520px;width:100%;background:#050505;border:1px solid rgba(255,255,255,0.08);padding:36px 32px}}
+.brand{{font-family:'Outfit',sans-serif;font-size:22px;font-weight:300;letter-spacing:-0.02em;margin:0 0 24px}}
+.brand::after{{content:'';display:block;width:32px;height:1px;background:#00ff87;margin-top:14px}}
+.kicker{{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:0.28em;text-transform:uppercase;color:#00ff87;margin:0 0 14px}}
+h1{{font-family:'Outfit',sans-serif;font-size:26px;font-weight:300;letter-spacing:-0.01em;margin:0 0 14px;line-height:1.25}}
+p{{color:rgba(255,255,255,0.6);font-size:15px;line-height:1.65;margin:0 0 24px}}
+a.cta{{display:inline-block;background:#00ff87;color:#000;text-decoration:none;font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:0.16em;text-transform:uppercase;padding:14px 26px;font-weight:500}}
+</style></head>
+<body><div class=\"card\">
+<p class=\"brand\">blank</p>
+<p class=\"kicker\">{status_label}</p>
+<h1>{headline}</h1>
+<p>{body}</p>
+<a class=\"cta\" href=\"{cta_href}\">{cta_label}</a>
+</div></body></html>"""
+    return HTMLResponse(content=html)
 
 
 # ── Health / version (public) ────────────────────────────────────────────
@@ -1098,6 +1197,165 @@ def get_avatar_svg(avatar_id: int) -> Response:
     )
 
 
+# ── Plans ───────────────────────────────────────────────────────────────
+#
+# Three tiers, hard-coded so the UI on website + desktop can render the
+# picker without an extra round trip. Anything beyond cosmetic copy
+# (commission %, monthly fee, default-ness) lives here so the fee
+# engine and admin tools share one source of truth.
+
+PLANS: List[Dict[str, Any]] = [
+    {
+        "id": "starter",
+        "label": "Starter",
+        "tagline": "Perfect for getting started",
+        "monthly_fee": 0,
+        "commission_pct": 20,
+        "currency": "GBP",
+        "features": [
+            "20% of net trading profit",
+            "no monthly subscription",
+            "all core features",
+            "paper + live trading",
+        ],
+        "recommended": False,
+        "is_default": True,
+    },
+    {
+        "id": "pro",
+        "label": "Pro",
+        "tagline": "Best value for active traders",
+        "monthly_fee": 29,
+        "commission_pct": 10,
+        "currency": "GBP",
+        "features": [
+            "10% of net trading profit",
+            "£29 / month",
+            "priority research roles",
+            "all core features",
+        ],
+        "recommended": True,
+        "is_default": False,
+    },
+    {
+        "id": "unlimited",
+        "label": "Unlimited",
+        "tagline": "Keep all your profits",
+        "monthly_fee": 99,
+        "commission_pct": 0,
+        "currency": "GBP",
+        "features": [
+            "0% commission",
+            "£99 / month",
+            "all features unlocked",
+            "early access to new builds",
+        ],
+        "recommended": False,
+        "is_default": False,
+    },
+]
+
+
+def _plan_by_id(plan_id: str) -> Dict[str, Any]:
+    for p in PLANS:
+        if p["id"] == plan_id:
+            return p
+    raise HTTPException(status_code=400, detail=f"unknown plan: {plan_id}")
+
+
+def _plan_for_user(row: Dict[str, Any]) -> Dict[str, Any]:
+    """Resolve the effective plan blob for a licence row.
+
+    Dev accounts always read as Unlimited at zero cost so the desktop
+    fee engine stops collecting fees the moment the admin flips the
+    flag — no need to also adjust the user's stored plan.
+    """
+    if row.get("is_dev"):
+        base = _plan_by_id("unlimited")
+        return {
+            **base,
+            "id": base["id"],
+            "monthly_fee": 0,
+            "commission_pct": 0,
+            "is_dev": True,
+        }
+    plan_id = (row.get("plan") or "starter").strip() or "starter"
+    try:
+        base = _plan_by_id(plan_id)
+    except HTTPException:
+        base = _plan_by_id("starter")
+    return {**base, "is_dev": False}
+
+
+@app.get("/api/plans")
+def list_plans() -> dict[str, Any]:
+    """Public plan catalogue — used by the website signup + dashboard."""
+    return {"plans": PLANS}
+
+
+@app.get("/api/me/plan")
+def my_plan(
+    claims: dict[str, Any] = Depends(require_auth),
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> dict[str, Any]:
+    """Return the signed-in user's current plan, including dev override."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT plan, is_dev, card_verified FROM licenses WHERE key = %s",
+            (claims["sub"],),
+        )
+        row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="account not found")
+    return {"plan": _plan_for_user(dict(row))}
+
+
+class PlanUpdateRequest(BaseModel):
+    plan: str = "starter"
+
+
+@app.post("/api/me/plan")
+def set_my_plan(
+    body: PlanUpdateRequest,
+    claims: dict[str, Any] = Depends(require_auth),
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> dict[str, Any]:
+    """Switch the signed-in user's plan. Paid plans require a verified
+    card on file — we don't gate the request on the dev flag because
+    dev accounts never see this endpoint in the UI."""
+    plan = _plan_by_id(body.plan)
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT id, card_verified, is_dev FROM licenses WHERE key = %s",
+            (claims["sub"],),
+        )
+        row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="account not found")
+
+    needs_card = (plan["monthly_fee"] or 0) > 0
+    if needs_card and not row.get("card_verified") and not row.get("is_dev"):
+        raise HTTPException(
+            status_code=402,
+            detail="add a verified payment card before choosing a paid plan",
+        )
+
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE licenses SET plan = %s WHERE id = %s",
+            (plan["id"], row["id"]),
+        )
+    conn.commit()
+
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT plan, is_dev, card_verified FROM licenses WHERE id = %s",
+            (row["id"],),
+        )
+        fresh = cur.fetchone()
+    return {"status": "ok", "plan": _plan_for_user(dict(fresh))}
+
+
 @app.post("/api/me/avatar")
 def set_my_avatar(
     body: AvatarUpdateRequest,
@@ -1118,6 +1376,121 @@ def set_my_avatar(
     if not row:
         raise HTTPException(status_code=404, detail="account not found")
     return {"status": "ok", "avatar_id": avatar_id}
+
+
+class NameUpdateRequest(BaseModel):
+    full_name: str = ""
+
+
+@app.post("/api/me/name")
+def set_my_name(
+    body: NameUpdateRequest,
+    claims: dict[str, Any] = Depends(require_auth),
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> dict[str, Any]:
+    """Save the signed-in user's full name. Empty strings are rejected
+    so the field on the licence row can be relied on by other panels."""
+    name = (body.full_name or "").strip()
+    if not name or len(name) > 200:
+        raise HTTPException(status_code=400, detail="invalid name")
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE licenses SET full_name = %s, name = %s WHERE key = %s RETURNING id",
+            (name, name, claims["sub"]),
+        )
+        row = cur.fetchone()
+    conn.commit()
+    if not row:
+        raise HTTPException(status_code=404, detail="account not found")
+    return {"status": "ok", "full_name": name}
+
+
+class PasswordUpdateRequest(BaseModel):
+    current_password: str = ""
+    new_password: str = ""
+
+
+@app.post("/api/me/password")
+def set_my_password(
+    body: PasswordUpdateRequest,
+    claims: dict[str, Any] = Depends(require_auth),
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> dict[str, Any]:
+    """Rotate the signed-in user's password. Requires the current
+    password so a stolen JWT alone can't lock the user out."""
+    new_pw = body.new_password or ""
+    if len(new_pw) < 8:
+        raise HTTPException(status_code=400, detail="password must be at least 8 characters")
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT id, password_hash FROM licenses WHERE key = %s",
+            (claims["sub"],),
+        )
+        row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="account not found")
+    stored = row.get("password_hash") or ""
+    if stored:
+        if not _verify_password(body.current_password or "", stored):
+            raise HTTPException(status_code=401, detail="current password is incorrect")
+    new_hash = _hash_password(new_pw)
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE licenses SET password_hash = %s WHERE id = %s",
+            (new_hash, row["id"]),
+        )
+    conn.commit()
+    return {"status": "ok"}
+
+
+@app.post("/api/me/resend-verification")
+def resend_verification(
+    claims: dict[str, Any] = Depends(require_auth),
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> dict[str, Any]:
+    """Mint a fresh verification token for the signed-in user and resend
+    the verify_email template. No-op (still 200) if the email is already
+    verified — keeps the front-end's resend button idempotent."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT id, email, name, full_name, email_verified, key FROM licenses "
+            "WHERE key = %s",
+            (claims["sub"],),
+        )
+        row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="account not found")
+    if row["email_verified"]:
+        return {"status": "ok", "already_verified": True}
+
+    token = secrets.token_urlsafe(32)
+    expires = datetime.now(timezone.utc) + timedelta(hours=24)
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE licenses SET email_verify_token = %s, "
+            "email_verify_token_expires_at = %s WHERE id = %s",
+            (token, expires, row["id"]),
+        )
+    conn.commit()
+
+    name_full = (row.get("full_name") or row.get("name") or "").strip() or "there"
+    first = name_full.split(" ")[0] or name_full
+    # Each resend gets its own dedup reason so a user can request
+    # multiple fresh links without the second send being eaten by
+    # the once-only guard.
+    sent, info = send_template_once(
+        conn,
+        "verify_email",
+        {
+            "name": first,
+            "verify_url": f"{SITE_URL.rstrip('/')}/verify-email?token={token}",
+        },
+        recipient=row["email"],
+        reason_key=f"verify:{row['key']}:{int(time.time())}",
+    )
+    if not sent:
+        logger.info("resend verification skipped for %s (%s)", row["email"], info)
+    return {"status": "ok", "sent": bool(sent)}
 
 
 # ── User dashboard + analytics ──────────────────────────────────────────
@@ -1294,7 +1667,9 @@ def my_dashboard(
                 except (TypeError, ValueError):
                     pass
                 break
-    amount_due = round(max(0.0, cycle_profit) * 0.20, 2)
+    plan = _plan_for_user(dict(row))
+    fee_rate_pct = float(plan.get("commission_pct") or 0)
+    amount_due = round(max(0.0, cycle_profit) * (fee_rate_pct / 100.0), 2)
 
     return {
         "user": {
@@ -1303,13 +1678,17 @@ def my_dashboard(
             "full_name": row.get("full_name") or row.get("name") or "",
             "avatar_id": int(row.get("avatar_id") or 0),
             "status": row["status"],
+            "email_verified": bool(row.get("email_verified")),
+            "is_dev": bool(row.get("is_dev")),
             "created_at": row["created_at"].isoformat() if row.get("created_at") else None,
         },
+        "plan": plan,
         "analytics": stats,
         "payment": {
             "amount_due": amount_due,
-            "currency": "GBP",
-            "fee_rate_pct": 20,
+            "currency": plan.get("currency") or "GBP",
+            "fee_rate_pct": fee_rate_pct,
+            "monthly_fee": float(plan.get("monthly_fee") or 0),
             "next_payment_at": _next_monday_0900(now).isoformat(),
             "history": [],  # populated when billing infra lands
             "card_last4": row.get("card_last4") or "",
@@ -1530,7 +1909,6 @@ def public_signup(
         {
             "name": (body.name or "there").strip() or "there",
             "license_key": key,
-            "download_url": DOWNLOAD_URL,
         },
         recipient=email,
         reason_key=f"issue:{key}",
@@ -2131,10 +2509,31 @@ def auth_register(
         {
             "name": full_name.split(" ")[0] or full_name or "there",
             "license_key": key,
-            "download_url": DOWNLOAD_URL,
         },
         recipient=email,
         reason_key=f"issue:{key}",
+    )
+
+    # Email verification — separate dedup key so a re-issue of the licence
+    # doesn't replay the verification mail. Token expires in 24 hours.
+    verify_token = secrets.token_urlsafe(32)
+    verify_expires = datetime.now(timezone.utc) + timedelta(hours=24)
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE licenses SET email_verify_token = %s, "
+            "email_verify_token_expires_at = %s WHERE id = %s",
+            (verify_token, verify_expires, license_id),
+        )
+    conn.commit()
+    send_template_once(
+        conn,
+        "verify_email",
+        {
+            "name": full_name.split(" ")[0] or full_name or "there",
+            "verify_url": f"{SITE_URL.rstrip('/')}/verify-email?token={verify_token}",
+        },
+        recipient=email,
+        reason_key=f"verify:{key}",
     )
 
     return {
@@ -2554,6 +2953,56 @@ def admin_list_licenses(
     return results
 
 
+@app.get("/api/admin/dev-accounts")
+def admin_list_dev_accounts(
+    _: str = Depends(require_admin),
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> dict[str, Any]:
+    """Return every licence with the dev flag set — used by the admin
+    panel's 'dev accounts' section so the operator can see at a glance
+    which emails skip fees and payment checks."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT key, email, name, full_name, plan, created_at, last_active "
+            "FROM licenses WHERE is_dev = TRUE ORDER BY email ASC",
+        )
+        rows = cur.fetchall()
+    accounts = []
+    for r in rows:
+        d = dict(r)
+        for k in ("created_at", "last_active"):
+            if d.get(k) is not None:
+                d[k] = d[k].isoformat()
+        accounts.append(d)
+    return {"accounts": accounts, "count": len(accounts)}
+
+
+class DevToggleRequest(BaseModel):
+    is_dev: bool = False
+
+
+@app.post("/api/admin/licenses/{license_key}/dev")
+def admin_set_dev(
+    license_key: str,
+    body: DevToggleRequest,
+    _: str = Depends(require_admin),
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> dict[str, Any]:
+    """Flip the ``is_dev`` flag on a licence. The flag short-circuits
+    every fee calculation and payment check downstream — flipping it
+    off again restores the user's stored plan as-is."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE licenses SET is_dev = %s WHERE key = %s RETURNING email",
+            (bool(body.is_dev), license_key),
+        )
+        row = cur.fetchone()
+    conn.commit()
+    if not row:
+        raise HTTPException(status_code=404, detail="license not found")
+    return {"status": "ok", "key": license_key, "email": row["email"], "is_dev": bool(body.is_dev)}
+
+
 def _generate_license_key() -> str:
     """Generate a key like BLK-7F2A-X9D1."""
     parts = [secrets.token_hex(2).upper() for _ in range(2)]
@@ -2583,7 +3032,6 @@ def admin_create_license(
             {
                 "name": (body.name or "there").strip() or "there",
                 "license_key": key,
-                "download_url": DOWNLOAD_URL,
             },
             recipient=body.email,
             reason_key=f"issue:{key}",
