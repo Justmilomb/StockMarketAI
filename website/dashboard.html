@@ -84,6 +84,46 @@ a { color: inherit; text-decoration: none; }
 
 .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
 .full { grid-column: 1 / -1; }
+
+.hero-download {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 24px; flex-wrap: wrap;
+  border: 1px solid rgba(0,255,135,0.35);
+  background: linear-gradient(135deg, rgba(0,255,135,0.05), rgba(0,255,135,0.02));
+  padding: 32px 36px; margin-bottom: 36px;
+}
+.hero-download .hero-copy h3 {
+  font-family: 'Outfit', sans-serif; font-size: 28px;
+  font-weight: 300; letter-spacing: -0.02em; margin: 0 0 8px;
+  color: var(--fg);
+}
+.hero-download .hero-copy p {
+  margin: 0; color: var(--dim); font-size: 14px; line-height: 1.5;
+}
+.hero-download .hero-copy .tag {
+  display: inline-block; font-family: 'JetBrains Mono', monospace;
+  font-size: 10px; letter-spacing: 0.22em; text-transform: uppercase;
+  color: var(--accent); margin-bottom: 8px;
+}
+.hero-download a.download-btn {
+  display: inline-flex; align-items: center; gap: 10px;
+  background: var(--accent); color: var(--bg);
+  border: none; padding: 18px 32px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px; letter-spacing: 0.18em; text-transform: uppercase;
+  font-weight: 500; cursor: pointer;
+  text-decoration: none;
+  transition: background 0.12s ease, transform 0.12s ease;
+}
+.hero-download a.download-btn:hover {
+  background: #33ffa3; transform: translateY(-1px);
+}
+.hero-download a.download-btn .arrow { font-size: 16px; line-height: 1; }
+.hero-download .hero-meta {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase;
+  color: var(--faint); margin-top: 6px;
+}
 .panel { background: var(--panel); border: 1px solid var(--mid); padding: 40px 40px 36px; }
 .panel h2 {
   font-family: 'JetBrains Mono', monospace;
@@ -317,6 +357,21 @@ button.btn.ghost:hover { border-color: var(--fg); }
 }
 .plan button:disabled { opacity: 0.4; cursor: not-allowed; }
 
+.plan.locked { opacity: 0.55; }
+.plan.locked button,
+.plan.locked button:hover { border-color: var(--mid); color: var(--faint); cursor: not-allowed; }
+.plan.dev-current {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px rgba(0,255,135,0.55);
+  opacity: 1;
+}
+.plan.dev-current .plan-name { color: var(--accent); }
+.plan.dev-current button,
+.plan.dev-current button:hover {
+  background: var(--accent); color: var(--bg); border-color: var(--accent);
+  cursor: default; opacity: 1;
+}
+
 .loading {
   display: flex; align-items: center; justify-content: center;
   min-height: 60vh;
@@ -355,6 +410,18 @@ button.btn.ghost:hover { border-color: var(--fg); }
   <div class="banner" id="verifyBanner" style="display:none">
     <div class="msg" id="verifyMsg"></div>
     <button id="resendBtn">resend</button>
+  </div>
+
+  <div class="hero-download">
+    <div class="hero-copy">
+      <span class="tag">desktop app</span>
+      <h3>download blank for windows</h3>
+      <p>the full autonomous trading terminal. paper or live. runs on your machine.</p>
+      <div class="hero-meta" id="dlVersion">&mdash;</div>
+    </div>
+    <a class="download-btn" id="dlHero" href="#">
+      <span>download</span><span class="arrow">&rarr;</span>
+    </a>
   </div>
 
   <div class="grid">
@@ -430,7 +497,7 @@ button.btn.ghost:hover { border-color: var(--fg); }
     <section class="panel">
       <h2>settings</h2>
       <h3>account</h3>
-      <p class="lead">change your password and download blank for windows.</p>
+      <p class="lead">change your password and manage your account.</p>
 
       <label class="field" for="curPwd">current password</label>
       <input id="curPwd" type="password" autocomplete="current-password" />
@@ -442,10 +509,6 @@ button.btn.ghost:hover { border-color: var(--fg); }
       </div>
 
       <div style="margin-top:36px">
-        <div class="coming-soon">
-          <span class="lbl">download blank</span>
-          <a class="val" id="dlLink" href="#" style="color:var(--accent);letter-spacing:0.18em;text-transform:uppercase">windows installer</a>
-        </div>
         <div class="coming-soon">
           <span class="lbl">trading 212 api key</span>
           <span class="val">configure inside the app</span>
@@ -564,6 +627,15 @@ button.btn.ghost:hover { border-color: var(--fg); }
   }
 
   function renderPayment(payment) {
+    const isDev = !!(state.plan && state.plan.is_dev);
+    if (isDev) {
+      setText("payDue", "\u00a30.00");
+      setText("payRate", "waived \u00b7 dev account");
+      setText("payMonthly", "waived \u00b7 dev account");
+      setText("payNext", "\u2014");
+      setText("payCard", "not required");
+      return;
+    }
     setText("payDue", fmtMoney(payment.amount_due, payment.currency));
     let rateText = fmtPct(payment.fee_rate_pct) + " of profit";
     // When the user is on a tiered plan and hasn't yet crossed the
@@ -615,17 +687,26 @@ button.btn.ghost:hover { border-color: var(--fg); }
 
   function buildPlanCard(p, currentId, bestId) {
     const card = document.createElement("div");
-    const isBest = bestId && p.id === bestId;
+    const isDev = !!(state.plan && state.plan.is_dev);
+    const isBest = bestId && p.id === bestId && !isDev;
     card.className = "plan"
-      + (p.recommended ? " recommended" : "")
-      + (p.id === currentId ? " current" : "")
-      + (isBest ? " best-fit" : "");
-    if (isBest) {
+      + (p.recommended && !isDev ? " recommended" : "")
+      + (p.id === currentId && !isDev ? " current" : "")
+      + (isBest ? " best-fit" : "")
+      + (isDev ? " locked" : "");
+    if (isDev && p.id === currentId) {
+      card.classList.remove("locked");
+      card.classList.add("dev-current");
+      const r = document.createElement("div");
+      r.className = "ribbon";
+      r.textContent = "dev account";
+      card.appendChild(r);
+    } else if (isBest) {
       const r = document.createElement("div");
       r.className = "ribbon";
       r.textContent = "best for you";
       card.appendChild(r);
-    } else if (p.recommended) {
+    } else if (p.recommended && !isDev) {
       const r = document.createElement("div");
       r.className = "ribbon";
       r.textContent = "recommended";
@@ -673,8 +754,16 @@ button.btn.ghost:hover { border-color: var(--fg); }
     proj.dataset.planProj = p.id;
     card.appendChild(proj);
 
+    const isDev = !!(state.plan && state.plan.is_dev);
     const btn = document.createElement("button");
-    if (p.id === currentId) {
+    if (isDev) {
+      if (p.id === currentId) {
+        btn.textContent = "dev \u00b7 all features";
+      } else {
+        btn.textContent = "locked for dev accounts";
+      }
+      btn.disabled = true;
+    } else if (p.id === currentId) {
       btn.textContent = "current";
       btn.className = "current-cta";
       btn.disabled = true;
@@ -886,7 +975,17 @@ button.btn.ghost:hover { border-color: var(--fg); }
     fetch("/api/version")
       .then((r) => r.json())
       .then((v) => {
-        if (v && v.download_url) $("#dlLink").setAttribute("href", v.download_url);
+        if (v && v.download_url) {
+          const hero = $("#dlHero");
+          if (hero) hero.setAttribute("href", v.download_url);
+        }
+        const ver = $("#dlVersion");
+        if (ver && v) {
+          const parts = [];
+          if (v.version) parts.push("v" + v.version);
+          parts.push("windows 10/11 \u00b7 64-bit");
+          ver.textContent = parts.join(" \u00b7 ");
+        }
       })
       .catch(() => {});
   }

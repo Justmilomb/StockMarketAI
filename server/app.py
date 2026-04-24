@@ -3248,6 +3248,38 @@ def admin_revoke_license(
     return {"status": "revoked"}
 
 
+@app.delete("/api/admin/licenses/{license_key}/hard")
+def admin_hard_delete_license(
+    license_key: str,
+    _: str = Depends(require_admin),
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> dict[str, str]:
+    """Permanently remove a licence row and its telemetry history.
+    Only allowed on already-revoked licences so a typo can't nuke a
+    paying customer; the UI only surfaces this for status='revoked'."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT status FROM licenses WHERE key = %s",
+            (license_key,),
+        )
+        row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="license not found")
+    if (row["status"] or "").lower() != "revoked":
+        raise HTTPException(
+            status_code=400,
+            detail="license must be revoked before it can be deleted",
+        )
+    # Tables are all created at startup by _init_db, so we can delete in
+    # one transaction. Order: dependent rows first, then the licence itself.
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM telemetry_events WHERE license_key = %s", (license_key,))
+        cur.execute("DELETE FROM logs WHERE license_key = %s", (license_key,))
+        cur.execute("DELETE FROM licenses WHERE key = %s", (license_key,))
+    conn.commit()
+    return {"status": "deleted", "key": license_key}
+
+
 @app.get("/api/admin/inspect/{license_key}")
 def admin_inspect_license(
     license_key: str,

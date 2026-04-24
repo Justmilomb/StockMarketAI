@@ -978,9 +978,15 @@
             <div class="section" data-section="users">
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.25rem;">
                     <p class="section-title" style="margin-bottom:0;">license management</p>
-                    <button id="btn-new-license" style="background:var(--glow-dim); color:var(--glow);
-                        border:1px solid rgba(0,255,135,0.25); padding:0.4rem 1rem; font-family:'Outfit',sans-serif;
-                        font-size:0.6875rem; letter-spacing:0.06em; cursor:pointer;">+ new license</button>
+                    <div style="display:flex; align-items:center; gap:0.75rem;">
+                        <label style="display:flex; align-items:center; gap:0.5rem; font-family:'JetBrains Mono', monospace; font-size:0.6875rem; letter-spacing:0.08em; color:var(--text-dim); cursor:pointer;">
+                            <input type="checkbox" id="show-revoked" style="accent-color: var(--glow); cursor:pointer;">
+                            show revoked
+                        </label>
+                        <button id="btn-new-license" style="background:var(--glow-dim); color:var(--glow);
+                            border:1px solid rgba(0,255,135,0.25); padding:0.4rem 1rem; font-family:'Outfit',sans-serif;
+                            font-size:0.6875rem; letter-spacing:0.06em; cursor:pointer;">+ new license</button>
+                    </div>
                 </div>
                 <div class="table-wrap">
                     <table>
@@ -1334,7 +1340,9 @@
         const BADGE_CLASSES = { active: 'badge active', trial: 'badge trial', expired: 'badge expired', revoked: 'badge expired' };
 
         async function loadLicenses() {
-            const licenses = await api('/api/admin/licenses');
+            const all = await api('/api/admin/licenses');
+            const showRevoked = !!(document.getElementById('show-revoked') || {}).checked;
+            const licenses = showRevoked ? all : all.filter(l => l.status !== 'revoked');
             document.getElementById('license-tbody').replaceChildren(...licenses.map(l => {
                 const actions = [];
                 actions.push(el('button', {
@@ -1361,6 +1369,14 @@
                             cursor:'pointer', letterSpacing:'0.04em' },
                         onclick: () => revokeLicense(l.key),
                     }));
+                } else {
+                    actions.push(el('button', {
+                        text: 'delete',
+                        style: { background:'var(--red)', border:'1px solid var(--red)', color:'#000',
+                            fontFamily:"'Outfit',sans-serif", fontSize:'0.625rem', padding:'0.2rem 0.5rem',
+                            cursor:'pointer', letterSpacing:'0.04em', fontWeight:'500' },
+                        onclick: () => hardDeleteLicense(l.key, l.email),
+                    }));
                 }
                 const nameCell = el('td', { text: l.name || '\u2014' });
                 if (l.is_dev) {
@@ -1378,8 +1394,9 @@
                     );
                 }
                 const planCell = el('td', {
-                    text: (l.plan || 'starter').toUpperCase(),
-                    style: { color: 'var(--text-mid)', fontSize: '0.6875rem',
+                    text: l.is_dev ? 'DEV ACCOUNT' : (l.plan || 'starter').toUpperCase(),
+                    style: { color: l.is_dev ? 'var(--glow)' : 'var(--text-mid)',
+                        fontSize: '0.6875rem',
                         fontFamily: "'JetBrains Mono', monospace", letterSpacing: '0.06em' },
                 });
                 return el('tr', {}, [
@@ -1396,6 +1413,19 @@
 
         async function revokeLicense(key) {
             await api('/api/admin/licenses/' + encodeURIComponent(key), { method: 'DELETE' });
+            loadLicenses();
+            loadStats();
+        }
+
+        async function hardDeleteLicense(key, email) {
+            const label = email ? (email + ' (' + key + ')') : key;
+            if (!window.confirm('Permanently delete ' + label + '? This removes the licence row and all telemetry. This cannot be undone.')) return;
+            try {
+                await api('/api/admin/licenses/' + encodeURIComponent(key) + '/hard', { method: 'DELETE' });
+            } catch (e) {
+                window.alert('Delete failed: ' + String(e));
+                return;
+            }
             loadLicenses();
             loadStats();
         }
@@ -1437,8 +1467,8 @@
             tbody.replaceChildren(...accounts.map(a => el('tr', {}, [
                 el('td', { text: a.full_name || a.name || '\u2014' }),
                 el('td', { text: a.email }),
-                el('td', { text: (a.plan || 'starter').toUpperCase(),
-                    style: { color: 'var(--text-mid)', fontFamily: "'JetBrains Mono', monospace",
+                el('td', { text: 'DEV ACCOUNT',
+                    style: { color: 'var(--glow)', fontFamily: "'JetBrains Mono', monospace",
                         fontSize: '0.6875rem', letterSpacing: '0.06em' } }),
                 el('td', {}, [
                     el('button', {
@@ -1775,6 +1805,12 @@
             loadLicenses();
             loadStats();
         });
+
+        // show-revoked toggle: re-renders the licences table client-side
+        const showRevokedToggle = document.getElementById('show-revoked');
+        if (showRevokedToggle) {
+            showRevokedToggle.addEventListener('change', () => loadLicenses());
+        }
 
         // auto-refresh logs every 10s
         setInterval(() => {
