@@ -122,12 +122,13 @@
   },
 
   "alt_data": {
-    "alpha_vantage":     {"enabled": true, "cache_ttl_seconds": 3600},
-    "fmp":               {"enabled": true, "cache_ttl_seconds": 3600},
-    "fred":              {"enabled": true, "cache_ttl_seconds": 3600},
-    "news_api":          {"enabled": true, "cache_ttl_seconds": 900},
-    "sec_edgar":         {"enabled": true, "cache_ttl_seconds": 3600},
-    "earnings_whispers": {"enabled": true, "cache_ttl_seconds": 1800},
-    "open_insider":      {"enabled": true, "cache_ttl_seconds": 1800}
+    "_comment": "Alpha Vantage / FRED / News API are DEPRECATED — replaced by the FMP Enterprise provider (data_provider.fmp_*). Toggle ``enabled`` to true only if you keep a separate non-FMP key. SEC EDGAR / Earnings Whispers / Open Insider remain free public sources.",
+    "alpha_vantage":     {"enabled": false, "cache_ttl_seconds": 3600, "deprecated": true, "replaced_by": "fmp"},
+    "fmp":               {"enabled": false, "cache_ttl_seconds": 3600, "deprecated": true, "replaced_by": "data_provider.fmp_*"},
+    "fred":              {"enabled": false, "cache_ttl_seconds": 3600, "deprecated": true, "replaced_by": "fmp_economic_indicator / fmp_treasury_rates"},
+    "news_api":          {"enabled": false, "cache_ttl_seconds": 900,  "deprecated": true, "replaced_by": "fmp_market_news"},
+    "sec_edgar":         {"enabled": true,  "cache_ttl_seconds": 3600},
+    "earnings_whispers": {"enabled": true,  "cache_ttl_seconds": 1800},
+    "open_insider":      {"enabled": true,  "cache_ttl_seconds": 1800}
   }
 }

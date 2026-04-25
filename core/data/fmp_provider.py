@@ -422,6 +422,658 @@ class FMPProvider(BaseDataProvider):
         )
         return data if isinstance(data, list) else []
 
+    # ── (1) Real-time + (2) historical helpers exposed above ─────────
+    # ``fetch_live_prices`` / ``get_quote`` / ``fetch_intraday_bars``
+    # / ``fetch_daily_bars`` already cover real-time + historical
+    # market data. The methods below extend the surface to the rest
+    # of FMP Enterprise's catalogue.
+
+    # ── (3) Index market data ─────────────────────────────────────────
+
+    def list_indices(self) -> List[Dict[str, Any]]:
+        """Every index FMP tracks (S&P 500, FTSE 100, DAX, …) with current quote."""
+        data = self._get(
+            "quotes/index",
+            timeout=_FUNDAMENTALS_TIMEOUT_SECONDS,
+        )
+        return data if isinstance(data, list) else []
+
+    def get_index_quote(self, symbol: str) -> Dict[str, Any]:
+        """Live quote for a single index (e.g. ``^GSPC``, ``^FTSE``)."""
+        data = self._get(f"quote/{quote(symbol, safe=':-_/.^')}")
+        if isinstance(data, list) and data:
+            return dict(data[0])
+        if isinstance(data, dict):
+            return data
+        return {}
+
+    def get_index_constituents(self, index: str) -> List[Dict[str, Any]]:
+        """Members of a major index. ``index`` ∈ {sp500, nasdaq, dowjones}."""
+        path_map = {
+            "sp500": "sp500_constituent",
+            "nasdaq": "nasdaq_constituent",
+            "dowjones": "dowjones_constituent",
+            "dow": "dowjones_constituent",
+        }
+        path = path_map.get(index.lower())
+        if not path:
+            return []
+        data = self._get(path, timeout=_FUNDAMENTALS_TIMEOUT_SECONDS)
+        return data if isinstance(data, list) else []
+
+    # ── (4) Fundamental financial statements ──────────────────────────
+
+    def get_income_statement(
+        self,
+        ticker: str,
+        period: str = "annual",
+        limit: int = 5,
+    ) -> List[Dict[str, Any]]:
+        """``period`` ∈ {annual, quarter}. Returns most-recent ``limit`` filings."""
+        return self._statement("income-statement", ticker, period, limit)
+
+    def get_balance_sheet(
+        self,
+        ticker: str,
+        period: str = "annual",
+        limit: int = 5,
+    ) -> List[Dict[str, Any]]:
+        return self._statement("balance-sheet-statement", ticker, period, limit)
+
+    def get_cash_flow_statement(
+        self,
+        ticker: str,
+        period: str = "annual",
+        limit: int = 5,
+    ) -> List[Dict[str, Any]]:
+        return self._statement("cash-flow-statement", ticker, period, limit)
+
+    def get_key_metrics(
+        self,
+        ticker: str,
+        period: str = "annual",
+        limit: int = 5,
+    ) -> List[Dict[str, Any]]:
+        return self._statement("key-metrics", ticker, period, limit)
+
+    def get_financial_growth(
+        self,
+        ticker: str,
+        period: str = "annual",
+        limit: int = 5,
+    ) -> List[Dict[str, Any]]:
+        return self._statement("financial-growth", ticker, period, limit)
+
+    def get_enterprise_value(
+        self,
+        ticker: str,
+        period: str = "annual",
+        limit: int = 5,
+    ) -> List[Dict[str, Any]]:
+        return self._statement("enterprise-values", ticker, period, limit)
+
+    def _statement(
+        self,
+        endpoint: str,
+        ticker: str,
+        period: str,
+        limit: int,
+    ) -> List[Dict[str, Any]]:
+        params: Dict[str, Any] = {"limit": max(1, min(int(limit), 40))}
+        period_norm = period.lower().strip()
+        if period_norm in ("quarter", "quarterly", "q"):
+            params["period"] = "quarter"
+        data = self._get(
+            f"{endpoint}/{quote(ticker, safe=':-_/.')}",
+            params=params,
+            timeout=_FUNDAMENTALS_TIMEOUT_SECONDS,
+        )
+        return data if isinstance(data, list) else []
+
+    # ── (5) Bulk financial data ───────────────────────────────────────
+
+    def bulk_profiles(self, part: int = 0) -> List[Dict[str, Any]]:
+        """Bulk dump of every covered company's profile. ``part`` for paging."""
+        data = self._get(
+            "profile/all",
+            v4=True,
+            params={"part": max(0, int(part))},
+            timeout=_FUNDAMENTALS_TIMEOUT_SECONDS,
+        )
+        return data if isinstance(data, list) else []
+
+    def bulk_quotes(self, exchange: str = "NASDAQ") -> List[Dict[str, Any]]:
+        """All live quotes for an exchange in one shot. ``exchange`` ∈ NYSE/NASDAQ/EURONEXT/AMEX/TSX/LSE/etc."""
+        data = self._get(
+            f"quotes/{quote(exchange.upper(), safe='')}",
+            timeout=_FUNDAMENTALS_TIMEOUT_SECONDS,
+        )
+        return data if isinstance(data, list) else []
+
+    def bulk_eod_prices(self, date: str) -> List[Dict[str, Any]]:
+        """Every covered ticker's OHLCV for a single ISO date."""
+        data = self._get(
+            "batch-request-end-of-day-prices",
+            v4=True,
+            params={"date": date},
+            timeout=_FUNDAMENTALS_TIMEOUT_SECONDS,
+        )
+        return data if isinstance(data, list) else []
+
+    # ── (6) Earnings call transcripts ─────────────────────────────────
+
+    def get_earnings_transcript(
+        self,
+        ticker: str,
+        year: Optional[int] = None,
+        quarter: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Full transcript text for one quarter's call.
+
+        With no year/quarter, returns the most recent call. The full
+        ``content`` field can be 50k+ tokens — callers should chunk
+        before passing to small models.
+        """
+        path = f"earning_call_transcript/{quote(ticker, safe=':-_/.')}"
+        params: Dict[str, Any] = {}
+        if year is not None:
+            params["year"] = int(year)
+        if quarter is not None:
+            params["quarter"] = int(quarter)
+        data = self._get(path, params=params or None, timeout=_FUNDAMENTALS_TIMEOUT_SECONDS)
+        if isinstance(data, list) and data:
+            return dict(data[0])
+        if isinstance(data, dict):
+            return data
+        return {}
+
+    def list_earnings_transcripts(self, ticker: str) -> List[Dict[str, Any]]:
+        """Every available (year, quarter) transcript for a ticker."""
+        data = self._get(
+            f"earning_call_transcript",
+            v4=True,
+            params={"symbol": ticker},
+            timeout=_FUNDAMENTALS_TIMEOUT_SECONDS,
+        )
+        return data if isinstance(data, list) else []
+
+    # ── (7) Company profile & executive data ──────────────────────────
+
+    def get_executives(self, ticker: str) -> List[Dict[str, Any]]:
+        data = self._get(
+            f"key-executives/{quote(ticker, safe=':-_/.')}",
+            timeout=_FUNDAMENTALS_TIMEOUT_SECONDS,
+        )
+        return data if isinstance(data, list) else []
+
+    def get_executive_compensation(self, ticker: str) -> List[Dict[str, Any]]:
+        data = self._get(
+            "governance/executive_compensation",
+            v4=True,
+            params={"symbol": ticker},
+            timeout=_FUNDAMENTALS_TIMEOUT_SECONDS,
+        )
+        return data if isinstance(data, list) else []
+
+    # ── (8) Search & directory ────────────────────────────────────────
+
+    def search_symbol(
+        self,
+        query: str,
+        limit: int = 10,
+        exchange: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        params: Dict[str, Any] = {"query": query, "limit": max(1, min(int(limit), 50))}
+        if exchange:
+            params["exchange"] = exchange
+        data = self._get("search", params=params, timeout=_FUNDAMENTALS_TIMEOUT_SECONDS)
+        return data if isinstance(data, list) else []
+
+    def list_tradable_symbols(self) -> List[Dict[str, Any]]:
+        data = self._get(
+            "available-traded/list",
+            timeout=_FUNDAMENTALS_TIMEOUT_SECONDS,
+        )
+        return data if isinstance(data, list) else []
+
+    def list_exchanges(self) -> List[Dict[str, Any]]:
+        data = self._get(
+            "stock-market-hours",
+            v4=True,
+            timeout=_FUNDAMENTALS_TIMEOUT_SECONDS,
+        )
+        return data if isinstance(data, list) else []
+
+    # ── (9) Market calendar ───────────────────────────────────────────
+
+    def get_ipo_calendar(
+        self,
+        from_date: Optional[str] = None,
+        to_date: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        params: Dict[str, Any] = {}
+        if from_date:
+            params["from"] = from_date
+        if to_date:
+            params["to"] = to_date
+        data = self._get(
+            "ipo_calendar",
+            params=params or None,
+            timeout=_FUNDAMENTALS_TIMEOUT_SECONDS,
+        )
+        return data if isinstance(data, list) else []
+
+    def get_dividend_calendar(
+        self,
+        from_date: Optional[str] = None,
+        to_date: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        params: Dict[str, Any] = {}
+        if from_date:
+            params["from"] = from_date
+        if to_date:
+            params["to"] = to_date
+        data = self._get(
+            "stock_dividend_calendar",
+            params=params or None,
+            timeout=_FUNDAMENTALS_TIMEOUT_SECONDS,
+        )
+        return data if isinstance(data, list) else []
+
+    def get_split_calendar(
+        self,
+        from_date: Optional[str] = None,
+        to_date: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        params: Dict[str, Any] = {}
+        if from_date:
+            params["from"] = from_date
+        if to_date:
+            params["to"] = to_date
+        data = self._get(
+            "stock_split_calendar",
+            params=params or None,
+            timeout=_FUNDAMENTALS_TIMEOUT_SECONDS,
+        )
+        return data if isinstance(data, list) else []
+
+    # ── (10) Market news (FMP-side) ───────────────────────────────────
+
+    def get_general_news(self, limit: int = 50) -> List[Dict[str, Any]]:
+        data = self._get(
+            "general_news",
+            v4=True,
+            params={"size": max(1, min(int(limit), 250))},
+            timeout=_FUNDAMENTALS_TIMEOUT_SECONDS,
+        )
+        return data if isinstance(data, list) else []
+
+    def get_press_releases(self, ticker: str, limit: int = 25) -> List[Dict[str, Any]]:
+        data = self._get(
+            f"press-releases/{quote(ticker, safe=':-_/.')}",
+            params={"limit": max(1, min(int(limit), 100))},
+            timeout=_FUNDAMENTALS_TIMEOUT_SECONDS,
+        )
+        return data if isinstance(data, list) else []
+
+    # ── (11) ESG data ─────────────────────────────────────────────────
+
+    def get_esg_score(self, ticker: str) -> Dict[str, Any]:
+        data = self._get(
+            "esg-environmental-social-governance-data",
+            v4=True,
+            params={"symbol": ticker},
+            timeout=_FUNDAMENTALS_TIMEOUT_SECONDS,
+        )
+        if isinstance(data, list) and data:
+            return dict(data[0])
+        if isinstance(data, dict):
+            return data
+        return {}
+
+    def get_esg_ratings(self, ticker: str) -> List[Dict[str, Any]]:
+        data = self._get(
+            "esg-environmental-social-governance-data-ratings",
+            v4=True,
+            params={"symbol": ticker},
+            timeout=_FUNDAMENTALS_TIMEOUT_SECONDS,
+        )
+        return data if isinstance(data, list) else []
+
+    # ── (12) Economics data ───────────────────────────────────────────
+
+    def get_economic_indicator(
+        self,
+        name: str,
+        from_date: Optional[str] = None,
+        to_date: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """``name`` ∈ {GDP, realGDP, CPI, federalFunds, unemploymentRate, …}."""
+        params: Dict[str, Any] = {"name": name}
+        if from_date:
+            params["from"] = from_date
+        if to_date:
+            params["to"] = to_date
+        data = self._get(
+            "economic",
+            v4=True,
+            params=params,
+            timeout=_FUNDAMENTALS_TIMEOUT_SECONDS,
+        )
+        return data if isinstance(data, list) else []
+
+    def get_treasury_rates(
+        self,
+        from_date: Optional[str] = None,
+        to_date: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        params: Dict[str, Any] = {}
+        if from_date:
+            params["from"] = from_date
+        if to_date:
+            params["to"] = to_date
+        data = self._get(
+            "treasury",
+            v4=True,
+            params=params or None,
+            timeout=_FUNDAMENTALS_TIMEOUT_SECONDS,
+        )
+        return data if isinstance(data, list) else []
+
+    def get_economic_calendar(
+        self,
+        from_date: Optional[str] = None,
+        to_date: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        params: Dict[str, Any] = {}
+        if from_date:
+            params["from"] = from_date
+        if to_date:
+            params["to"] = to_date
+        data = self._get(
+            "economic_calendar",
+            params=params or None,
+            timeout=_FUNDAMENTALS_TIMEOUT_SECONDS,
+        )
+        return data if isinstance(data, list) else []
+
+    # ── (13) Advanced market metrics ──────────────────────────────────
+
+    def get_market_cap(self, ticker: str) -> Dict[str, Any]:
+        data = self._get(
+            f"market-capitalization/{quote(ticker, safe=':-_/.')}",
+            timeout=_FUNDAMENTALS_TIMEOUT_SECONDS,
+        )
+        if isinstance(data, list) and data:
+            return dict(data[0])
+        return {}
+
+    def get_share_float(self, ticker: str) -> Dict[str, Any]:
+        data = self._get(
+            "shares_float",
+            v4=True,
+            params={"symbol": ticker},
+            timeout=_FUNDAMENTALS_TIMEOUT_SECONDS,
+        )
+        if isinstance(data, list) and data:
+            return dict(data[0])
+        if isinstance(data, dict):
+            return data
+        return {}
+
+    def get_short_interest(self, ticker: str) -> List[Dict[str, Any]]:
+        data = self._get(
+            "short_interest",
+            v4=True,
+            params={"symbol": ticker},
+            timeout=_FUNDAMENTALS_TIMEOUT_SECONDS,
+        )
+        return data if isinstance(data, list) else []
+
+    def get_sector_pe(self, exchange: str = "NYSE", date: Optional[str] = None) -> List[Dict[str, Any]]:
+        params: Dict[str, Any] = {"exchange": exchange}
+        if date:
+            params["date"] = date
+        data = self._get(
+            "sector_price_earning_ratio",
+            v4=True,
+            params=params,
+            timeout=_FUNDAMENTALS_TIMEOUT_SECONDS,
+        )
+        return data if isinstance(data, list) else []
+
+    def get_sector_performance(self) -> List[Dict[str, Any]]:
+        data = self._get(
+            "stock/sectors-performance",
+            timeout=_FUNDAMENTALS_TIMEOUT_SECONDS,
+        )
+        return data if isinstance(data, list) else []
+
+    # ── (14) Analyst estimates & price targets — already partly above
+    # extended:
+
+    def list_price_targets(self, ticker: str) -> List[Dict[str, Any]]:
+        data = self._get(
+            "price-target",
+            v4=True,
+            params={"symbol": ticker},
+            timeout=_FUNDAMENTALS_TIMEOUT_SECONDS,
+        )
+        return data if isinstance(data, list) else []
+
+    def get_upgrades_downgrades(self, ticker: str) -> List[Dict[str, Any]]:
+        data = self._get(
+            "upgrades-downgrades",
+            v4=True,
+            params={"symbol": ticker},
+            timeout=_FUNDAMENTALS_TIMEOUT_SECONDS,
+        )
+        return data if isinstance(data, list) else []
+
+    def get_stock_grade(self, ticker: str) -> List[Dict[str, Any]]:
+        data = self._get(
+            f"grade/{quote(ticker, safe=':-_/.')}",
+            params={"limit": 50},
+            timeout=_FUNDAMENTALS_TIMEOUT_SECONDS,
+        )
+        return data if isinstance(data, list) else []
+
+    # ── (15) Forex market data ────────────────────────────────────────
+
+    def get_forex_quote(self, pair: str) -> Dict[str, Any]:
+        """``pair`` like ``EURUSD``, ``GBPJPY``."""
+        data = self._get(f"fx/{quote(pair.upper(), safe='')}")
+        if isinstance(data, list) and data:
+            return dict(data[0])
+        if isinstance(data, dict):
+            return data
+        return {}
+
+    def list_forex_quotes(self) -> List[Dict[str, Any]]:
+        data = self._get("fx", timeout=_FUNDAMENTALS_TIMEOUT_SECONDS)
+        return data if isinstance(data, list) else []
+
+    def get_forex_history(
+        self,
+        pair: str,
+        interval: str = "1d",
+        lookback: int = 90,
+    ) -> List[Dict[str, Any]]:
+        if interval == "1d":
+            data = self._get(
+                f"historical-price-full/{quote(pair.upper(), safe='')}",
+                params={"timeseries": max(1, int(lookback))},
+                timeout=_FUNDAMENTALS_TIMEOUT_SECONDS,
+            )
+            if isinstance(data, dict) and isinstance(data.get("historical"), list):
+                return list(reversed(data["historical"]))
+            return []
+        fmp_interval = _normalise_interval(interval)
+        if fmp_interval is None:
+            return []
+        data = self._get(
+            f"historical-chart/{fmp_interval}/{quote(pair.upper(), safe='')}",
+            timeout=_FUNDAMENTALS_TIMEOUT_SECONDS,
+        )
+        return list(reversed(data)) if isinstance(data, list) else []
+
+    # ── (16) ETF & mutual fund data ───────────────────────────────────
+
+    def get_etf_profile(self, ticker: str) -> Dict[str, Any]:
+        data = self._get(
+            "etf-info",
+            v4=True,
+            params={"symbol": ticker},
+            timeout=_FUNDAMENTALS_TIMEOUT_SECONDS,
+        )
+        if isinstance(data, list) and data:
+            return dict(data[0])
+        if isinstance(data, dict):
+            return data
+        return {}
+
+    def get_etf_sector_weightings(self, ticker: str) -> List[Dict[str, Any]]:
+        data = self._get(
+            f"etf-sector-weightings/{quote(ticker, safe=':-_/.')}",
+            timeout=_FUNDAMENTALS_TIMEOUT_SECONDS,
+        )
+        return data if isinstance(data, list) else []
+
+    def get_etf_country_weightings(self, ticker: str) -> List[Dict[str, Any]]:
+        data = self._get(
+            f"etf-country-weightings/{quote(ticker, safe=':-_/.')}",
+            timeout=_FUNDAMENTALS_TIMEOUT_SECONDS,
+        )
+        return data if isinstance(data, list) else []
+
+    def get_mutual_fund_holders(self, ticker: str) -> List[Dict[str, Any]]:
+        data = self._get(
+            f"mutual-fund-holder/{quote(ticker, safe=':-_/.')}",
+            timeout=_FUNDAMENTALS_TIMEOUT_SECONDS,
+        )
+        return data if isinstance(data, list) else []
+
+    # ── (17) Commodity market data ────────────────────────────────────
+
+    def get_commodity_quote(self, symbol: str) -> Dict[str, Any]:
+        """``symbol`` like ``GCUSD`` (gold), ``CLUSD`` (WTI), ``ZWUSD`` (wheat)."""
+        data = self._get(f"quote/{quote(symbol.upper(), safe='')}")
+        if isinstance(data, list) and data:
+            return dict(data[0])
+        if isinstance(data, dict):
+            return data
+        return {}
+
+    def list_commodity_quotes(self) -> List[Dict[str, Any]]:
+        data = self._get(
+            "quotes/commodity",
+            timeout=_FUNDAMENTALS_TIMEOUT_SECONDS,
+        )
+        return data if isinstance(data, list) else []
+
+    def get_commodity_history(
+        self,
+        symbol: str,
+        interval: str = "1d",
+        lookback: int = 90,
+    ) -> List[Dict[str, Any]]:
+        if interval == "1d":
+            data = self._get(
+                f"historical-price-full/{quote(symbol.upper(), safe='')}",
+                params={"timeseries": max(1, int(lookback))},
+                timeout=_FUNDAMENTALS_TIMEOUT_SECONDS,
+            )
+            if isinstance(data, dict) and isinstance(data.get("historical"), list):
+                return list(reversed(data["historical"]))
+            return []
+        fmp_interval = _normalise_interval(interval)
+        if fmp_interval is None:
+            return []
+        data = self._get(
+            f"historical-chart/{fmp_interval}/{quote(symbol.upper(), safe='')}",
+            timeout=_FUNDAMENTALS_TIMEOUT_SECONDS,
+        )
+        return list(reversed(data)) if isinstance(data, list) else []
+
+    # ── (18) Insider & congressional trading ──────────────────────────
+
+    def get_insider_trades(self, ticker: str, limit: int = 100) -> List[Dict[str, Any]]:
+        data = self._get(
+            "insider-trading",
+            v4=True,
+            params={"symbol": ticker, "limit": max(1, min(int(limit), 500))},
+            timeout=_FUNDAMENTALS_TIMEOUT_SECONDS,
+        )
+        return data if isinstance(data, list) else []
+
+    def get_insider_roster(self, ticker: str) -> List[Dict[str, Any]]:
+        data = self._get(
+            "insider-roaster",
+            v4=True,
+            params={"symbol": ticker},
+            timeout=_FUNDAMENTALS_TIMEOUT_SECONDS,
+        )
+        return data if isinstance(data, list) else []
+
+    def get_senate_trades(
+        self,
+        ticker: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        path = "senate-trading-rss-feed" if ticker is None else "senate-trading"
+        params: Dict[str, Any] = {}
+        if ticker:
+            params["symbol"] = ticker
+        data = self._get(
+            path,
+            v4=True,
+            params=params or None,
+            timeout=_FUNDAMENTALS_TIMEOUT_SECONDS,
+        )
+        return data if isinstance(data, list) else []
+
+    def get_house_trades(
+        self,
+        ticker: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        path = "senate-disclosure-rss-feed" if ticker is None else "senate-disclosure"
+        params: Dict[str, Any] = {}
+        if ticker:
+            params["symbol"] = ticker
+        data = self._get(
+            path,
+            v4=True,
+            params=params or None,
+            timeout=_FUNDAMENTALS_TIMEOUT_SECONDS,
+        )
+        return data if isinstance(data, list) else []
+
+    # ── (19) Form 13F (institutional holdings) ────────────────────────
+
+    def get_13f_filings(self, cik: str, limit: int = 25) -> List[Dict[str, Any]]:
+        data = self._get(
+            "form-thirteen",
+            v4=True,
+            params={"cik": cik, "limit": max(1, min(int(limit), 100))},
+            timeout=_FUNDAMENTALS_TIMEOUT_SECONDS,
+        )
+        return data if isinstance(data, list) else []
+
+    def get_institutional_holders(self, ticker: str) -> List[Dict[str, Any]]:
+        data = self._get(
+            f"institutional-holder/{quote(ticker, safe=':-_/.')}",
+            timeout=_FUNDAMENTALS_TIMEOUT_SECONDS,
+        )
+        return data if isinstance(data, list) else []
+
+    def search_institutional_filer(self, query: str) -> List[Dict[str, Any]]:
+        data = self._get(
+            "institutional-ownership/name",
+            v4=True,
+            params={"name": query},
+            timeout=_FUNDAMENTALS_TIMEOUT_SECONDS,
+        )
+        return data if isinstance(data, list) else []
+
     # ── lifecycle ─────────────────────────────────────────────────────
 
     def close(self) -> None:
