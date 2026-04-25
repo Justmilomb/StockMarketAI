@@ -113,6 +113,9 @@ class AgentPool(QObject):
         self._swarm: Optional[Any] = None
         self._watchlist_provider: Any = lambda: []
 
+        # Native stop-loss / take-profit engine (daemon thread, paper-only).
+        self._stop_engine: Optional[Any] = None
+
     # ── config helpers ───────────────────────────────────────────────
 
     def _load_config(self) -> Dict[str, Any]:
@@ -227,6 +230,11 @@ class AgentPool(QObject):
         sup = self.ensure_supervisor()
         if not sup.isRunning():
             sup.start()
+        # Stops persist in paper_state.json across restarts; the engine
+        # has to be running before the first iteration so prior-session
+        # triggers fire on the current price tape, not the next agent
+        # wake-up. Cheap to call when already running (early return).
+        self.start_stop_engine()
 
     def stop_supervisor(self) -> None:
         if self._supervisor is not None and self._supervisor.isRunning():
@@ -364,7 +372,46 @@ class AgentPool(QObject):
         """Best-effort clean shutdown of everything in the pool."""
         self.cancel_all_chat_workers()
         self.stop_swarm()
+        self.stop_stop_engine()
         self.kill_supervisor()
+
+    # ── stop-engine lifecycle ───────────────────────────────────────
+
+    def start_stop_engine(self) -> None:
+        """Start the native stop-monitor thread for the paper broker.
+
+        No-op when the active broker is live: Trading 212 manages stops
+        natively, and our engine only knows how to operate on the paper
+        state file. Safe to call repeatedly.
+        """
+        if self._stop_engine is not None and self._stop_engine.is_alive():
+            return
+
+        # Always run with the paper broker — chat workers and the
+        # supervisor share the same one (see ``get_broker_for_mode``)
+        # so a single engine covers every agent in the session.
+        broker_service = self.get_broker_for_mode(paper_mode=True)
+        try:
+            from core.stop_engine import StopEngine
+        except Exception:
+            logger.exception("AgentPool: failed to import StopEngine")
+            return
+        self._stop_engine = StopEngine(broker_service=broker_service)
+        self._stop_engine.start()
+        logger.info("AgentPool: stop engine started")
+
+    def stop_stop_engine(self) -> None:
+        if self._stop_engine is not None and self._stop_engine.is_alive():
+            self._stop_engine.stop()
+            self._stop_engine.join(timeout=5)
+            self._stop_engine = None
+
+    @property
+    def stop_engine(self) -> Optional[Any]:
+        return self._stop_engine
+
+    def stop_engine_running(self) -> bool:
+        return self._stop_engine is not None and self._stop_engine.is_alive()
 
     # ── swarm lifecycle ─────────────────────────────────────────────
 
