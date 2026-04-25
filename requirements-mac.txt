@@ -1,0 +1,90 @@
+# Mac desktop terminal requirements (PySide6 .app + Claude agent + full ML ensemble).
+#
+# Install:
+#   python3 -m venv .venv-mac
+#   source .venv-mac/bin/activate
+#   pip install -r requirements-mac.txt
+#
+# This is the macOS sibling of requirements-desktop.txt. Same Python
+# packages — PySide6 / pyqtgraph / pyinstaller all support macOS as a
+# first-class target. Differences vs requirements-desktop.txt:
+#
+#   * No pywin32 / Windows-only PyInstaller hooks (none are listed in
+#     requirements-desktop.txt today, but if any are added there they
+#     should NOT be added here without checking macOS support first).
+#   * pyobjc-* is added so PyInstaller can build an .app bundle that
+#     correctly registers with macOS launch services and shows up in
+#     the Dock with the right icon. PyInstaller pulls these via
+#     hidden imports anyway — we list them here so a fresh ``pip
+#     install`` doesn't surface a build-time NameError.
+
+# Core data + HTTP.
+yfinance>=0.2.36
+pandas>=2.0.0
+numpy>=1.24.0
+requests>=2.31.0
+feedparser>=6.0.0
+
+# Desktop UI.
+PySide6>=6.6.0
+pyqtgraph>=0.13.0
+pyinstaller>=6.0.0
+
+# macOS-specific PyObjC bridges. PyInstaller's macOS .app bundling
+# uses these to wire up the Foundation / AppKit / launch services
+# integration; pinning them here means a clean venv on a fresh Mac
+# can build without poking at system Python.
+pyobjc-core>=10.0; sys_platform == "darwin"
+pyobjc-framework-Cocoa>=10.0; sys_platform == "darwin"
+
+# Embedded web + templating (used by a couple of desktop panels + shared
+# with the license server copy of Jinja templates).
+fastapi>=0.110.0
+uvicorn>=0.27.0
+jinja2>=3.1.0
+pydantic>=2.5.0
+
+# Optional PyInstaller-satisfaction deps — keep to silence warnings.
+PyOpenGL>=3.1.0
+openpyxl>=3.1.0
+lxml>=5.0.0
+html5lib>=1.1
+psutil>=5.9.0
+orjson>=3.9.0
+chardet>=5.0.0
+
+# Tests.
+pytest>=7.0.0
+pytest-mock>=3.10.0
+
+# Claude Agent SDK — drives the autonomous trading loop.
+claude-agent-sdk>=0.1.58
+
+# Playwright — headless Chromium for Grok AI / X browser automation.
+playwright>=1.44
+
+# VADER — pure-Python sentiment analyser used by the scraper runner.
+vaderSentiment>=3.3.2
+
+# YouTube Transcript API — pulls auto-generated captions.
+youtube-transcript-api>=0.6.2
+
+# yt-dlp — frame sampling for the live finance-TV vision scraper. ffmpeg
+# is downloaded at first run from the same code path the Windows build
+# uses; the desktop scraper auto-detects /opt/homebrew/bin/ffmpeg first
+# on Apple Silicon Macs and falls back to the bundled binary.
+yt-dlp>=2024.10.7
+
+# Kronos vendored under core/kronos/ from github.com/shiyu-coder/Kronos
+# (MIT licensed). einops is the only runtime dep not pulled by torch.
+einops>=0.8.0
+
+# Forecasting meta-learner + FinBERT sentiment.
+xgboost>=2.0.0
+scikit-learn>=1.4.0
+transformers>=4.40.0
+
+# Forecasting backends — Chronos-2 + TimesFM + Temporal Fusion Transformer.
+chronos-forecasting>=1.5.0
+pytorch-forecasting>=1.0.0
+timesfm @ git+https://github.com/google-research/timesfm.git

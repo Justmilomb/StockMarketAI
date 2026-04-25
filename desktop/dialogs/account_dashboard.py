@@ -2,7 +2,7 @@
 
 In-app panel opened from the profile dropdown. Renders the signed-in
 user's identity, trading analytics (total trades, win rate, P/L over
-several windows, best/worst trade, open positions) and the weekly
+several windows, best/worst trade, open positions) and the monthly
 performance-fee payment summary.
 
 Data is fetched from the server's ``/api/me/dashboard`` endpoint in a
@@ -274,15 +274,15 @@ class AccountDashboardDialog(BaseDialog):
         self._pay_now_btn.setFixedHeight(32)
         self._pay_now_btn.setEnabled(False)
         self._pay_now_btn.setToolTip(
-            "automatic — your card is charged every Monday at 09:00 UTC"
+            "automatic — your card is charged at the end of each calendar month"
         )
         amt_row.addWidget(self._pay_now_btn)
 
         col.addLayout(amt_row)
 
         note = QLabel(
-            "Charged automatically every Monday at 09:00 UTC. If a week "
-            "ends at a loss, nothing is charged."
+            "Charged automatically at the end of each calendar month. If a "
+            "month ends at a loss, no commission is charged."
         )
         note.setWordWrap(True)
         note.setStyleSheet(
@@ -355,9 +355,8 @@ class AccountDashboardDialog(BaseDialog):
         else:
             self._card_label.setText("not set")
 
-        # Plan-aware kicker — server tells us the rate that applies this
-        # week, including the tier discount on Starter when profit clears
-        # the threshold. Falls back to a plain label when the server is
+        # Plan-aware kicker — server tells us the flat rate that applies
+        # to this plan. Falls back to a plain label when the server is
         # offline / running an older build.
         rate = payment.get("fee_rate_pct")
         if rate is None:
@@ -365,7 +364,7 @@ class AccountDashboardDialog(BaseDialog):
         else:
             rate_str = f"{rate:g}".rstrip("0").rstrip(".") if isinstance(rate, float) else str(rate)
             self._payment_kicker.setText(
-                f"PERFORMANCE FEE — {rate_str}% OF WEEKLY PROFIT"
+                f"PERFORMANCE FEE — {rate_str}% OF MONTHLY PROFIT"
             )
 
     def _set_pnl_window(self, key: str) -> None:

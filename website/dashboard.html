@@ -500,7 +500,7 @@ button.btn.ghost:hover { border-color: var(--fg); }
     <section class="panel">
       <h2>payment</h2>
       <h3>this billing cycle</h3>
-      <p class="lead">we collect on monday at 09:00 uk time, only when you're in profit.</p>
+      <p class="lead">commission and your monthly fee are billed once at the end of each calendar month.</p>
       <div class="payment-line"><span class="l">amount due</span><span class="r" id="payDue">&mdash;</span></div>
       <div class="payment-line"><span class="l">commission</span><span class="r" id="payRate">&mdash;</span></div>
       <div class="payment-line"><span class="l">monthly fee</span><span class="r" id="payMonthly">&mdash;</span></div>
@@ -661,15 +661,7 @@ button.btn.ghost:hover { border-color: var(--fg); }
       }
       const currency = payment.currency || "GBP";
       setText("payDue", fmtMoney(payment.amount_due || 0, currency));
-      let rateText = fmtPct(payment.fee_rate_pct || 0) + " of profit";
-      if (payment.weekly_threshold_gbp != null
-          && payment.commission_pct_above_threshold != null) {
-        rateText = fmtPct(payment.fee_rate_pct || 0)
-          + " now \u00b7 drops to "
-          + fmtPct(payment.commission_pct_above_threshold)
-          + " above \u00a3" + payment.weekly_threshold_gbp + "/wk";
-      }
-      setText("payRate", rateText);
+      setText("payRate", fmtPct(payment.fee_rate_pct || 0) + " of monthly profit");
       setText("payMonthly",
         (payment.monthly_fee || 0) > 0
           ? fmtMoney(payment.monthly_fee, currency) + " / month"
@@ -711,12 +703,7 @@ button.btn.ghost:hover { border-color: var(--fg); }
 
   function planCommissionLabel(p) {
     p = p || {};
-    const base = fmtPct(p.commission_pct);
-    if (p.weekly_threshold_gbp != null && p.commission_pct_above_threshold != null) {
-      return base + " up to \u00a3" + p.weekly_threshold_gbp + "/wk \u00b7 "
-        + fmtPct(p.commission_pct_above_threshold) + " above";
-    }
-    return base + " commission";
+    return fmtPct((p && p.commission_pct) || 0) + " of monthly profit";
   }
 
   function buildPlanCard(p, currentId, bestId) {
@@ -840,7 +827,7 @@ button.btn.ghost:hover { border-color: var(--fg); }
         banner.style.display = "none";
         return;
       }
-      const profitBasis = Number(rec && rec.weekly_profit_basis) || 0;
+      const profitBasis = Number(rec && rec.monthly_profit_basis) || 0;
       if (!rec || !rec.best_plan_id || profitBasis <= 0) {
         banner.style.display = "none";
       } else {
@@ -852,22 +839,22 @@ button.btn.ghost:hover { border-color: var(--fg); }
           b.textContent = "you're on the cheapest plan for your profits.";
           banner.appendChild(b);
           banner.appendChild(document.createTextNode(
-            " based on " + profit + " realised in the last 7 days."));
+            " based on " + profit + " realised in the last 30 days."));
         } else {
           const plans = Array.isArray(state.plans) ? state.plans : [];
           const bestPlan = plans.find((p) => p && p.id === rec.best_plan_id);
           const bestLabel = (bestPlan && bestPlan.label) || rec.best_plan_id;
-          const curCost = Number(rec.current_weekly_cost) || 0;
-          const bestCost = Number(rec.best_weekly_cost) || 0;
+          const curCost = Number(rec.current_monthly_cost) || 0;
+          const bestCost = Number(rec.best_monthly_cost) || 0;
           const saving = curCost - bestCost;
           const b = document.createElement("b");
           b.textContent = bestLabel + " would cost you about \u00a3"
-            + saving.toFixed(2) + " less per week.";
+            + saving.toFixed(2) + " less per month.";
           banner.appendChild(b);
           banner.appendChild(document.createTextNode(
-            " based on " + profit + " realised in the last 7 days ("
-            + fmtMoney(curCost, "GBP") + "/wk now \u2192 "
-            + fmtMoney(bestCost, "GBP") + "/wk on " + bestLabel + ")."));
+            " based on " + profit + " realised in the last 30 days ("
+            + fmtMoney(curCost, "GBP") + "/mo now \u2192 "
+            + fmtMoney(bestCost, "GBP") + "/mo on " + bestLabel + ")."));
         }
       }
       const costs = (rec && Array.isArray(rec.plan_costs)) ? rec.plan_costs : [];
@@ -879,7 +866,7 @@ button.btn.ghost:hover { border-color: var(--fg); }
           el.textContent = "";
           return;
         }
-        el.textContent = "\u2248 " + fmtMoney(c.weekly_cost, "GBP") + " / wk on your profits";
+        el.textContent = "\u2248 " + fmtMoney(c.monthly_cost, "GBP") + " / mo on your profits";
       });
     } catch (e) {
       console.error("renderRecommendation failed:", e);

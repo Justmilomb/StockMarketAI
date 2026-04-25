@@ -216,9 +216,10 @@ def _init_db(conn: psycopg2.extensions.connection) -> None:
             "ALTER TABLE licenses ADD COLUMN IF NOT EXISTS email_verified BOOLEAN DEFAULT FALSE",
             "ALTER TABLE licenses ADD COLUMN IF NOT EXISTS email_verify_token TEXT DEFAULT ''",
             "ALTER TABLE licenses ADD COLUMN IF NOT EXISTS email_verify_token_expires_at TIMESTAMPTZ",
-            # Plan tier: 'starter' (free, 25% commission tiered down to
-            # 20% above £150/wk profit), 'pro' (£25/mo, 12.5% commission),
-            # 'unlimited' (£75/mo, 5% commission). Default starter so any
+            # Plan tier: 'starter' (free, flat 20% commission), 'pro'
+            # (£25/mo, 12.5% commission), 'unlimited' (£75/mo, 5%
+            # commission). All commissions and the monthly subscription
+            # are charged once per calendar month. Default starter so any
             # legacy account behaves as before. is_dev unlocks every
             # paid feature with no commission/payment — used for staff,
             # alpha testers, and demo accounts.
@@ -1297,16 +1298,14 @@ PLANS: List[Dict[str, Any]] = [
         "label": "Starter",
         "tagline": "Perfect for small accounts",
         "monthly_fee": 0,
-        # Starter is tiered: 25% on weeks where realised profit is at
-        # or below the threshold, 20% above it. The headline number we
-        # quote is 25% so the user sees the worst-case figure first.
-        "commission_pct": 25,
-        "commission_pct_above_threshold": 20,
-        "weekly_threshold_gbp": 150,
+        # Flat rate — the previous tiered "25% under £150 / 20% above"
+        # split was retired in the move to monthly billing. One number
+        # is easier to communicate and matches what every other tier
+        # quotes.
+        "commission_pct": 20,
         "currency": "GBP",
         "features": [
-            "25% of weekly profit up to £150",
-            "20% of weekly profit above £150",
+            "20% of monthly profit",
             "no monthly subscription",
             "all core features",
         ],
@@ -1319,11 +1318,9 @@ PLANS: List[Dict[str, Any]] = [
         "tagline": "Best for active traders",
         "monthly_fee": 25,
         "commission_pct": 12.5,
-        "commission_pct_above_threshold": None,
-        "weekly_threshold_gbp": None,
         "currency": "GBP",
         "features": [
-            "12.5% of weekly profit",
+            "12.5% of monthly profit",
             "£25 / month",
             "priority research roles",
             "all core features",
@@ -1337,11 +1334,9 @@ PLANS: List[Dict[str, Any]] = [
         "tagline": "For serious traders",
         "monthly_fee": 75,
         "commission_pct": 5,
-        "commission_pct_above_threshold": None,
-        "weekly_threshold_gbp": None,
         "currency": "GBP",
         "features": [
-            "5% of weekly profit",
+            "5% of monthly profit",
             "£75 / month",
             "all features unlocked",
             "early access to new builds",
@@ -1373,8 +1368,6 @@ def _plan_for_user(row: Dict[str, Any]) -> Dict[str, Any]:
             "id": base["id"],
             "monthly_fee": 0,
             "commission_pct": 0,
-            "commission_pct_above_threshold": None,
-            "weekly_threshold_gbp": None,
             "is_dev": True,
         }
     plan_id = (row.get("plan") or "starter").strip() or "starter"
@@ -1385,36 +1378,28 @@ def _plan_for_user(row: Dict[str, Any]) -> Dict[str, Any]:
     return {**base, "is_dev": False}
 
 
-def _effective_commission_pct(plan: Dict[str, Any], weekly_profit_gbp: float) -> float:
-    """Return the commission rate that actually applies this week.
+def _effective_commission_pct(plan: Dict[str, Any], _profit_gbp: float = 0.0) -> float:
+    """Return the commission rate that applies to this plan.
 
-    Starter is the only tiered plan today: the better rate kicks in
-    when the user's realised weekly profit clears the threshold. Other
-    plans ignore both extra fields and just return their flat rate.
+    Every tier is now a flat rate (Starter: 20%, Pro: 12.5%,
+    Unlimited: 5%). The ``_profit_gbp`` parameter is preserved so
+    callers don't break, but it's unused — the tiered Starter rate
+    was retired with the switch to monthly billing.
     """
-    base = float(plan.get("commission_pct") or 0)
-    threshold = plan.get("weekly_threshold_gbp")
-    above = plan.get("commission_pct_above_threshold")
-    if threshold is None or above is None:
-        return base
-    if weekly_profit_gbp > float(threshold):
-        return float(above)
-    return base
+    return float(plan.get("commission_pct") or 0)
 
 
-def _weekly_cost_for_plan(plan: Dict[str, Any], weekly_profit_gbp: float) -> float:
-    """Total weekly cost (commission + monthly fee prorated to a week).
+def _monthly_cost_for_plan(plan: Dict[str, Any], monthly_profit_gbp: float) -> float:
+    """Total monthly cost = commission on monthly profit + flat sub.
 
     Used by the dashboard's "best plan for you" indicator so the
     comparison matches what each plan would actually charge against
-    the user's current trailing 7-day profit. The monthly subscription
-    is divided by 4.345 to convert it to a weekly equivalent — the
-    same denominator the dashboard quotes back to the user.
+    the user's current calendar-month realised profit.
     """
-    profit = max(0.0, float(weekly_profit_gbp))
-    rate = _effective_commission_pct(plan, profit) / 100.0
-    weekly_sub = float(plan.get("monthly_fee") or 0) / 4.345
-    return profit * rate + weekly_sub
+    profit = max(0.0, float(monthly_profit_gbp))
+    rate = _effective_commission_pct(plan) / 100.0
+    monthly_sub = float(plan.get("monthly_fee") or 0)
+    return profit * rate + monthly_sub
 
 
 @app.get("/api/plans")
@@ -1735,15 +1720,33 @@ def _compute_user_analytics(
     }
 
 
-def _next_monday_0900(now: datetime) -> datetime:
-    """Performance fee billing anchor — Monday 09:00 UTC."""
-    days_ahead = (0 - now.weekday()) % 7
-    if days_ahead == 0 and (now.hour >= 9):
-        days_ahead = 7
-    target = (now + timedelta(days=days_ahead)).replace(
-        hour=9, minute=0, second=0, microsecond=0,
+def _month_start(now: datetime) -> datetime:
+    """Calendar-month start in UTC — first instant of the current month.
+
+    Used as the lower bound when totalling realised profit for the
+    current billing cycle. Pairs with :func:`_next_month_end`.
+    """
+    return now.replace(
+        day=1, hour=0, minute=0, second=0, microsecond=0,
     )
-    return target
+
+
+def _next_month_end(now: datetime) -> datetime:
+    """Performance-fee billing anchor — first second of the next month.
+
+    Replaces the old Monday-09:00 anchor: commission and the monthly
+    subscription are both charged once at end-of-calendar-month, so
+    every fee deadline lands on the first of the following month.
+    """
+    if now.month == 12:
+        return now.replace(
+            year=now.year + 1, month=1, day=1,
+            hour=0, minute=0, second=0, microsecond=0,
+        )
+    return now.replace(
+        month=now.month + 1, day=1,
+        hour=0, minute=0, second=0, microsecond=0,
+    )
 
 
 @app.get("/api/me/analytics")
@@ -1764,8 +1767,10 @@ def my_dashboard(
 
     The desktop Account Dashboard panel renders everything here. Payment
     data is a stub for now — the real invoicing pipeline lands later;
-    until then ``amount_due`` reflects 20% of realised profit since the
-    last Monday 09:00 cutoff so the figure is still informative.
+    until then ``amount_due`` reflects the user's plan-rate commission
+    on realised profit since the start of the current calendar month
+    (plus the monthly subscription, if any) so the figure is still
+    informative.
     """
     try:
         return _build_dashboard_payload(conn, claims)
@@ -1792,14 +1797,17 @@ def _build_dashboard_payload(
 
     stats = _compute_user_analytics(conn, claims["sub"])
 
-    # Amount due this cycle = 20% of realised profit since last Monday 09:00.
+    # Amount due this cycle = plan commission on realised profit since
+    # the start of the current calendar month, plus the plan's monthly
+    # fee. Billing anchor flipped from "Monday 09:00 weekly" to
+    # "first of next month" — both numbers settle once at month end.
     now = datetime.now(timezone.utc)
-    last_monday = _next_monday_0900(now) - timedelta(days=7)
+    month_start = _month_start(now)
     with conn.cursor() as cur:
         cur.execute(
             "SELECT snapshot FROM telemetry_events "
             "WHERE license_key = %s AND uploaded_at >= %s",
-            (claims["sub"], last_monday),
+            (claims["sub"], month_start),
         )
         cycle_rows = cur.fetchall()
     cycle_trades: List[Dict[str, Any]] = []
@@ -1833,35 +1841,37 @@ def _build_dashboard_payload(
                     pass
                 break
     plan = _plan_for_user(dict(row))
-    weekly_profit = max(0.0, cycle_profit)
-    fee_rate_pct = _effective_commission_pct(plan, weekly_profit)
-    amount_due = round(weekly_profit * (fee_rate_pct / 100.0), 2)
+    monthly_profit = max(0.0, cycle_profit)
+    fee_rate_pct = _effective_commission_pct(plan)
+    commission_due = monthly_profit * (fee_rate_pct / 100.0)
+    sub_due = float(plan.get("monthly_fee") or 0)
+    amount_due = round(commission_due + sub_due, 2)
 
-    # "Best plan for you" — model the trailing-7d profit against every
-    # plan and surface the cheapest. This is a hint, not a hard switch:
-    # the user still has to pick a plan, but they can see at a glance
-    # whether they'd save by upgrading or whether Starter is fine.
-    pnl_7d = float((stats or {}).get("pnl_7d") or 0.0)
+    # "Best plan for you" — model the trailing 30-day profit against
+    # every plan and surface the cheapest monthly cost. This is a
+    # hint, not a hard switch.
+    pnl_30d = float(
+        (stats or {}).get("pnl_30d")
+        or (stats or {}).get("pnl_7d", 0.0) * (30.0 / 7.0)
+    )
     plan_costs = [
         {
             "plan_id": p["id"],
             "label": p["label"],
-            "weekly_cost": round(_weekly_cost_for_plan(p, pnl_7d), 2),
-            "effective_commission_pct": _effective_commission_pct(p, pnl_7d),
+            "monthly_cost": round(_monthly_cost_for_plan(p, pnl_30d), 2),
+            "effective_commission_pct": _effective_commission_pct(p),
             "monthly_fee": float(p.get("monthly_fee") or 0),
         }
         for p in PLANS
     ]
-    best = min(plan_costs, key=lambda c: c["weekly_cost"]) if pnl_7d > 0 else None
+    best = min(plan_costs, key=lambda c: c["monthly_cost"]) if pnl_30d > 0 else None
     recommendation = {
-        "weekly_profit_basis": round(pnl_7d, 2),
+        "monthly_profit_basis": round(pnl_30d, 2),
         "plan_costs": plan_costs,
         "best_plan_id": best["plan_id"] if best else None,
-        # Cost user pays today vs. cost on the cheapest plan, both
-        # quoted on the same trailing-7d basis. The UI uses this to
-        # phrase "you'd save £X / week by switching to Y".
-        "current_weekly_cost": round(_weekly_cost_for_plan(plan, pnl_7d), 2),
-        "best_weekly_cost": best["weekly_cost"] if best else None,
+        # Monthly cost on user's current plan vs. cheapest available.
+        "current_monthly_cost": round(_monthly_cost_for_plan(plan, pnl_30d), 2),
+        "best_monthly_cost": best["monthly_cost"] if best else None,
     }
 
     created_at = row.get("created_at")
@@ -1883,10 +1893,11 @@ def _build_dashboard_payload(
             "currency": plan.get("currency") or "GBP",
             "fee_rate_pct": fee_rate_pct,
             "monthly_fee": float(plan.get("monthly_fee") or 0),
-            "weekly_threshold_gbp": plan.get("weekly_threshold_gbp"),
-            "commission_pct_above_threshold": plan.get("commission_pct_above_threshold"),
-            "weekly_profit_so_far": round(weekly_profit, 2),
-            "next_payment_at": _next_monday_0900(now).isoformat(),
+            "monthly_profit_so_far": round(monthly_profit, 2),
+            "commission_due": round(commission_due, 2),
+            "subscription_due": round(sub_due, 2),
+            "billing_cycle": "monthly",
+            "next_payment_at": _next_month_end(now).isoformat(),
             "history": [],  # populated when billing infra lands
             "card_last4": row.get("card_last4") or "",
             "card_verified": bool(row.get("card_verified")),

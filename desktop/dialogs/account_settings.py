@@ -224,7 +224,7 @@ class AccountSettingsDialog(BaseDialog):
         col.addWidget(self._notify_trades)
 
         self._notify_payment = QCheckBox(
-            "Remind me the day before the weekly charge"
+            "Remind me the day before the monthly charge"
         )
         self._notify_payment.setStyleSheet(_checkbox_qss())
         self._notify_payment.setCursor(Qt.PointingHandCursor)

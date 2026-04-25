@@ -1,17 +1,22 @@
 """One-command release flow for blank.
 
-Usage:
-    python scripts/release.py
+Two paths, picked at the top of the prompt:
 
-Steps:
-    1. Show current version, ask for new version
-    2. Bump all four version sources
-    3. Stage the bundled AI engine (portable Node + claude-code CLI)
-    4. Run build.bat (PyInstaller + Inno Setup if available)
-    5. Pause for manual Inno Setup compile if needed
-    6. Compute SHA256 of dist/blank-setup.exe
-    7. Push to GitHub Releases
-    8. Print exact admin-panel values to publish the update
+* **remote** (default) — bump the version locally, commit, tag ``vX.Y.Z``
+  and push. The ``.github/workflows/release.yml`` workflow then builds
+  the Windows .exe on a GitHub-hosted runner, attaches it to the
+  GitHub Release, and POSTs a row into ``/api/admin/releases`` so
+  every desktop client sees the update on its next heartbeat. No
+  local PyInstaller / Inno Setup needed.
+
+* **local** — original flow: bump version, run ``build.bat`` here,
+  pause for an Inno Setup compile, compute the SHA256, push to GitHub
+  Releases manually with ``gh``, and print the values to paste into
+  the admin panel.
+
+Usage::
+
+    python scripts/release.py
 """
 from __future__ import annotations
 
@@ -22,6 +27,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+REPO = "Justmilomb/StockMarketAI"
 
 
 def _current_version() -> str:
@@ -51,16 +57,9 @@ def _run(cmd: list[str], **kwargs) -> None:  # type: ignore[type-arg]
 
 
 def _release_exists(tag: str) -> bool:
-    """Probe GitHub for a release with this tag.
-
-    ``gh release view`` exits non-zero when the release is missing; we
-    swallow that and return False. Any other non-zero exit (auth, rate
-    limit) is treated as 'unknown → assume absent' since the subsequent
-    ``gh release create`` will surface the real error with a better
-    message than we could fabricate here.
-    """
+    """Probe GitHub for a release with this tag."""
     result = subprocess.run(
-        ["gh", "release", "view", tag, "--repo", "Justmilomb/StockMarketAI"],
+        ["gh", "release", "view", tag, "--repo", REPO],
         capture_output=True,
         text=True,
     )
@@ -68,67 +67,150 @@ def _release_exists(tag: str) -> bool:
 
 
 def _delete_release(tag: str) -> None:
-    """Delete an existing GitHub release *and* its tag.
-
-    ``--cleanup-tag`` removes the underlying git tag too, otherwise
-    ``gh release create`` would refuse to recreate it. ``--yes`` skips
-    the interactive confirmation — we've already asked the user at the
-    outer level.
-    """
+    """Delete an existing GitHub release *and* its tag."""
     _run([
         "gh", "release", "delete", tag,
-        "--repo", "Justmilomb/StockMarketAI",
+        "--repo", REPO,
         "--cleanup-tag",
         "--yes",
     ])
 
 
-def main() -> None:
+def _git(*args: str, capture: bool = False) -> str:
+    """Run a git subcommand, surfacing failures with the same wording
+    we use everywhere else."""
+    result = subprocess.run(
+        ["git", *args],
+        cwd=str(ROOT),
+        capture_output=capture,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise SystemExit(
+            f"\ngit {' '.join(args)} failed (exit {result.returncode}): "
+            f"{(result.stderr or '').strip()}",
+        )
+    return (result.stdout or "").strip()
+
+
+def _ensure_clean_worktree() -> None:
+    """Refuse to release on top of uncommitted changes.
+
+    A dirty worktree means the bumped files would land in a commit
+    alongside whatever is staged/unstaged — which is exactly the kind
+    of "what did I actually ship" mystery the version-bump script is
+    supposed to eliminate.
+    """
+    porcelain = _git("status", "--porcelain", capture=True)
+    if porcelain:
+        print("  Uncommitted changes detected:")
+        for line in porcelain.splitlines():
+            print(f"    {line}")
+        raise SystemExit(
+            "\nCommit or stash your changes before tagging a release.",
+        )
+
+
+def _release_remote(new_version: str) -> None:
+    """Bump → commit → tag → push. CI does the heavy lifting."""
+    tag = f"v{new_version}"
+
+    print()
+    print("── Sanity checks ──────────────────────────────────────────────")
+    _ensure_clean_worktree()
+    if _release_exists(tag):
+        choice = input(f"  Release {tag} already exists on GitHub. Re-run CI for it? [y/N]: ").strip().lower()
+        if choice != "y":
+            raise SystemExit("Aborting — bump to a new version or delete the existing release.")
+        # Re-running CI on an existing tag means triggering
+        # workflow_dispatch with that tag input, not re-tagging. Bail
+        # out and tell the operator how to do it from the UI; scripting
+        # workflow_dispatch needs a PAT, which we deliberately don't
+        # require here.
+        print()
+        print("  To rebuild an existing tag without changing the version:")
+        print(f"    gh workflow run release.yml --ref main -f tag={tag}")
+        print()
+        sys.exit(0)
+
+    # 1. Bump (skip if already at target).
+    print()
+    print("── Bumping version ────────────────────────────────────────────")
+    if new_version != _current_version():
+        _run([sys.executable, str(ROOT / "scripts" / "bump_version.py"), new_version])
+    else:
+        print(f"  Already at {new_version} — skipping bump.")
+
+    # 2. Commit any version-bump changes.
+    porcelain = _git("status", "--porcelain", capture=True)
+    if porcelain:
+        print()
+        print("── Committing bump ────────────────────────────────────────────")
+        _git("add", "-A")
+        _git("commit", "-m", f"chore(release): bump to {new_version}")
+    else:
+        print("  No file changes to commit.")
+
+    # 3. Tag + push.
+    print()
+    print("── Tagging + pushing ──────────────────────────────────────────")
+    _git("tag", "-a", tag, "-m", f"blank {tag}")
+    _git("push", "origin", "HEAD")
+    _git("push", "origin", tag)
+
+    # 4. Tell the operator where to watch.
+    print()
+    print("───────────────────────────────────────────────────────────────")
+    print(f"  Pushed tag {tag}.  CI is now building the Windows installer.")
+    print()
+    print(f"  Watch:  gh run watch --repo {REPO}")
+    print(f"  Or:     https://github.com/{REPO}/actions/workflows/release.yml")
+    print()
+    print("  When CI succeeds:")
+    print("    * blank-setup.exe is attached to the GitHub Release")
+    print("    * /api/version starts pointing every running client")
+    print("      at the new download_url within the next heartbeat")
+    print("───────────────────────────────────────────────────────────────")
+    print()
+
+
+def _release_local(new_version: str) -> None:
+    """Original flow — build + sign + Inno Setup compile on this box,
+    then push the artefact via ``gh`` directly. Use this when you
+    can't (or don't want to) run CI."""
     current = _current_version()
 
+    # 1. Bump (skip if already at target).
     print()
-    print(f"  Current version : {current}")
-    new_version = input("  New version     : ").strip()
-
-    if not re.match(r"^\d+\.\d+\.\d+$", new_version):
-        raise SystemExit(f"Invalid version: {new_version!r} — must be X.Y.Z")
-
-    print()
-
-    # ── 1. Bump (skip if already at target) ──────────────────────────────
     print("── Bumping version ─────────────────────────────────────────────")
     if new_version == current:
         print(f"  Already at {new_version} — skipping bump.")
     else:
         _run([sys.executable, str(ROOT / "scripts" / "bump_version.py"), new_version])
 
-    # ── 2. Stage the bundled AI engine ───────────────────────────────────
-    # Downloads Node + runs `npm install @anthropic-ai/claude-code`
-    # into build/engine/, which blank.iss then bundles into
-    # {app}/engine/. Idempotent: re-runs are cheap (it skips the
-    # Node download when the extracted runtime already exists).
+    # 2. Stage the bundled AI engine.
     print()
     _run([sys.executable, str(ROOT / "scripts" / "prepare_engine.py")])
 
-    # ── 3. Build ─────────────────────────────────────────────────────────
+    # 3. Build.
     print()
     print("── Building exe ────────────────────────────────────────────────")
     _run(["cmd", "/c", str(ROOT / "build.bat")], cwd=str(ROOT))
 
-    # ── 3. Installer compile pause ───────────────────────────────────────
+    # 4. Installer compile pause (kept for boxes without ISCC.exe).
     installer = ROOT / "dist" / "blank-setup.exe"
-
-    print()
-    print("── Compile the installer ───────────────────────────────────────")
-    print("  ► Open Inno Setup Compiler")
-    print("  ► File → Open → installer\\blank.iss")
-    print("  ► Build → Compile  (or press F9)")
-    print()
-    _pause("  Press Enter once dist\\blank-setup.exe is ready...")
     if not installer.exists():
-        raise SystemExit("dist/blank-setup.exe not found — aborting.")
+        print()
+        print("── Compile the installer ───────────────────────────────────────")
+        print("  ► Open Inno Setup Compiler")
+        print("  ► File → Open → installer\\blank.iss")
+        print("  ► Build → Compile  (or press F9)")
+        print()
+        _pause("  Press Enter once dist\\blank-setup.exe is ready...")
+        if not installer.exists():
+            raise SystemExit("dist/blank-setup.exe not found — aborting.")
 
-    # ── 4. SHA256 ────────────────────────────────────────────────────────
+    # 5. SHA256.
     print()
     print("── Computing SHA256 ────────────────────────────────────────────")
     sha = _sha256(installer)
@@ -136,7 +218,7 @@ def main() -> None:
     print(f"  {sha}")
     print(f"  ({size_mb:.1f} MB)")
 
-    # ── 5. GitHub release ────────────────────────────────────────────────
+    # 6. GitHub release.
     print()
     print("── Pushing to GitHub Releases ──────────────────────────────────")
     notes = input("  Release notes (one line, Enter to skip): ").strip()
@@ -144,11 +226,6 @@ def main() -> None:
         notes = f"blank v{new_version}"
 
     tag = f"v{new_version}"
-
-    # If a release already exists for this tag, offer to replace it.
-    # Without this the flow crashes at the end of a long build with an
-    # unhelpful "release already exists" from gh — awful UX when you
-    # just want to re-publish v1.0.0 after a fix.
     if _release_exists(tag):
         print(f"  ⚠  Release {tag} already exists on GitHub.")
         choice = input("  Delete and re-create it? [y/N]: ").strip().lower()
@@ -163,15 +240,15 @@ def main() -> None:
     _run([
         "gh", "release", "create", tag,
         str(installer),
-        "--repo", "Justmilomb/StockMarketAI",
+        "--repo", REPO,
         "--title", f"blank {tag}",
         "--notes", notes,
         "--latest",
     ])
 
-    # ── 6. Admin panel instructions ──────────────────────────────────────
+    # 7. Admin panel instructions.
     download_url = (
-        f"https://github.com/Justmilomb/StockMarketAI/releases/download/{tag}/blank-setup.exe"
+        f"https://github.com/{REPO}/releases/download/{tag}/blank-setup.exe"
     )
 
     print()
@@ -186,6 +263,27 @@ def main() -> None:
     print("  Admin page → Releases → fill in the fields above → Publish Release")
     print("────────────────────────────────────────────────────────────────")
     print()
+
+
+def main() -> None:
+    current = _current_version()
+
+    print()
+    print(f"  Current version : {current}")
+    new_version = input("  New version     : ").strip()
+    if not re.match(r"^\d+\.\d+\.\d+$", new_version):
+        raise SystemExit(f"Invalid version: {new_version!r} — must be X.Y.Z")
+
+    print()
+    print("  Build path:")
+    print("    [r] remote — tag + push, GitHub Actions builds (default)")
+    print("    [l] local  — build .exe + installer here")
+    choice = input("  Choose [r/l] (Enter = r): ").strip().lower() or "r"
+
+    if choice.startswith("l"):
+        _release_local(new_version)
+    else:
+        _release_remote(new_version)
 
 
 if __name__ == "__main__":

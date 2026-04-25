@@ -65,7 +65,7 @@ mid-thought; the cadence floor is the only enforced governor.
 4. Follow the setup wizard — it walks you through Claude Code CLI and
    Trading 212 configuration.
 
-### Build from source
+### Build from source — Windows
 
 ```
 setup.bat                              # Create venv + install deps
@@ -73,6 +73,41 @@ build.bat                              # Build blank.exe + installer
 ```
 
 Output: `dist/blank-setup.exe`.
+
+### Build from source — macOS
+
+```
+python3 -m venv .venv-mac
+source .venv-mac/bin/activate
+pip install -r requirements-mac.txt
+chmod +x build-mac.sh
+./build-mac.sh
+```
+
+Output: `dist/blank.app` (and `dist/blank-setup.dmg` if `create-dmg` is
+installed via `brew install create-dmg`).
+
+Set `BLANK_CODESIGN_ID="Developer ID Application: Your Name (TEAMID)"`
+before running to codesign the bundle. Without a signature the app
+launches via right-click → Open the first time but is rejected by
+Gatekeeper for download distribution.
+
+Drop a `desktop/assets/icon.icns` next to the existing `icon.ico` for a
+proper Dock icon — the spec falls back to the .ico when missing so a
+fresh checkout still builds.
+
+### Cutting a release
+
+```
+python scripts/release.py
+```
+
+Pick the **remote** path (default) and the GitHub Actions workflow at
+`.github/workflows/release.yml` builds the Windows installer on a
+hosted runner, attaches it to the GitHub Release, and POSTs the new
+version into `/api/admin/releases` so every running desktop client
+sees the update on its next heartbeat. Pick the **local** path to
+build on this machine instead — same end result, more steps.
 
 ### Dev harness
 
