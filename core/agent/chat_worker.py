@@ -76,6 +76,7 @@ class ChatWorker(QThread):
         broker_service: Any,
         db_path: str,
         paper_mode: bool,
+        protective_store: Any = None,
         parent: Any = None,
     ) -> None:
         super().__init__(parent)
@@ -85,6 +86,7 @@ class ChatWorker(QThread):
         self._broker_service = broker_service
         self._db_path = db_path
         self._paper_mode = paper_mode
+        self._protective_store = protective_store
         self._tool_call_count: int = 0
         self._cancel_requested: bool = False
 
@@ -329,6 +331,7 @@ class ChatWorker(QThread):
             risk_manager=risk,
             iteration_id=iteration_id,
             paper_mode=self._paper_mode,
+            protective_store=self._protective_store,
         )
 
         # Judgment vs info routing: keyword classifier picks the heavy

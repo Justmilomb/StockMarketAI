@@ -150,6 +150,16 @@ class ExecutionConfig(BaseModel):
     twap_slices_per_hour: int = 6
 
 
+class ProtectiveOrdersConfig(BaseModel):
+    """Native stop-loss / take-profit / trailing-stop monitor."""
+
+    model_config = ConfigDict(extra="allow")
+
+    enabled: bool = True
+    poll_seconds: float = Field(default=1.0, ge=0.1, le=60.0)
+    state_path: Optional[str] = None
+
+
 class AppConfig(BaseModel):
     """Top-level config shape. Unknown keys pass through untouched."""
 
@@ -173,6 +183,9 @@ class AppConfig(BaseModel):
     forecasting: ForecastingConfig = Field(default_factory=ForecastingConfig)
     nlp: NlpConfig = Field(default_factory=NlpConfig)
     execution: ExecutionConfig = Field(default_factory=ExecutionConfig)
+    protective_orders: ProtectiveOrdersConfig = Field(
+        default_factory=ProtectiveOrdersConfig,
+    )
 
     active_asset_class: str = "stocks"
     enabled_asset_classes: List[str] = Field(default_factory=lambda: ["stocks"])

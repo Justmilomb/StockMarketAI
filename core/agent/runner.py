@@ -471,6 +471,7 @@ class AgentRunner(QThread):
             iteration_id=iteration_id,
             paper_mode=paper_mode,
             trader_personality=trader_personality,
+            protective_store=self._pool.get_protective_store(),
         )
         # Install the cadence hook so end_iteration can announce the
         # next wake-up to the UI immediately, without waiting for the

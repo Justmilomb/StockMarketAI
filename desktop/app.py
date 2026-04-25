@@ -1477,6 +1477,13 @@ class MainWindow(QMainWindow):
         self.agent_pool.set_watchlist_provider(self._get_active_tickers)
         self.agent_pool.start_swarm()
 
+        # Native protective-orders monitor: independent of the supervisor's
+        # cadence so a stop fires within ~1s of the trigger, not on the next wake.
+        try:
+            self.agent_pool.start_protective_monitor()
+        except Exception:
+            logger.exception("Failed to start protective monitor")
+
     # ── Persistent agent log ────────────────────────────────────────────
 
     def _open_agent_log_file(self) -> None:

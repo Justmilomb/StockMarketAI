@@ -113,6 +113,13 @@ class AgentPool(QObject):
         self._swarm: Optional[Any] = None
         self._watchlist_provider: Any = lambda: []
 
+        # Native protective-orders engine. The store persists across
+        # restarts; the monitor is a daemon thread that polls live
+        # prices every ~1s and fires stops independently of the
+        # supervisor's iteration cadence.
+        self._protective_store: Optional[Any] = None
+        self._protective_monitor: Optional[Any] = None
+
     # ── config helpers ───────────────────────────────────────────────
 
     def _load_config(self) -> Dict[str, Any]:
@@ -210,6 +217,73 @@ class AgentPool(QObject):
             )
         return self._paper_broker
 
+    # ── protective orders (native stop-loss / take-profit) ──────────
+
+    def get_protective_store(self) -> Any:
+        """Lazily build the session-wide ProtectiveStore.
+
+        Paper-locked windows get their own store file so paper stops
+        never hit a live position and vice versa.
+        """
+        if self._protective_store is None:
+            from pathlib import Path as _Path
+
+            from core.protective_orders import ProtectiveStore
+
+            cfg = self._load_config()
+            po_cfg = cfg.get("protective_orders") or {}
+            default_path = (
+                "data/protective_orders_paper.json" if self._force_paper
+                else "data/protective_orders.json"
+            )
+            state_path = _Path(po_cfg.get("state_path", default_path))
+            self._protective_store = ProtectiveStore(state_path=state_path)
+        return self._protective_store
+
+    def start_protective_monitor(self) -> None:
+        """Start the price-monitor daemon if enabled in config (default on)."""
+        cfg = self._load_config()
+        po_cfg = cfg.get("protective_orders") or {}
+        if not po_cfg.get("enabled", True):
+            logger.info("AgentPool: protective monitor disabled in config")
+            return
+        if (self._protective_monitor is not None
+                and self._protective_monitor.is_alive()):
+            return
+
+        from core.protective_monitor import ProtectiveMonitor
+
+        # Stops only make sense for the same broker the agent trades
+        # through. We follow the pool's paper / live routing, same
+        # as get_broker_for_mode does for the supervisor.
+        config = self._load_config()
+        paper_mode = bool(
+            config.get("agent", {}).get("paper_mode", self._force_paper),
+        )
+        broker = self.get_broker_for_mode(paper_mode)
+        store = self.get_protective_store()
+        poll = float(po_cfg.get("poll_seconds", 1.0))
+        self._protective_monitor = ProtectiveMonitor(
+            store=store, broker_service=broker, poll_seconds=poll,
+        )
+        self._protective_monitor.start()
+        logger.info(
+            "AgentPool: protective monitor started (poll=%.2fs)", poll,
+        )
+
+    def stop_protective_monitor(self) -> None:
+        if (self._protective_monitor is not None
+                and self._protective_monitor.is_alive()):
+            self._protective_monitor.stop()
+            self._protective_monitor.join(timeout=5)
+        self._protective_monitor = None
+
+    def protective_monitor_running(self) -> bool:
+        return (
+            self._protective_monitor is not None
+            and self._protective_monitor.is_alive()
+        )
+
     # ── supervisor lifecycle ─────────────────────────────────────────
 
     def ensure_supervisor(self) -> Any:
@@ -292,6 +366,7 @@ class AgentPool(QObject):
             broker_service=broker,
             db_path=self._db_path,
             paper_mode=paper_mode,
+            protective_store=self.get_protective_store(),
             parent=self,
         )
 
@@ -364,6 +439,7 @@ class AgentPool(QObject):
         """Best-effort clean shutdown of everything in the pool."""
         self.cancel_all_chat_workers()
         self.stop_swarm()
+        self.stop_protective_monitor()
         self.kill_supervisor()
 
     # ── swarm lifecycle ─────────────────────────────────────────────

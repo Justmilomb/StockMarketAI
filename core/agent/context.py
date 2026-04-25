@@ -71,6 +71,11 @@ class AgentContext:
     stats: Dict[str, int] = field(default_factory=dict)
     trader_personality: Optional[Any] = None
     cadence_hook: Optional[Callable[[int], None]] = None
+    # ProtectiveStore (typed as Any to avoid circular imports — the
+    # store lives in core.protective_orders which doesn't depend on
+    # the agent package). The MCP tools in protective_tools.py read
+    # this; the AgentPool wires it before each iteration.
+    protective_store: Optional[Any] = None
 
 
 _context: ContextVar[Optional[AgentContext]] = ContextVar(
@@ -86,6 +91,7 @@ def init_agent_context(
     iteration_id: str = "",
     paper_mode: bool = True,
     trader_personality: Optional[Any] = None,
+    protective_store: Optional[Any] = None,
 ) -> AgentContext:
     """Bind an agent context to the current asyncio task / thread.
 
@@ -102,6 +108,7 @@ def init_agent_context(
         iteration_id=iteration_id,
         paper_mode=paper_mode,
         trader_personality=trader_personality,
+        protective_store=protective_store,
     )
     _context.set(ctx)
     return ctx

@@ -336,6 +336,19 @@ and will refuse sells for tickers you don't hold enough of and buys beyond
 free cash. Those are the *only* gates. Supply a short `reason` on every
 order; it goes into the journal.
 
+**Protective orders (native, broker-side)** — `set_stop_loss`,
+`set_take_profit`, `set_trailing_stop`, `adjust_stop`, `cancel_stop`,
+`list_active_stops`. These run in a background thread that polls live
+prices roughly every second. When a trigger fires the broker fires a
+market SELL **immediately** — no waiting for the next iteration. Use
+them whenever you open a position you can't babysit. Trigger prices
+are in the live feed's units: USD for US tickers, **pence for `.L`
+tickers** (a stop on VOD.L at "250" means 250p, not £250). Setting the
+same kind on the same ticker overwrites the previous one — call
+`list_active_stops` first if you want to know what's already in flight.
+Trailing stops take a `distance_pct` (e.g. 8 for 8%) and ratchet up as
+the price climbs; they only fire on the way down.
+
 **Market data** — `get_live_price` (broker live for held tickers, yfinance
 15-20 min delayed otherwise — *check the `source` field*), `get_intraday_bars`
 (1m/5m/15m/30m/60m; 1m capped to last 7 days by yfinance), `get_daily_bars`,
