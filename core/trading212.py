@@ -68,22 +68,37 @@ class Trading212Broker(Broker):
     # ── Portfolio ──────────────────────────────────────────────────────
 
     def get_positions(self) -> List[Dict[str, Any]]:
-        """Fetch all open positions."""
+        """Fetch all open positions.
+
+        LSE-listed tickers (T212 spelling: ``RRl_EQ``, ``BBYl_EQ``,
+        ``VUKGl_EQ`` — lowercase ``l`` before ``_EQ``) are quoted in
+        pence by the T212 portfolio API. Divide ``avg_price`` and
+        ``current_price`` by 100 here so the rest of the app reads
+        pounds. The P&L fields (``ppl`` / ``fxPpl``) come back in the
+        account currency already and need no conversion.
+        """
+        from fx import is_pence_quoted
         try:
             raw = self._get("/equity/portfolio")
-            return [
-                {
-                    "ticker": p.get("ticker", ""),
+            out: List[Dict[str, Any]] = []
+            for p in raw:
+                ticker = p.get("ticker", "")
+                avg = float(p.get("averagePrice", 0.0) or 0.0)
+                cur = float(p.get("currentPrice", 0.0) or 0.0)
+                if is_pence_quoted(ticker):
+                    avg /= 100.0
+                    cur /= 100.0
+                out.append({
+                    "ticker": ticker,
                     "quantity": p.get("quantity", 0),
-                    "avg_price": p.get("averagePrice", 0.0),
-                    "current_price": p.get("currentPrice", 0.0),
+                    "avg_price": avg,
+                    "current_price": cur,
                     "ppl": p.get("ppl"),
                     "unrealised_pnl": p.get("fxPpl") if p.get("fxPpl") is not None else p.get("ppl", 0.0),
                     "pie_quantity": p.get("pieQuantity", 0.0),
                     "initial_fill_date": p.get("initialFillDate", ""),
-                }
-                for p in raw
-            ]
+                })
+            return out
         except Exception as e:
             print(f"[t212] Error fetching positions: {e}")
             return []

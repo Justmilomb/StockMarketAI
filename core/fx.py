@@ -64,6 +64,27 @@ def _normalise(ccy: str) -> str:
     return (ccy or "").strip().upper()
 
 
+# LSE-listed instruments (Yahoo ".L" suffix, Trading 212 "l_EQ" suffix)
+# quote in **pence**, not pounds. yfinance and the T212 portfolio API
+# both return raw pence figures — we divide by 100 at every data
+# ingress so the rest of the codebase only ever sees pounds. ``RR.L``
+# at 1134.28 pence becomes £11.34 by the time anyone reads it.
+def is_pence_quoted(ticker: str) -> bool:
+    """True if *ticker* is quoted in pence and needs /100 to become pounds."""
+    if not ticker:
+        return False
+    t = ticker.strip().upper()
+    if t.endswith(".L"):
+        return True
+    # Trading 212 uses suffixes like "RRl_EQ", "BBYl_EQ", "VUKGl_EQ" —
+    # the lowercase 'l' before "_EQ" marks LSE listings. Match the raw
+    # form (we already upper-cased) by checking the original spelling.
+    raw = ticker.strip()
+    if raw.endswith("l_EQ"):
+        return True
+    return False
+
+
 # ── ticker currency ────────────────────────────────────────────────────
 
 def ticker_currency(ticker: str, default: str = "USD") -> str:
@@ -120,8 +141,23 @@ def fx_rate(src: str, dst: str) -> float:
     and also returns 1.0 as a safe fallback when yfinance is
     unavailable — a stale-rate trade is annoying; a crash is worse.
     """
-    src_n = _normalise(src)
-    dst_n = _normalise(dst)
+    # Detect pence-style codes BEFORE upper-casing — "GBp" with the
+    # lowercase 'p' is yfinance's tell that an LSE quote is in pence,
+    # and uppercasing collapses it onto plain GBP and loses the signal.
+    def _is_pence(code: str) -> bool:
+        c = (code or "").strip()
+        return c == "GBp" or c.upper() in ("GBX", "GBP_PENCE")
+
+    src_pence = _is_pence(src)
+    dst_pence = _is_pence(dst)
+    src_n = "GBP" if src_pence else _normalise(src)
+    dst_n = "GBP" if dst_pence else _normalise(dst)
+    if src_pence and not dst_pence and dst_n == "GBP":
+        return 0.01
+    if dst_pence and not src_pence and src_n == "GBP":
+        return 100.0
+    if src_pence and dst_pence:
+        return 1.0
     if not src_n or not dst_n or src_n == dst_n:
         return 1.0
 

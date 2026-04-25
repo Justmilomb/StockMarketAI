@@ -218,7 +218,16 @@ def fetch_live_prices(tickers: List[str]) -> Dict[str, Dict[str, float]]:
     """
     Fetch near real-time prices and calculate day change percentage.
     Returns: { "AAPL": {"price": 150.0, "change_pct": 1.5}, ... }
+
+    LSE-listed tickers (``.L`` suffix) are returned by yfinance in
+    **pence**. We divide their price by 100 here so every consumer
+    downstream — broker fills, P&L, watchlist display, agent prompt —
+    sees pounds. Without this, RR.L's 1134.28p current price is
+    treated as £1134.28 and a £100 paper account "appears" to be up
+    by thousands.
     """
+    from fx import is_pence_quoted
+
     live_data: Dict[str, Dict[str, float]] = {}
     if not tickers:
         return live_data
@@ -264,6 +273,10 @@ def fetch_live_prices(tickers: List[str]) -> Dict[str, Dict[str, float]]:
                 # (circuit breakers halt most stocks well before that).
                 if abs(change_pct) > 500.0:
                     change_pct = 0.0
+
+                # GBX → GBP for LSE listings (yfinance quotes in pence).
+                if is_pence_quoted(original_ticker):
+                    current = current / 100.0
 
                 live_data[original_ticker] = {
                     "price": current,
