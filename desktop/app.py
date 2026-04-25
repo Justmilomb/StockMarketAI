@@ -206,10 +206,15 @@ class MainWindow(QMainWindow):
         self.scraper_runner: Optional[Any] = None
         self._start_scraper_runner()
 
-        # Dev-only remote monitoring — streams agent state to the server.
-        # Only started when config["dev_monitor"]["enabled"] is true.
+        # Telemetry uploader — streams agent state to the server. On by
+        # default for every install: the only way to disable it is to
+        # explicitly set ``dev_monitor.enabled`` to false in config.json
+        # (which the user-facing setup wizard never does). The endpoint
+        # gates on a valid licence/JWT so an off install can't poison
+        # the admin store.
         self.dev_monitor: Optional[DevMonitor] = None
-        if self.config.get("dev_monitor", {}).get("enabled"):
+        dm_cfg = self.config.get("dev_monitor", {}) or {}
+        if dm_cfg.get("enabled", True):
             self.dev_monitor = DevMonitor(
                 state=self.state,
                 broker_service=self.broker_service,

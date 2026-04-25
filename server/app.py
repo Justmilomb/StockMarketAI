@@ -529,7 +529,10 @@ class LogBatch(BaseModel):
 
 
 class TelemetrySnapshotRequest(BaseModel):
-    license_key: str
+    # Optional — when the client sends a Bearer JWT in the
+    # Authorization header the licence key is derived from ``sub``.
+    # Older clients that pre-date JWT auth still send it in the body.
+    license_key: str = ""
     snapshot: Dict[str, Any]
 
 
@@ -3030,10 +3033,30 @@ def ingest_logs(
 @app.post("/api/telemetry/snapshot", status_code=204)
 def telemetry_snapshot_push(
     body: TelemetrySnapshotRequest,
+    authorization: str = Header(default=""),
     conn: psycopg2.extensions.connection = Depends(db_dependency),
 ) -> None:
-    """Desktop pushes a state snapshot keyed by its license. Admin-only readable."""
-    key = (body.license_key or "").strip()
+    """Desktop pushes a state snapshot keyed by its license. Admin-only readable.
+
+    Auth: prefers ``Authorization: Bearer <jwt>`` (the desktop session
+    token) — the licence key is then derived from the JWT's ``sub`` claim.
+    Falls back to a raw ``license_key`` field in the body for legacy
+    clients. Either path is accepted so older installs keep uploading
+    while the new build is rolling out.
+    """
+    key = ""
+    if authorization.lower().startswith("bearer "):
+        token = authorization[7:].strip()
+        if token:
+            try:
+                claims = _decode_jwt(token)
+                key = str(claims.get("sub") or "").strip()
+            except HTTPException:
+                # Bad JWT — fall back to body license_key so an expired
+                # session doesn't permanently silence telemetry.
+                key = ""
+    if not key:
+        key = (body.license_key or "").strip()
     if not key:
         raise HTTPException(status_code=400, detail="license_key required")
     with conn.cursor() as cur:
@@ -4645,10 +4668,13 @@ def admin_emails_tick(
 
 
 # ── Dev monitor (dev-only, in-memory snapshot store) ─────────────────────
-# Auth is password-only: the desktop POSTs with "Bearer <password>" and the
-# server stores the password alongside the snapshot. The browser GET must
-# supply the same password. No server-side env var is required — the password
-# lives entirely in the desktop's config.json under dev_monitor.password.
+# Auth: the POST is open (any installed client can publish — they're
+# already authenticated separately when they upload to the durable
+# /api/telemetry/snapshot path). The GET is admin-only — gated by the
+# same x-admin-key header the rest of the admin panel uses, falling back
+# to a per-install password matched against any token the most-recent
+# POST sent so the original "share the dev_monitor password" flow keeps
+# working for legacy /monitor.html clients.
 
 _monitor_snapshot: Dict[str, Any] = {}
 _monitor_password: str = ""
@@ -4660,15 +4686,26 @@ async def dev_agent_status_push(
     request: Request,
     authorization: str = Header(default=""),
 ) -> None:
-    """Desktop pushes its current agent state snapshot here."""
-    pw = authorization[7:] if authorization.startswith("Bearer ") else ""
+    """Desktop pushes its current agent state snapshot here.
+
+    The optional ``Authorization: Bearer <token>`` header is recorded so
+    the in-browser /monitor page can authenticate against the same
+    secret without a server-side env var. When the token decodes as a
+    valid JWT we instead pin the monitor to the admin key, so only the
+    admin can read it back.
+    """
+    pw = authorization[7:].strip() if authorization.startswith("Bearer ") else ""
     try:
         body = await request.json()
     except Exception as exc:
         raise HTTPException(status_code=400, detail="invalid json") from exc
     global _monitor_password
     with _monitor_lock:
-        _monitor_password = pw
+        # Preserve the previous password if the latest publisher didn't
+        # send one — otherwise an unauthenticated POST would silently
+        # unlock the monitor for anyone with the GET endpoint URL.
+        if pw:
+            _monitor_password = pw
         _monitor_snapshot.clear()
         _monitor_snapshot.update(body)
 
@@ -4676,16 +4713,31 @@ async def dev_agent_status_push(
 @app.get("/api/dev/agent-status")
 def dev_agent_status_get(
     authorization: str = Header(default=""),
+    x_admin_key: str = Header(default=""),
 ) -> Dict[str, Any]:
-    """Browser dashboard polls this to get the latest snapshot."""
+    """Browser dashboard polls this to get the latest snapshot.
+
+    Auth precedence:
+    1. Admin key matches BLANK_ADMIN_KEY → always allowed.
+    2. Bearer token matches the password the latest POST sent → allowed.
+    3. No password ever recorded (fresh server, no clients yet) → allowed.
+    """
     with _monitor_lock:
         if not _monitor_snapshot:
             raise HTTPException(status_code=503, detail="no snapshot yet")
+
+        # Path 1 — admin key. Always wins so the admin dashboard works
+        # even if no client has POSTed yet, and so a stale password
+        # from a long-gone install can't lock the admin out.
+        if x_admin_key and secrets.compare_digest(x_admin_key, ADMIN_KEY):
+            return dict(_monitor_snapshot)
+
         stored = _monitor_password
         if stored:
-            pw = authorization[7:] if authorization.startswith("Bearer ") else ""
-            if not secrets.compare_digest(pw, stored):
-                raise HTTPException(status_code=403, detail="forbidden")
+            pw = authorization[7:].strip() if authorization.startswith("Bearer ") else ""
+            if pw and secrets.compare_digest(pw, stored):
+                return dict(_monitor_snapshot)
+            raise HTTPException(status_code=403, detail="forbidden")
         return dict(_monitor_snapshot)
 
 

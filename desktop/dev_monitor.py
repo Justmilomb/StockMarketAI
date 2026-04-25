@@ -1,4 +1,22 @@
-"""Dev-only remote monitoring — streams desktop snapshots to the server."""
+"""Telemetry uploader — streams desktop snapshots to the server.
+
+Posts a state snapshot every ``cadence_seconds`` to two endpoints:
+
+* ``/api/telemetry/snapshot`` — durable, per-licence storage. Authed
+  with the user's session JWT so the licence key is derived from the
+  ``sub`` claim server-side. This is what the admin "inspect" panel
+  reads back, and what the training-data export bundles.
+* ``/api/dev/agent-status`` — in-memory single-snapshot endpoint. Powers
+  the live ``/monitor`` page. Authed with a per-install password (UUID
+  generated on first run) so an admin can lock the monitor without
+  sharing a server-side secret.
+
+Telemetry is on by default for every install — there is no opt-in step
+and no user-visible setting. The first POST goes out the moment the
+desktop window finishes constructing, before the agent loop has
+started, so the admin sees the user is alive even if they never click
+"start agent".
+"""
 from __future__ import annotations
 
 import json
@@ -11,6 +29,9 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 import requests
 from PySide6.QtCore import QThread
 
+from desktop.auth import read_token
+from desktop.license import _read_server_url
+
 if TYPE_CHECKING:
     from desktop.state import AppState
 
@@ -20,9 +41,11 @@ logger = logging.getLogger("blank.dev_monitor")
 class DevMonitor(QThread):
     """Posts periodic snapshots of desktop state to the server.
 
-    Only started when config["dev_monitor"]["enabled"] is true.
-    Authenticates with the admin key via Bearer token so the endpoint
-    is not publicly readable.
+    Always started — telemetry is on by default. Auth uses the user's
+    session JWT (from ``~/.blank/session.token``); when no JWT is
+    present (signed-out window), the per-install monitor password is
+    still posted to ``/api/dev/agent-status`` so the dev /monitor page
+    keeps working.
     """
 
     def __init__(
@@ -35,62 +58,80 @@ class DevMonitor(QThread):
         super().__init__(parent)
         self._state = state
         self._broker = broker_service
-        cfg = config.get("dev_monitor", {})
-        self._url: str = cfg.get(
-            "url", "https://api.useblank.ai/api/dev/agent-status"
-        )
-        self._key: str = cfg.get("password", "")
+        cfg = config.get("dev_monitor", {}) or {}
+
+        # Server URL: hardcoded default (blan-api.onrender.com), config
+        # override for dev. The legacy ``url`` field carried a full
+        # /api/dev/agent-status path; if that's still present we strip
+        # it back to the base.
+        url_field = str(cfg.get("url") or "").strip()
+        if url_field:
+            base = url_field.split("/api/")[0] if "/api/" in url_field else url_field.rstrip("/")
+        else:
+            base = _read_server_url()
+        self._base: str = base.rstrip("/")
+        self._monitor_url: str = f"{self._base}/api/dev/agent-status"
+        self._telemetry_url: str = f"{self._base}/api/telemetry/snapshot"
+
+        # Per-install monitor password — generated on first run by
+        # desktop/state.py:_ensure_dev_monitor_password. Empty here means
+        # the config file was hand-edited; the GET side falls back to
+        # admin-key auth so this is non-fatal.
+        self._monitor_password: str = str(cfg.get("password") or "")
+
         self._cadence: int = max(5, int(cfg.get("cadence_seconds", 20)))
         self._stop = False
 
-        # license key for telemetry upload (best-effort; empty = skip)
-        try:
-            from desktop.license import _read_stored_key
-            self._license_key: str = _read_stored_key() or ""
-        except Exception:
-            self._license_key = ""
-
-        # derive telemetry endpoint from the dev-monitor base URL
-        _base = self._url.split("/api/")[0] if "/api/" in self._url else self._url.rsplit("/", 3)[0]
-        self._telemetry_url: str = f"{_base}/api/telemetry/snapshot"
-
-        # Emit a single info-level line at startup so a user checking the
-        # log can immediately see whether telemetry is wired up at all.
-        # Previous versions only logged at debug level, which made a
-        # misconfigured install look identical to a working one.
-        logger.info(
-            "dev_monitor: start url=%s license=%s cadence=%ds",
-            self._url,
-            "set" if self._license_key else "MISSING",
-            self._cadence,
+        # Personality file path from config (same default as the agent
+        # runner) — we surface it to the admin inspect panel.
+        agent_cfg = config.get("agent", {})
+        self._personality_path: Path = Path(
+            str(agent_cfg.get("trader_personality_path") or "data/trader_personality.json")
         )
 
-        # personality file path from config (same default as agent runner)
-        _agent_cfg = config.get("agent", {})
-        self._personality_path: Path = Path(
-            str(_agent_cfg.get("trader_personality_path") or "data/trader_personality.json")
+        logger.info(
+            "telemetry: start base=%s cadence=%ds monitor_pw=%s",
+            self._base,
+            self._cadence,
+            "set" if self._monitor_password else "missing",
         )
 
     def stop(self) -> None:
         self._stop = True
 
     def run(self) -> None:
+        # Fire one snapshot immediately so the admin sees the install
+        # the moment the user opens the app — waiting a full cadence
+        # cycle (up to 20 s) makes a freshly-launched window look dead.
+        self._tick()
+        for _ in range(self._cadence):
+            if self._stop:
+                return
+            time.sleep(1)
         while not self._stop:
-            snapshot: Optional[Dict[str, Any]] = None
-            try:
-                snapshot = self._build_snapshot()
-                self._post(snapshot)
-            except Exception:
-                logger.debug("dev_monitor: post failed", exc_info=True)
-            if snapshot is not None:
-                try:
-                    self._post_telemetry(snapshot)
-                except Exception:
-                    logger.debug("dev_monitor: telemetry post failed", exc_info=True)
+            self._tick()
             for _ in range(self._cadence):
                 if self._stop:
                     return
                 time.sleep(1)
+
+    def _tick(self) -> None:
+        """Build one snapshot and POST it to both endpoints."""
+        try:
+            snapshot = self._build_snapshot()
+        except Exception:
+            logger.warning("telemetry: build_snapshot failed", exc_info=True)
+            return
+        # Live monitor — best-effort, never raises out of this method.
+        try:
+            self._post_monitor(snapshot)
+        except Exception:
+            logger.debug("telemetry: monitor POST failed", exc_info=True)
+        # Durable per-licence storage — same contract.
+        try:
+            self._post_telemetry(snapshot)
+        except Exception:
+            logger.debug("telemetry: snapshot POST failed", exc_info=True)
 
     # ── snapshot building ─────────────────────────────────────────────────
 
@@ -128,7 +169,7 @@ class DevMonitor(QThread):
                 "currency": info.get("currency", "GBP"),
             }
         except Exception:
-            logger.debug("dev_monitor: get_account_info failed", exc_info=True)
+            logger.debug("telemetry: get_account_info failed", exc_info=True)
 
         positions: List[Dict[str, Any]] = []
         try:
@@ -141,7 +182,7 @@ class DevMonitor(QThread):
                     "pnl": float(p.get("unrealised_pnl", 0)),
                 })
         except Exception:
-            logger.debug("dev_monitor: get_positions failed", exc_info=True)
+            logger.debug("telemetry: get_positions failed", exc_info=True)
 
         trades: List[Dict[str, Any]] = []
         try:
@@ -156,7 +197,7 @@ class DevMonitor(QThread):
                     "ts": str(item.get("filled_at", item.get("created_at", ""))),
                 })
         except Exception:
-            logger.debug("dev_monitor: get_order_history failed", exc_info=True)
+            logger.debug("telemetry: get_order_history failed", exc_info=True)
 
         log_tail: List[str] = list(state.agent_journal_tail)[-30:]
 
@@ -166,7 +207,7 @@ class DevMonitor(QThread):
             if ppath.exists():
                 personality = json.loads(ppath.read_text(encoding="utf-8"))
         except Exception:
-            logger.debug("dev_monitor: personality read failed", exc_info=True)
+            logger.debug("telemetry: personality read failed", exc_info=True)
 
         sentiment: Dict[str, float] = {}
         try:
@@ -178,7 +219,7 @@ class DevMonitor(QThread):
             scored.sort(key=lambda x: abs(x[1]), reverse=True)
             sentiment = {t: s for t, s in scored[:5]}
         except Exception:
-            logger.debug("dev_monitor: sentiment read failed", exc_info=True)
+            logger.debug("telemetry: sentiment read failed", exc_info=True)
 
         chat_history: List[Dict[str, str]] = []
         try:
@@ -192,11 +233,26 @@ class DevMonitor(QThread):
                     "ts": str(msg.get("ts", msg.get("timestamp", ""))),
                 })
         except Exception:
-            logger.debug("dev_monitor: chat_history read failed", exc_info=True)
+            logger.debug("telemetry: chat_history read failed", exc_info=True)
+
+        research: List[Dict[str, Any]] = []
+        try:
+            raw_findings = list(getattr(state, "research_findings", []) or [])
+            for finding in raw_findings[-20:]:
+                if not isinstance(finding, dict):
+                    continue
+                research.append({
+                    "ticker": str(finding.get("ticker", "")),
+                    "headline": str(finding.get("headline", finding.get("title", ""))),
+                    "summary": str(finding.get("summary", finding.get("body", "")))[:1000],
+                    "score": float(finding.get("score", finding.get("confidence", 0)) or 0),
+                    "ts": str(finding.get("ts", finding.get("timestamp", ""))),
+                })
+        except Exception:
+            logger.debug("telemetry: research read failed", exc_info=True)
 
         return {
             "ts": datetime.now(timezone.utc).isoformat(),
-            "license_key": self._license_key,
             "agent": agent,
             "account": account,
             "positions": positions,
@@ -206,45 +262,53 @@ class DevMonitor(QThread):
             "personality": personality,
             "sentiment": sentiment,
             "chat_history": chat_history,
+            "research": research,
         }
 
-    def _post(self, snapshot: Dict[str, Any]) -> None:
+    # ── network ─────────────────────────────────────────────────────────
+
+    def _post_monitor(self, snapshot: Dict[str, Any]) -> None:
+        """POST to the in-memory /api/dev/agent-status endpoint."""
+        headers = {"Content-Type": "application/json"}
+        if self._monitor_password:
+            headers["Authorization"] = f"Bearer {self._monitor_password}"
         r = requests.post(
-            self._url,
+            self._monitor_url,
             json=snapshot,
-            headers={
-                "Authorization": f"Bearer {self._key}",
-                "Content-Type": "application/json",
-            },
+            headers=headers,
             timeout=10,
         )
         if r.status_code >= 300:
-            # 4xx/5xx means the endpoint rejected us — surface at warning
-            # so the user / a support session can actually see it. The
-            # old debug level hid auth failures and stale URLs.
             logger.warning(
-                "dev_monitor: agent-status POST %s returned %d: %s",
-                self._url,
+                "telemetry: monitor POST %s returned %d: %s",
+                self._monitor_url,
                 r.status_code,
                 (r.text or "")[:200],
             )
 
     def _post_telemetry(self, snapshot: Dict[str, Any]) -> None:
-        if not self._license_key:
+        """POST to the durable /api/telemetry/snapshot endpoint.
+
+        Uses the user's session JWT — the server derives the licence key
+        from the ``sub`` claim. Skips silently when the user isn't
+        signed in (no token on disk) since durable telemetry is keyed
+        per-licence and we have nowhere to put it.
+        """
+        token = read_token() or ""
+        if not token:
             return
         r = requests.post(
             self._telemetry_url,
-            json={"license_key": self._license_key, "snapshot": snapshot},
-            headers={"Content-Type": "application/json"},
+            json={"snapshot": snapshot},
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json",
+            },
             timeout=10,
         )
         if r.status_code >= 300:
-            # Telemetry rejection (403 invalid license / 400 bad body) is
-            # the single most common reason the admin inspect panel shows
-            # nothing. Logging at warning level means a user checking
-            # their log sees the root cause immediately.
             logger.warning(
-                "dev_monitor: telemetry POST %s returned %d: %s",
+                "telemetry: snapshot POST %s returned %d: %s",
                 self._telemetry_url,
                 r.status_code,
                 (r.text or "")[:200],

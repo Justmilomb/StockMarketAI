@@ -164,7 +164,14 @@
 <script>
 (function () {
     'use strict';
-    var API = 'https://api.useblank.ai/api/dev/agent-status';
+    // Same origin in production (the page is served from the API host
+    // itself), absolute fallback for local file:// previews. Picking
+    // the origin at runtime means we never have to ship a fresh build
+    // when the production hostname changes.
+    var ORIGIN = (location.protocol === 'http:' || location.protocol === 'https:')
+        ? location.origin
+        : 'https://blan-api.onrender.com';
+    var API = ORIGIN.replace(/\/$/, '') + '/api/dev/agent-status';
     var LS_KEY = 'bm_pw';
     var POLL_SEC = 15;
     var adminKey = '';
@@ -236,7 +243,17 @@
     // ── fetch ──────────────────────────────────────────────────────────────
     function fetchNow() {
         if (!adminKey) return;
-        fetch(API, { headers: { 'Authorization': 'Bearer ' + adminKey } })
+        // Send both headers — the server accepts the admin key OR a
+        // matching bearer password, whichever the user typed in. The
+        // dual send means the same input box works for both an admin
+        // pasting BLANK_ADMIN_KEY and a dev pasting their per-install
+        // dev_monitor.password.
+        fetch(API, {
+            headers: {
+                'Authorization': 'Bearer ' + adminKey,
+                'x-admin-key': adminKey,
+            },
+        })
             .then(function (res) {
                 if (res.status === 401 || res.status === 403) { showErr('wrong password'); return null; }
                 if (res.status === 503) { showErr('agent not running — no snapshot yet'); return null; }

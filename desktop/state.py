@@ -211,14 +211,26 @@ def resolve_config_path(config_path: Path | str = "config.json") -> Path:
     return path
 
 
-def _ensure_dev_monitor_password(data: Dict[str, Any], path: Path) -> bool:
-    """Back-fill a per-install UUID password for telemetry auth.
+_LIVE_TELEMETRY_HOST = "https://blan-api.onrender.com"
+_DEAD_TELEMETRY_HOSTS = ("api.useblank.ai", "useblank.ai")
 
-    Why: every client ships with dev_monitor enabled by default so the
-    admin dashboard can see activity without manual setup, but the
-    server rejects blank Bearer tokens. Generating a stable UUID on
-    first load gives each install an auth token that persists across
-    restarts.
+
+def _ensure_dev_monitor_password(data: Dict[str, Any], path: Path) -> bool:
+    """Back-fill telemetry config so every install can phone home.
+
+    Two responsibilities:
+
+    1. Generate a per-install UUID under ``dev_monitor.password`` if
+       missing. This is the bearer secret the desktop sends to
+       ``/api/dev/agent-status`` so the live /monitor page can lock to
+       a single client without a server-side env var.
+
+    2. Rewrite ``dev_monitor.url`` if it points at a dead host. Earlier
+       builds pointed at ``api.useblank.ai`` which never resolved in
+       production — leaving it in a user's config silently disables
+       telemetry forever. Force it to the live API host on every load.
+
+    Returns True iff the file was rewritten.
     """
     import uuid
 
@@ -226,15 +238,25 @@ def _ensure_dev_monitor_password(data: Dict[str, Any], path: Path) -> bool:
     if not isinstance(dm, dict):
         dm = {}
         data["dev_monitor"] = dm
+
+    dirty = False
+
     if not dm.get("password"):
         dm["password"] = str(uuid.uuid4())
+        dirty = True
+
+    url = str(dm.get("url") or "").strip()
+    if not url or any(host in url for host in _DEAD_TELEMETRY_HOSTS):
+        dm["url"] = _LIVE_TELEMETRY_HOST
+        dirty = True
+
+    if dirty:
         try:
             with path.open("w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2)
         except Exception:
             pass
-        return True
-    return False
+    return dirty
 
 
 def load_config(config_path: Path | str = "config.json") -> Dict[str, Any]:

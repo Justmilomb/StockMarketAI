@@ -117,7 +117,7 @@
   "dev_monitor": {
     "enabled": true,
     "password": "",
-    "url": "https://api.useblank.ai/api/dev/agent-status",
+    "url": "https://blan-api.onrender.com",
     "cadence_seconds": 20
   },
 
