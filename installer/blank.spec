@@ -49,6 +49,21 @@ _avatar_datas = [
     for p in (Path(PROJECT_ROOT) / 'desktop' / 'assets' / 'avatars').glob('*.svg')
 ]
 
+# Bundled HuggingFace models — populated by ``scripts/download_models.py``
+# before the build runs. The list is empty if the script wasn't run, in
+# which case the desktop app falls back to downloading on first use.
+_model_datas = []
+_models_root = Path(PROJECT_ROOT) / 'desktop' / 'assets' / 'models'
+if _models_root.is_dir():
+    for path in _models_root.rglob('*'):
+        if not path.is_file():
+            continue
+        # Skip the HF cache pollution that snapshot_download leaves around.
+        if any(part in {'.cache', '.huggingface'} for part in path.parts):
+            continue
+        rel_dir = path.parent.relative_to(_models_root.parent.parent)
+        _model_datas.append((str(path), str(rel_dir).replace('\\', '/')))
+
 a = Analysis(
     [str(Path(PROJECT_ROOT) / 'desktop' / 'main_desktop.py')],
     pathex=[PROJECT_ROOT, str(Path(PROJECT_ROOT) / 'core')],
@@ -58,6 +73,7 @@ a = Analysis(
         (str(Path(PROJECT_ROOT) / 'desktop' / 'assets' / 'icon.ico'), 'desktop/assets'),
         *_font_datas,
         *_avatar_datas,
+        *_model_datas,
         (str(Path(importlib.import_module('xgboost').__file__).parent / 'VERSION'), 'xgboost'),
         (str(Path(importlib.import_module('lightgbm').__file__).parent / 'VERSION.txt'), 'lightgbm'),
     ],

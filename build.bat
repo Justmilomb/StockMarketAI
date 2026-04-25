@@ -2,6 +2,20 @@
 REM Build blank desktop application
 call .venv\Scripts\activate.bat
 
+REM === Bundle HuggingFace models (Kronos + FinBERT) ===
+REM Idempotent: skips slugs whose config.json already exists. Set
+REM SKIP_MODEL_DOWNLOAD=1 to bypass entirely (e.g. when iterating on
+REM packaging without touching the model directory).
+if not defined SKIP_MODEL_DOWNLOAD (
+    echo Downloading bundled models...
+    python scripts\download_models.py
+    if errorlevel 1 (
+        echo   FAILED — model download errored. Set HF_TOKEN_READ if rate-limited,
+        echo   or SKIP_MODEL_DOWNLOAD=1 to fall back to first-run downloads.
+        exit /b 1
+    )
+)
+
 echo Building blank.exe...
 pyinstaller installer\blank.spec --clean
 if not exist dist\blank.exe (

@@ -45,13 +45,18 @@ def _get_predictor() -> Any:
             return _PREDICTOR
         from core.hf_auth import apply_read_token, read_token
         from core.kronos import Kronos, KronosTokenizer, KronosPredictor
+        from core.local_models import resolve
+
         apply_read_token()
         token = read_token()
         kwargs = {"token": token} if token else {}
-        logger.info("kronos: loading tokenizer %s", TOKENIZER_ID)
-        tokenizer = KronosTokenizer.from_pretrained(TOKENIZER_ID, **kwargs)
-        logger.info("kronos: loading model %s", MODEL_ID)
-        model = Kronos.from_pretrained(MODEL_ID, **kwargs)
+
+        tokenizer_src = resolve("kronos-tokenizer", TOKENIZER_ID)
+        model_src = resolve("kronos-small", MODEL_ID)
+        logger.info("kronos: loading tokenizer %s", tokenizer_src)
+        tokenizer = KronosTokenizer.from_pretrained(tokenizer_src, **kwargs)
+        logger.info("kronos: loading model %s", model_src)
+        model = Kronos.from_pretrained(model_src, **kwargs)
         _PREDICTOR = KronosPredictor(model, tokenizer, max_context=512)
         logger.info("kronos: predictor ready")
         return _PREDICTOR

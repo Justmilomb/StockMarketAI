@@ -33,12 +33,14 @@ def _get_pipeline() -> Optional[Any]:
             return _PIPELINE
         try:
             from core.hf_auth import apply_read_token, read_token
+            from core.local_models import resolve
             from transformers import pipeline as hf_pipeline
             apply_read_token()
             token = read_token()
             kwargs = {"token": token} if token else {}
+            src = resolve("finbert", MODEL_ID)
             _PIPELINE = hf_pipeline(
-                "sentiment-analysis", model=MODEL_ID, tokenizer=MODEL_ID,
+                "sentiment-analysis", model=src, tokenizer=src,
                 device=-1, framework="pt", **kwargs,
             )
         except Exception as e:
