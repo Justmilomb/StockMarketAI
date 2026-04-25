@@ -17,10 +17,15 @@ Usage::
     python scripts/download_models.py finbert    # one slug
     python scripts/download_models.py --force    # ignore the cache marker
 
-Models bundled (≈540 MB total):
+Models bundled (≈900 MB total):
   * kronos-tokenizer  ~25 MB    NeoQuasar/Kronos-Tokenizer-base
-  * kronos-small     ~100 MB    NeoQuasar/Kronos-small
+  * kronos-base     ~410 MB    NeoQuasar/Kronos-base (102M params)
   * finbert         ~440 MB    ProsusAI/finbert
+
+Why Kronos-base, not -small or -mini: base is the most accurate
+open-source Kronos checkpoint and still runs fine on CPU on any
+modern desktop. Smaller variants are only worth picking when the
+installer bundle size is a hard constraint.
 """
 from __future__ import annotations
 
@@ -36,9 +41,11 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 
 
 # Slug → HuggingFace repo. Update both sides if you swap a model.
+# core/local_models.py and core/kronos_forecaster.py reference these
+# slugs by name; renaming a slug requires updating those modules too.
 BUNDLES: Dict[str, str] = {
     "kronos-tokenizer": "NeoQuasar/Kronos-Tokenizer-base",
-    "kronos-small": "NeoQuasar/Kronos-small",
+    "kronos-base": "NeoQuasar/Kronos-base",
     "finbert": "ProsusAI/finbert",
 }
 

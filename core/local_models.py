@@ -11,7 +11,7 @@ and incomplete builds still work — they just download on first use.
 Slugs we ship:
 
   * ``kronos-tokenizer`` — NeoQuasar/Kronos-Tokenizer-base
-  * ``kronos-small``     — NeoQuasar/Kronos-small
+  * ``kronos-base``      — NeoQuasar/Kronos-base (102M params)
   * ``finbert``          — ProsusAI/finbert
 """
 from __future__ import annotations

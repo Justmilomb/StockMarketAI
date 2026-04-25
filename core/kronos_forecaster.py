@@ -30,10 +30,11 @@ logger = logging.getLogger(__name__)
 _MODEL_LOCK = threading.Lock()
 _PREDICTOR: Optional[Any] = None
 
-#: Default HF identifiers. Kronos-small is 24.7M params — fast and
-#: cheap on CPU. Kronos-base (102M) is higher quality but slower.
+#: Default HF identifiers. Kronos-base (102M params) is the most
+#: accurate open-source Kronos checkpoint and still runs comfortably
+#: on CPU on any modern desktop, so we ship it as the bundled model.
 TOKENIZER_ID: str = "NeoQuasar/Kronos-Tokenizer-base"
-MODEL_ID: str = "NeoQuasar/Kronos-small"
+MODEL_ID: str = "NeoQuasar/Kronos-base"
 
 
 def _get_predictor() -> Any:
@@ -52,7 +53,7 @@ def _get_predictor() -> Any:
         kwargs = {"token": token} if token else {}
 
         tokenizer_src = resolve("kronos-tokenizer", TOKENIZER_ID)
-        model_src = resolve("kronos-small", MODEL_ID)
+        model_src = resolve("kronos-base", MODEL_ID)
         logger.info("kronos: loading tokenizer %s", tokenizer_src)
         tokenizer = KronosTokenizer.from_pretrained(tokenizer_src, **kwargs)
         logger.info("kronos: loading model %s", model_src)
