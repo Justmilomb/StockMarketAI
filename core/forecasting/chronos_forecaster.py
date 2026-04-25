@@ -36,6 +36,11 @@ def _get_pipeline() -> Any:
             return _PIPELINE
         import torch
         from chronos import ChronosPipeline
+        from core.hf_auth import apply_read_token, read_token
+
+        apply_read_token()
+        token = read_token()
+        kwargs = {"token": token} if token else {}
 
         device = "cuda" if torch.cuda.is_available() else "cpu"
         logger.info("chronos: loading %s on %s", MODEL_ID, device)
@@ -43,6 +48,7 @@ def _get_pipeline() -> Any:
             MODEL_ID,
             device_map=device,
             torch_dtype=torch.float32,
+            **kwargs,
         )
         return _PIPELINE
 

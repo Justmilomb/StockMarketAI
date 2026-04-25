@@ -32,10 +32,14 @@ def _get_pipeline() -> Optional[Any]:
         if _PIPELINE is not None:
             return _PIPELINE
         try:
+            from core.hf_auth import apply_read_token, read_token
             from transformers import pipeline as hf_pipeline
+            apply_read_token()
+            token = read_token()
+            kwargs = {"token": token} if token else {}
             _PIPELINE = hf_pipeline(
                 "sentiment-analysis", model=MODEL_ID, tokenizer=MODEL_ID,
-                device=-1, framework="pt",
+                device=-1, framework="pt", **kwargs,
             )
         except Exception as e:
             logger.info("finbert: pipeline init failed: %s", e)

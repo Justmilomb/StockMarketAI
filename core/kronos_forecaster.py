@@ -43,11 +43,15 @@ def _get_predictor() -> Any:
     with _MODEL_LOCK:
         if _PREDICTOR is not None:
             return _PREDICTOR
+        from core.hf_auth import apply_read_token, read_token
         from core.kronos import Kronos, KronosTokenizer, KronosPredictor
+        apply_read_token()
+        token = read_token()
+        kwargs = {"token": token} if token else {}
         logger.info("kronos: loading tokenizer %s", TOKENIZER_ID)
-        tokenizer = KronosTokenizer.from_pretrained(TOKENIZER_ID)
+        tokenizer = KronosTokenizer.from_pretrained(TOKENIZER_ID, **kwargs)
         logger.info("kronos: loading model %s", MODEL_ID)
-        model = Kronos.from_pretrained(MODEL_ID)
+        model = Kronos.from_pretrained(MODEL_ID, **kwargs)
         _PREDICTOR = KronosPredictor(model, tokenizer, max_context=512)
         logger.info("kronos: predictor ready")
         return _PREDICTOR

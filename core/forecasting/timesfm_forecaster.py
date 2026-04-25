@@ -30,6 +30,9 @@ def _get_model() -> Any:
     with _MODEL_LOCK:
         if _MODEL is not None:
             return _MODEL
+        from core.hf_auth import apply_read_token
+        # TimesFM reads HUGGING_FACE_HUB_TOKEN from the env directly.
+        apply_read_token()
         import timesfm
         logger.info("timesfm: loading %s", MODEL_ID)
         _MODEL = timesfm.TimesFm(
