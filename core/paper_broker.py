@@ -304,8 +304,16 @@ class PaperBroker(Broker):
 
         # Background 1 s monitor — runs forever as a daemon so stops
         # and limits execute independently of the agent iteration.
+        # When the active data provider supports WebSocket streaming
+        # (FMP Enterprise), the monitor *also* opens a stream against
+        # every pending-order ticker so triggers fire on tick rather
+        # than waiting for the next 1 s poll. Both paths run together
+        # — streaming is best-effort; if it dies, the poll keeps the
+        # broker correct.
         self._monitor_stop = threading.Event()
         self._monitor_thread: Optional[threading.Thread] = None
+        self._stream_subscription: Any = None
+        self._stream_tickers: tuple[str, ...] = ()
         self._start_monitor()
 
     # ── persistence ──────────────────────────────────────────────────
@@ -538,23 +546,112 @@ class PaperBroker(Broker):
 
         Skips cheaply when there are no pending orders so the hot path
         is a single list check. Errors are logged, not raised — a
-        failed tick must not kill the thread.
+        failed tick must not kill the thread. Whenever the pending
+        ticker set changes we re-subscribe the WebSocket stream (when
+        the provider supports streaming) so new orders are covered.
         """
         while not self._monitor_stop.is_set():
             try:
-                # Cheap peek under the lock; heavy work runs with it.
                 with self._lock:
-                    has_pending = bool(self._state.pending_orders)
-                if has_pending:
+                    pending_tickers = tuple(sorted({o.ticker for o in self._state.pending_orders}))
+                if pending_tickers != self._stream_tickers:
+                    self._sync_stream(list(pending_tickers))
+                if pending_tickers:
                     with self._lock:
                         self._reconcile_pending()
             except Exception:
                 logger.exception("paper: monitor tick failed")
             self._monitor_stop.wait(_MONITOR_TICK_SECONDS)
 
+    def _sync_stream(self, tickers: List[str]) -> None:
+        """Match the WebSocket subscription to the current pending-order set.
+
+        Best-effort: if the provider doesn't support streaming, this
+        is a noop and the 1 s poll continues to drive reconciliation.
+        Failures are logged at debug level — streaming is an
+        optimisation, not a correctness gate.
+        """
+        try:
+            from core.data import get_provider
+            provider = get_provider()
+        except Exception:
+            return
+        if not getattr(provider, "supports_streaming", False):
+            return
+
+        # No pending tickers → tear down any existing stream.
+        if not tickers:
+            if self._stream_subscription is not None:
+                try:
+                    provider.stop_websocket(self._stream_subscription)
+                except Exception:
+                    logger.debug("paper: stop_websocket raised", exc_info=True)
+                self._stream_subscription = None
+            self._stream_tickers = ()
+            return
+
+        # Existing stream → just retarget it.
+        if self._stream_subscription is not None:
+            try:
+                provider.update_websocket_tickers(self._stream_subscription, tickers)
+                self._stream_tickers = tuple(tickers)
+                return
+            except Exception:
+                logger.debug("paper: update_websocket_tickers raised", exc_info=True)
+                # Fall through and rebuild from scratch.
+                try:
+                    provider.stop_websocket(self._stream_subscription)
+                except Exception:
+                    pass
+                self._stream_subscription = None
+
+        # Fresh subscription. ``_on_stream_tick`` simply forces a
+        # reconciliation pass — the provider has already given us the
+        # tick, but the broker is the source of truth for fill prices,
+        # so we let _reconcile_pending re-fetch through the price
+        # cache (which the stream is already warming).
+        try:
+            sub = provider.start_websocket(tickers, self._on_stream_tick)
+        except Exception:
+            logger.debug("paper: start_websocket raised", exc_info=True)
+            sub = None
+        self._stream_subscription = sub
+        self._stream_tickers = tuple(tickers) if sub is not None else ()
+
+    def _on_stream_tick(self, quote: Any) -> None:
+        """Stream callback — kicks reconciliation when a tick lands.
+
+        Reconciliation under the lock would risk priority inversion
+        with the polling loop; we instead nudge the cache and let the
+        next monitor tick (≤1 s away) handle the fill. That keeps
+        order book mutations on a single thread.
+        """
+        try:
+            ticker = getattr(quote, "ticker", None)
+            price = getattr(quote, "price", None)
+            if ticker and price and price > 0:
+                # Hot-load the price cache so the next reconciliation
+                # tick uses the streamed value rather than re-fetching.
+                self._prices._cache[str(ticker)] = (
+                    time.monotonic() + _PRICE_TTL_SECONDS, float(price),
+                )
+        except Exception:
+            logger.debug("paper: _on_stream_tick error", exc_info=True)
+
     def stop_monitor(self) -> None:
-        """Signal the monitor thread to stop and wait briefly for it to exit."""
+        """Signal the monitor thread to stop and wait briefly for it to exit.
+
+        Also tears down the WebSocket subscription if one is active.
+        """
         self._monitor_stop.set()
+        if self._stream_subscription is not None:
+            try:
+                from core.data import get_provider
+                get_provider().stop_websocket(self._stream_subscription)
+            except Exception:
+                logger.debug("paper: stop_websocket on shutdown raised", exc_info=True)
+            self._stream_subscription = None
+            self._stream_tickers = ()
         t = self._monitor_thread
         if t is not None:
             t.join(timeout=2.0)

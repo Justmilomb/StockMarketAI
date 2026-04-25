@@ -150,6 +150,26 @@ class ExecutionConfig(BaseModel):
     twap_slices_per_hour: int = 6
 
 
+class DataProviderConfig(BaseModel):
+    """Market-data backend selection.
+
+    ``primary`` picks which backend the rest of the codebase uses.
+    FMP only activates when both ``primary == "fmp"`` AND
+    ``fmp_enabled == true`` AND the env var named by ``fmp_key_env``
+    holds a non-empty key — any of those missing falls back to
+    yfinance with a startup warning.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    primary: Literal["yfinance", "fmp"] = "yfinance"
+    fmp_enabled: bool = False
+    fmp_key_env: str = "FMP_KEY"
+    fmp_base_url: str = "https://financialmodelingprep.com/api/v3"
+    fmp_base_url_v4: str = "https://financialmodelingprep.com/api/v4"
+    fmp_websocket_url: str = "wss://websockets.financialmodelingprep.com"
+
+
 class AppConfig(BaseModel):
     """Top-level config shape. Unknown keys pass through untouched."""
 
@@ -173,6 +193,7 @@ class AppConfig(BaseModel):
     forecasting: ForecastingConfig = Field(default_factory=ForecastingConfig)
     nlp: NlpConfig = Field(default_factory=NlpConfig)
     execution: ExecutionConfig = Field(default_factory=ExecutionConfig)
+    data_provider: DataProviderConfig = Field(default_factory=DataProviderConfig)
 
     active_asset_class: str = "stocks"
     enabled_asset_classes: List[str] = Field(default_factory=lambda: ["stocks"])

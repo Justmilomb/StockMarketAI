@@ -46,6 +46,15 @@
     "practice": true
   },
 
+  "data_provider": {
+    "primary": "yfinance",
+    "fmp_enabled": false,
+    "fmp_key_env": "FMP_KEY",
+    "fmp_base_url": "https://financialmodelingprep.com/api/v3",
+    "fmp_base_url_v4": "https://financialmodelingprep.com/api/v4",
+    "fmp_websocket_url": "wss://websockets.financialmodelingprep.com"
+  },
+
   "paper_broker": {
     "state_path": "data/paper_state.json",
     "audit_path": "logs/paper_orders.jsonl",

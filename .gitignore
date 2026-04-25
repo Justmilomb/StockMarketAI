@@ -33,11 +33,12 @@ credentials.json
 # Personal config (use config.default.json as the template)
 config.json
 
-# Data (large files)
+# Data (large files) — anchored to repo root so the source-tree
+# package ``core/data/`` (the data-provider abstraction) is tracked.
 *.joblib
-data/
-models/
-cachedir/
+/data/
+/models/
+/cachedir/
 
 # Autoconfig temp files
 autoconfig/.progress.log
