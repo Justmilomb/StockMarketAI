@@ -9,9 +9,12 @@
 ;     running instance and close it gracefully during auto-update.
 ;   * CloseApplications=force + RestartApplications=yes so /VERYSILENT
 ;     upgrades from UpdateService run without user prompts.
-;   * [UninstallDelete] no longer touches user state — data lives in
-;     %LOCALAPPDATA%\blank\ (outside {app}) and is managed by
-;     desktop/paths.py, so uninstall is now safe.
+;   * Uninstall wipes EVERYTHING with no prompt: install dir +
+;     %LOCALAPPDATA%\blank\ (config, paper_state, personality,
+;     logs, models) + the registered AppData session token + every
+;     blank registry key. Auto-update uninstalls (UninstallSilent)
+;     skip the wipe so a /VERYSILENT replace doesn't erase the user
+;     between versions.
 
 #define MyAppRoot "E:\Coding\StockMarketAI"
 
@@ -73,42 +76,59 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"
 Filename: "{app}\blank.exe"; Description: "Launch blank"; Flags: nowait postinstall skipifsilent unchecked
 
 [UninstallDelete]
-; User state lives in %LOCALAPPDATA%\blank\ now — by default, never touch
-; it here (so updates that uninstall+reinstall preserve watchlists, chat
-; history, agent journal). The [Code] section below prompts the user
-; during a genuine uninstall and wipes the data dir if they opt in.
+; Nuke everything inside {app}. The matching wipe of user state under
+; %LOCALAPPDATA%\blank\ happens in [Code] below — Inno Setup expands
+; {localappdata} to the *uninstaller's* profile, so we resolve the
+; path at runtime instead of relying on a static rule here.
 Type: filesandordirs; Name: "{app}\__pycache__"
 Type: filesandordirs; Name: "{app}\engine"
+Type: filesandordirs; Name: "{app}"
 Type: files; Name: "{app}\*.log"
 Type: files; Name: "{app}\*.pyc"
 
 [Code]
-// Prompt on genuine uninstall to optionally wipe %LOCALAPPDATA%\blank\
-// (watchlists, chat history, agent journal, paper broker state).
-// Silent uninstalls (auto-updater) skip the prompt and keep the data.
+// Wipe every blank trace on every uninstall path EXCEPT the silent
+// update flow. The auto-updater (UpdateService) shells out the
+// uninstaller with /VERYSILENT before laying the new build down — if
+// that wipes user state every release, watchlists and the personality
+// JSON evaporate on every minor version bump.
+//
+// Genuine uninstalls (Settings → Apps, Programs and Features) all run
+// non-silent, so they fall through to the wipe routine and leave zero
+// trace on disk or in the registry.
+//
+// Things removed:
+//   * %LOCALAPPDATA%\blank\ — config.json, paper_state.json,
+//     trader_personality.json, logs/, models/, telemetry cache
+//   * %USERPROFILE%\.blank\ — JWT session token (desktop/auth.py)
+//   * HKCU\Software\certified random\blank — Qt QSettings written
+//     by account_settings.py
+//   * HKCU\Software\certified random — only when no other sibling
+//     keys exist (so a future Certified Random product can co-exist)
+//   * HKCU\Software\blank, HKCU\Software\Classes\blank — defensive
+//     sweep against any URL handler / file-association keys a future
+//     build might register
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
-  UserDataDir: String;
-  Response: Integer;
+  LocalDataDir: String;
+  HomeDataDir: String;
 begin
-  if CurUninstallStep = usUninstall then
+  if CurUninstallStep = usPostUninstall then
   begin
     if UninstallSilent then
       Exit;
 
-    UserDataDir := ExpandConstant('{localappdata}\blank');
-    if not DirExists(UserDataDir) then
-      Exit;
+    LocalDataDir := ExpandConstant('{localappdata}\blank');
+    if DirExists(LocalDataDir) then
+      DelTree(LocalDataDir, True, True, True);
 
-    Response := MsgBox(
-      'Also remove your blank user data?' + #13#10#13#10 +
-      'This deletes your watchlists, chat history, agent journal,' + #13#10 +
-      'and paper broker state in:' + #13#10 +
-      UserDataDir + #13#10#13#10 +
-      'Choose No to keep this data for a future reinstall.',
-      mbConfirmation, MB_YESNO or MB_DEFBUTTON2);
+    HomeDataDir := ExpandConstant('{userprofile}\.blank');
+    if DirExists(HomeDataDir) then
+      DelTree(HomeDataDir, True, True, True);
 
-    if Response = IDYES then
-      DelTree(UserDataDir, True, True, True);
+    RegDeleteKeyIncludingSubkeys(HKCU, 'Software\certified random\blank');
+    RegDeleteKeyIfEmpty(HKCU, 'Software\certified random');
+    RegDeleteKeyIncludingSubkeys(HKCU, 'Software\blank');
+    RegDeleteKeyIncludingSubkeys(HKCU, 'Software\Classes\blank');
   end;
 end;
