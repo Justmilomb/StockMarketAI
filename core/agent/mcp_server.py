@@ -52,6 +52,7 @@ from core.agent.tools.macro_tools import MACRO_TOOLS
 from core.agent.tools.news_api_tools import NEWS_API_TOOLS
 from core.agent.tools.alt_data_extended_tools import ALT_DATA_EXTENDED_TOOLS
 from core.agent.tools.fmp_tools import FMP_TOOLS
+from core.agent.tools.stop_tools import STOP_TOOLS
 
 # query_grok is disabled — it drives Playwright/Chromium which is blocked
 # on some client machines and crashes the app when invoked. Keep the
@@ -89,6 +90,7 @@ ALL_TOOLS: List[Any] = [
     *NEWS_API_TOOLS,
     *ALT_DATA_EXTENDED_TOOLS,
     *FMP_TOOLS,
+    *STOP_TOOLS,
 ]
 
 

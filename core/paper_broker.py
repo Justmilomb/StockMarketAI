@@ -178,6 +178,72 @@ class _Order:
 
 
 @dataclass
+class _Stop:
+    """One active stop-loss / take-profit / trailing stop.
+
+    Trigger evaluation (in StopEngine):
+      * stop_loss      → fires when price <= trigger_price
+      * take_profit    → fires when price >= trigger_price
+      * trailing_stop  → tracks high_water_mark on each tick; fires when
+                         price <= high_water_mark - trail_distance
+                         (or high_water_mark * (1 - trail_distance_pct/100))
+
+    ``trigger_price`` and ``high_water_mark`` are stored in the same unit
+    that yfinance returns for the ticker — pence for .L stocks, native
+    currency otherwise. The agent-facing tools accept a ``unit`` arg
+    (``"native" | "GBP" | "GBX"``) and normalise to that on the way in.
+    """
+
+    stop_id: str
+    ticker: str
+    kind: str  # "stop_loss" | "take_profit" | "trailing_stop"
+    quantity: float
+    trigger_price: float = 0.0
+    trail_distance: Optional[float] = None
+    trail_distance_pct: Optional[float] = None
+    high_water_mark: Optional[float] = None
+    reason: str = ""
+    created_at: str = ""
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "stop_id": self.stop_id,
+            "ticker": self.ticker,
+            "kind": self.kind,
+            "quantity": self.quantity,
+            "trigger_price": self.trigger_price,
+            "trail_distance": self.trail_distance,
+            "trail_distance_pct": self.trail_distance_pct,
+            "high_water_mark": self.high_water_mark,
+            "reason": self.reason,
+            "created_at": self.created_at,
+        }
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "_Stop":
+        return cls(
+            stop_id=str(d.get("stop_id", "")),
+            ticker=str(d.get("ticker", "")),
+            kind=str(d.get("kind", "stop_loss")),
+            quantity=float(d.get("quantity", 0.0) or 0.0),
+            trigger_price=float(d.get("trigger_price", 0.0) or 0.0),
+            trail_distance=(
+                float(d["trail_distance"]) if d.get("trail_distance") is not None else None
+            ),
+            trail_distance_pct=(
+                float(d["trail_distance_pct"])
+                if d.get("trail_distance_pct") is not None else None
+            ),
+            high_water_mark=(
+                float(d["high_water_mark"])
+                if d.get("high_water_mark") is not None else None
+            ),
+            reason=str(d.get("reason", "") or ""),
+            created_at=str(d.get("created_at", "") or ""),
+        )
+
+
+@dataclass
 class _State:
     """Everything persisted to disk for a paper account.
 
@@ -193,6 +259,7 @@ class _State:
     currency: str = "USD"
     positions: Dict[str, _Position] = field(default_factory=dict)
     pending_orders: List[_Order] = field(default_factory=list)
+    active_stops: List[_Stop] = field(default_factory=list)
     realised_pnl_acct: float = 0.0
     realised_trading_acct: float = 0.0
     realised_fx_acct: float = 0.0
@@ -204,6 +271,7 @@ class _State:
             "currency": self.currency,
             "positions": {k: v.to_dict() for k, v in self.positions.items()},
             "pending_orders": [o.to_dict() for o in self.pending_orders],
+            "active_stops": [s.to_dict() for s in self.active_stops],
             "realised_pnl_acct": self.realised_pnl_acct,
             "realised_trading_acct": self.realised_trading_acct,
             "realised_fx_acct": self.realised_fx_acct,
@@ -221,6 +289,9 @@ class _State:
             },
             pending_orders=[
                 _Order.from_dict(o) for o in (d.get("pending_orders", []) or [])
+            ],
+            active_stops=[
+                _Stop.from_dict(s) for s in (d.get("active_stops", []) or [])
             ],
             realised_pnl_acct=float(d.get("realised_pnl_acct", 0.0) or 0.0),
             realised_trading_acct=float(d.get("realised_trading_acct", 0.0) or 0.0),
@@ -1202,6 +1273,61 @@ class PaperBroker(Broker):
                 "refund": order.reserved_cash if order.side == "BUY" else 0.0,
             })
             return True
+
+    # ── active-stops state (driven by StopEngine) ────────────────────
+
+    def list_stops(self) -> List[Dict[str, Any]]:
+        """Return a snapshot of every active stop. Safe to mutate the result."""
+        with self._lock:
+            return [s.to_dict() for s in self._state.active_stops]
+
+    def add_stop(self, stop: Dict[str, Any]) -> Dict[str, Any]:
+        """Persist a new stop. Caller is responsible for generating ``stop_id``."""
+        with self._lock:
+            self._state.active_stops.append(_Stop.from_dict(stop))
+            self._save_state()
+            return self._state.active_stops[-1].to_dict()
+
+    def update_stop(self, stop_id: str, updates: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Apply ``updates`` to the matching stop. Returns the new dict, or None."""
+        with self._lock:
+            for s in self._state.active_stops:
+                if s.stop_id != stop_id:
+                    continue
+                if "trigger_price" in updates and updates["trigger_price"] is not None:
+                    s.trigger_price = float(updates["trigger_price"])
+                if "trail_distance" in updates:
+                    s.trail_distance = (
+                        float(updates["trail_distance"])
+                        if updates["trail_distance"] is not None else None
+                    )
+                if "trail_distance_pct" in updates:
+                    s.trail_distance_pct = (
+                        float(updates["trail_distance_pct"])
+                        if updates["trail_distance_pct"] is not None else None
+                    )
+                if "high_water_mark" in updates:
+                    s.high_water_mark = (
+                        float(updates["high_water_mark"])
+                        if updates["high_water_mark"] is not None else None
+                    )
+                if "quantity" in updates and updates["quantity"] is not None:
+                    s.quantity = float(updates["quantity"])
+                if "reason" in updates and updates["reason"] is not None:
+                    s.reason = str(updates["reason"])
+                self._save_state()
+                return s.to_dict()
+            return None
+
+    def remove_stop(self, stop_id: str) -> Optional[Dict[str, Any]]:
+        """Drop a stop by id. Returns the removed dict, or None if not found."""
+        with self._lock:
+            for i, s in enumerate(self._state.active_stops):
+                if s.stop_id == stop_id:
+                    removed = self._state.active_stops.pop(i)
+                    self._save_state()
+                    return removed.to_dict()
+            return None
 
     # ── book-keeping helpers ─────────────────────────────────────────
 
