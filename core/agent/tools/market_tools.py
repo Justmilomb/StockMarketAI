@@ -344,14 +344,19 @@ async def get_intraday_bars(args: Dict[str, Any]) -> Dict[str, Any]:
     if df is None or df.empty:
         return _text_result({"ticker": ticker, "interval": interval, "bars": []})
 
+    # yfinance returns LSE bars in pence — normalise to pounds so the
+    # agent's price reasoning matches the broker / portfolio displays.
+    from fx import is_pence_quoted
+    px_div = 100.0 if is_pence_quoted(ticker) else 1.0
+
     bars: List[Dict[str, Any]] = []
     for ts, row in df.tail(400).iterrows():
         bars.append({
             "ts": ts.isoformat() if hasattr(ts, "isoformat") else str(ts),
-            "open": float(row.get("Open", 0.0) or 0.0),
-            "high": float(row.get("High", 0.0) or 0.0),
-            "low": float(row.get("Low", 0.0) or 0.0),
-            "close": float(row.get("Close", 0.0) or 0.0),
+            "open": float(row.get("Open", 0.0) or 0.0) / px_div,
+            "high": float(row.get("High", 0.0) or 0.0) / px_div,
+            "low": float(row.get("Low", 0.0) or 0.0) / px_div,
+            "close": float(row.get("Close", 0.0) or 0.0) / px_div,
             "volume": float(row.get("Volume", 0.0) or 0.0),
         })
     return _text_result({
@@ -382,14 +387,17 @@ async def get_daily_bars(args: Dict[str, Any]) -> Dict[str, Any]:
     if df is None or df.empty:
         return _text_result({"ticker": ticker, "bars": []})
 
+    from fx import is_pence_quoted
+    px_div = 100.0 if is_pence_quoted(ticker) else 1.0
+
     bars: List[Dict[str, Any]] = []
     for ts, row in df.tail(lookback_days).iterrows():
         bars.append({
             "ts": ts.isoformat() if hasattr(ts, "isoformat") else str(ts),
-            "open": float(row.get("Open", 0.0) or 0.0),
-            "high": float(row.get("High", 0.0) or 0.0),
-            "low": float(row.get("Low", 0.0) or 0.0),
-            "close": float(row.get("Close", 0.0) or 0.0),
+            "open": float(row.get("Open", 0.0) or 0.0) / px_div,
+            "high": float(row.get("High", 0.0) or 0.0) / px_div,
+            "low": float(row.get("Low", 0.0) or 0.0) / px_div,
+            "close": float(row.get("Close", 0.0) or 0.0) / px_div,
             "volume": float(row.get("Volume", 0.0) or 0.0),
         })
     return _text_result({"ticker": ticker, "count": len(bars), "bars": bars})

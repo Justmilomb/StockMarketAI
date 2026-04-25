@@ -68,14 +68,18 @@ def test_fetch_live_prices_rejects_anomalous_tick() -> None:
 
 
 def test_fetch_live_prices_passes_normal_tick() -> None:
-    """A small intraday move (1-2%) must pass through untouched."""
+    """A small intraday move (1-2%) must pass through untouched.
+
+    Note: ``.L`` tickers go through GBX→GBP conversion (divide by 100)
+    on the way out, so 448.0 pence becomes £4.48.
+    """
     frame = _yf_frame([440.0, 441.0, 442.0, 448.0])
 
     with patch("core.data_loader.yf.download", return_value=frame):
         result = data_loader.fetch_live_prices(["BARC.L"])
 
     entry = result["BARC.L"]
-    assert entry["price"] == 448.0
+    assert entry["price"] == 4.48
     assert not entry.get("anomaly", False)
 
 
@@ -83,13 +87,14 @@ def test_fetch_live_prices_skips_sanity_when_only_one_close() -> None:
     """No prior close → no reference → accept whatever yfinance gives.
 
     Can't compute a divergence without two points; don't falsely reject.
+    Use a non-LSE ticker so the GBX→GBP conversion stays out of the way.
     """
     frame = _yf_frame([132.1])
 
     with patch("core.data_loader.yf.download", return_value=frame):
-        result = data_loader.fetch_live_prices(["NEW.L"])
+        result = data_loader.fetch_live_prices(["AAPL"])
 
-    entry = result["NEW.L"]
+    entry = result["AAPL"]
     assert entry["price"] == 132.1
     assert not entry.get("anomaly", False)
 
