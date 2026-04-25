@@ -148,8 +148,9 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "effort_assessor": "medium",
     },
     "news": {
-        "refresh_interval_minutes": 5,
-        "scraper_cadence_seconds": 300,
+        "refresh_interval_minutes": 2,
+        "scraper_cadence_seconds": 120,
+        "scraper_max_workers": 10,
     },
     "updates": {
         "auto_check": True,
@@ -210,6 +211,32 @@ def resolve_config_path(config_path: Path | str = "config.json") -> Path:
     return path
 
 
+def _ensure_dev_monitor_password(data: Dict[str, Any], path: Path) -> bool:
+    """Back-fill a per-install UUID password for telemetry auth.
+
+    Why: every client ships with dev_monitor enabled by default so the
+    admin dashboard can see activity without manual setup, but the
+    server rejects blank Bearer tokens. Generating a stable UUID on
+    first load gives each install an auth token that persists across
+    restarts.
+    """
+    import uuid
+
+    dm = data.get("dev_monitor")
+    if not isinstance(dm, dict):
+        dm = {}
+        data["dev_monitor"] = dm
+    if not dm.get("password"):
+        dm["password"] = str(uuid.uuid4())
+        try:
+            with path.open("w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+        except Exception:
+            pass
+        return True
+    return False
+
+
 def load_config(config_path: Path | str = "config.json") -> Dict[str, Any]:
     """Load config, creating a default if the file doesn't exist."""
     import sys
@@ -226,15 +253,19 @@ def load_config(config_path: Path | str = "config.json") -> Dict[str, Any]:
         if seed.exists():
             shutil.copy2(str(seed), str(path))
             with path.open("r", encoding="utf-8") as f:
-                return json.load(f)
-        with path.open("w", encoding="utf-8") as f:
-            json.dump(DEFAULT_CONFIG, f, indent=2)
-        return dict(DEFAULT_CONFIG)
+                data = json.load(f)
+        else:
+            with path.open("w", encoding="utf-8") as f:
+                json.dump(DEFAULT_CONFIG, f, indent=2)
+            data = dict(DEFAULT_CONFIG)
+        _ensure_dev_monitor_password(data, path)
+        return data
 
     with path.open("r", encoding="utf-8") as f:
         data = json.load(f)
     if "watchlists_paper" not in data:
         data["watchlists_paper"] = {name: [] for name in data.get("watchlists", {})}
+    _ensure_dev_monitor_password(data, path)
     try:
         from core.config_schema import AppConfig
         merged = AppConfig.model_validate(data).model_dump()

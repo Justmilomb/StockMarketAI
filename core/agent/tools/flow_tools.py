@@ -46,6 +46,17 @@ async def end_iteration(args: Dict[str, Any]) -> Dict[str, Any]:
     ctx.next_wait_minutes = minutes
     ctx.end_summary = summary
 
+    # Fire the cadence hook *before* the journal write so the settings
+    # panel countdown flips to the new value immediately, not after the
+    # ~5-20s post-iteration assessor/reflector tail. The hook is
+    # best-effort — a runner that didn't install one is fine.
+    hook = ctx.cadence_hook
+    if hook is not None:
+        try:
+            hook(minutes)
+        except Exception:
+            pass
+
     with sqlite3.connect(ctx.db.db_path) as conn:
         conn.execute(
             "INSERT INTO agent_journal (iteration_id, kind, tool, payload, tags) "

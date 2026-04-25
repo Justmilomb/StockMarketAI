@@ -10,6 +10,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QGroupBox, QLineEdit, QTextEdit, QVBoxLayout
 
 from desktop import tokens as T
+from desktop.auth_state import auth_state
 
 
 _GRADE_COLORS = {
@@ -133,6 +134,7 @@ class ChatPanel(QGroupBox):
             f"QLineEdit:focus {{ border-top-color: {T.ACCENT}; }}"
         )
         layout.addWidget(self._input)
+        auth_state().changed.connect(lambda: self.refresh_view(state))
         self.refresh_view(state)
 
     def _on_submit(self) -> None:
@@ -142,6 +144,11 @@ class ChatPanel(QGroupBox):
             self.message_submitted.emit(text)
 
     def refresh_view(self, state: Any) -> None:
+        signed_in = auth_state().is_signed_in
+        self._input.setEnabled(signed_in)
+        self._input.setPlaceholderText(
+            "Type a message…" if signed_in else "Sign in to chat"
+        )
         history = state.chat_history[-20:] if state.chat_history else []
         html_parts = []
         for msg in history:
@@ -160,7 +167,7 @@ class ChatPanel(QGroupBox):
             else:
                 html_parts.append(
                     f'<div style="margin:10px 0 6px;">'
-                    f'<span style="color:{T.FG_2_HEX};font-family:{T.FONT_MONO};'
+                    f'<span style="color:{T.FG_1_HEX};font-family:{T.FONT_MONO};'
                     f'font-size:10px;letter-spacing:2px;">BLANK</span></div>'
                     f'<div style="margin:0 0 10px;padding-left:2px;'
                     f'border-left:1px solid {T.BORDER_0_HEX};padding:0 0 0 12px;">{text}</div>'
@@ -169,7 +176,7 @@ class ChatPanel(QGroupBox):
             self._messages.setHtml("".join(html_parts))
         else:
             self._messages.setHtml(
-                f'<p style="color:{T.FG_2_HEX};font-family:{T.FONT_MONO};'
+                f'<p style="color:{T.FG_1_HEX};font-family:{T.FONT_MONO};'
                 f'font-size:11px;letter-spacing:2px;">NO MESSAGES YET</p>'
             )
         sb = self._messages.verticalScrollBar()

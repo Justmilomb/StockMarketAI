@@ -29,6 +29,8 @@ from PySide6.QtWidgets import (
 )
 
 from desktop import tokens as T
+from desktop.auth_state import auth_state
+from desktop.widgets.primitives.button import apply_variant
 
 
 # Assessor grade tags emitted by core/agent/runner.py as the leading
@@ -61,19 +63,20 @@ class AgentLogPanel(QGroupBox):
         control_row.addWidget(self._status_label, 1)
 
         self._start_btn = QPushButton("START")
-        self._start_btn.setProperty("variant", "primary")
+        apply_variant(self._start_btn, "primary")
         self._start_btn.setFixedWidth(72)
         self._start_btn.clicked.connect(self.start_requested.emit)
         control_row.addWidget(self._start_btn)
 
         self._stop_btn = QPushButton("STOP")
+        apply_variant(self._stop_btn, "secondary")
         self._stop_btn.setFixedWidth(72)
         self._stop_btn.clicked.connect(self.stop_requested.emit)
         self._stop_btn.setEnabled(False)
         control_row.addWidget(self._stop_btn)
 
         self._kill_btn = QPushButton("KILL")
-        self._kill_btn.setProperty("variant", "danger")
+        apply_variant(self._kill_btn, "danger")
         self._kill_btn.setFixedWidth(60)
         self._kill_btn.clicked.connect(self.kill_requested.emit)
         self._kill_btn.setEnabled(False)
@@ -91,11 +94,13 @@ class AgentLogPanel(QGroupBox):
         self._log_view.document().setMaximumBlockCount(1000)
         layout.addWidget(self._log_view, 1)
 
+        # Flip button state instantly when the user signs in / out.
+        auth_state().changed.connect(lambda: self.refresh_view(state))
         self.refresh_view(state)
 
     @staticmethod
     def _status_style(running: bool) -> str:
-        colour = T.ACCENT_HEX if running else T.FG_2_HEX
+        colour = T.ACCENT_HEX if running else T.FG_1_HEX
         return (
             f"color: {colour}; font-family: {T.FONT_MONO};"
             f" font-size: 10px; letter-spacing: 2px;"
@@ -121,9 +126,14 @@ class AgentLogPanel(QGroupBox):
 
     def refresh_view(self, state: Any) -> None:
         running = bool(getattr(state, "agent_running", False))
-        self._status_label.setText("AGENT RUNNING" if running else "AGENT OFFLINE")
-        self._status_label.setStyleSheet(self._status_style(running))
-        self._start_btn.setEnabled(not running)
+        signed_in = auth_state().is_signed_in
+        if not signed_in:
+            self._status_label.setText("SIGN IN TO USE THE AGENT")
+        else:
+            self._status_label.setText("AGENT RUNNING" if running else "AGENT OFFLINE")
+        self._status_label.setStyleSheet(self._status_style(running and signed_in))
+        # Start is only actionable when signed in AND not already running.
+        self._start_btn.setEnabled(signed_in and not running)
         self._stop_btn.setEnabled(running)
         self._kill_btn.setEnabled(running)
 
@@ -135,6 +145,11 @@ class AgentLogPanel(QGroupBox):
             sb = self._log_view.verticalScrollBar()
             sb.setValue(sb.maximum())
         elif not self._log_view.toPlainText():
-            self._log_view.setPlainText(
-                "Agent is offline. Click START or use Agent → Start Agent.\n"
-            )
+            if signed_in:
+                self._log_view.setPlainText(
+                    "Agent is offline. Click START or use Agent → Start Agent.\n"
+                )
+            else:
+                self._log_view.setPlainText(
+                    "Sign in to start your agent.\n"
+                )

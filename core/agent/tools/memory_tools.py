@@ -109,8 +109,16 @@ async def append_journal(args: Dict[str, Any]) -> Dict[str, Any]:
 
 @tool(
     "read_journal",
-    "Return the last N journal entries, optionally filtered by a tag.",
-    {"limit": int, "tag": str},
+    "Return the last N journal entries, optionally filtered by a tag. "
+    "Both arguments are optional (default limit=25, no tag filter).",
+    {
+        "type": "object",
+        "properties": {
+            "limit": {"type": "integer", "description": "Max entries (default 25)."},
+            "tag": {"type": "string", "description": "Optional tag filter."},
+        },
+        "required": [],
+    },
 )
 async def read_journal(args: Dict[str, Any]) -> Dict[str, Any]:
     ctx = get_agent_context()

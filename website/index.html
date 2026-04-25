@@ -316,6 +316,23 @@
         .signup-note.ok { color: var(--glow); }
         .signup-note.err { color: var(--red); }
 
+        .signin-hint {
+            font-family: var(--mono);
+            font-size: 0.6875rem;
+            letter-spacing: 0.14em;
+            color: var(--text-dim);
+            text-align: center;
+            margin: 14px 0 6px;
+            text-transform: uppercase;
+        }
+        .signin-hint a {
+            color: var(--text);
+            text-decoration: none;
+            border-bottom: 1px solid rgba(255,255,255,0.18);
+            padding-bottom: 1px;
+        }
+        .signin-hint a:hover { color: var(--glow); border-bottom-color: var(--glow); }
+
         .risk-note {
             font-family: var(--mono);
             font-size: 0.5625rem;
@@ -388,7 +405,7 @@
             position: relative;
             z-index: 10;
             width: 100%;
-            padding: 7rem 1.5rem 4rem;
+            padding: 9rem 1.5rem 6rem;
             display: flex;
             flex-direction: column;
             align-items: center;
@@ -407,32 +424,32 @@
             color: var(--text-dim);
             text-transform: uppercase;
             text-align: center;
-            margin-bottom: 1rem;
+            margin-bottom: 1.5rem;
         }
 
         .section-title {
-            font-size: clamp(1.5rem, 3.5vw, 2.5rem);
+            font-size: clamp(1.75rem, 3.8vw, 2.875rem);
             font-weight: 300;
             letter-spacing: -0.02em;
             text-align: center;
-            margin-bottom: 0.75rem;
+            margin-bottom: 1.25rem;
             color: var(--text);
         }
 
         .section-sub {
-            font-size: clamp(0.8125rem, 1.3vw, 0.9375rem);
+            font-size: clamp(0.875rem, 1.3vw, 1rem);
             font-weight: 300;
             color: var(--text-mid);
             line-height: 1.7;
             text-align: center;
-            max-width: 36rem;
-            margin: 0 auto 4rem;
+            max-width: 38rem;
+            margin: 0 auto 5rem;
         }
 
         .panels {
             display: grid;
             grid-template-columns: repeat(12, 1fr);
-            gap: 1rem;
+            gap: 1.5rem;
         }
 
         /* base panel */
@@ -440,7 +457,7 @@
             position: relative;
             border: 1px solid var(--panel-border);
             background: var(--panel);
-            padding: 1.25rem 1.375rem 1.5rem;
+            padding: 1.75rem 1.875rem 2rem;
             opacity: 0;
             transform: translateY(16px);
             transition:
@@ -771,7 +788,7 @@
             position: relative;
             z-index: 10;
             width: 100%;
-            padding: 6rem 2rem 5rem;
+            padding: 8rem 2rem 7rem;
             display: flex;
             flex-direction: column;
             align-items: center;
@@ -785,12 +802,12 @@
         .changelog-title {
             font-size: 0.6875rem;
             font-weight: 300;
-            letter-spacing: 0.3em;
+            letter-spacing: 0.32em;
             text-transform: uppercase;
             color: var(--text-dim);
             text-align: center;
-            margin-bottom: 4rem;
-            padding-bottom: 1.5rem;
+            margin-bottom: 5rem;
+            padding-bottom: 2rem;
             border-bottom: 1px solid rgba(255, 255, 255, 0.06);
         }
 
@@ -798,7 +815,7 @@
             list-style: none;
             display: flex;
             flex-direction: column;
-            gap: 3.5rem;
+            gap: 4.5rem;
         }
 
         .release {
@@ -866,7 +883,7 @@
         footer {
             position: relative;
             z-index: 10;
-            padding: 2.5rem 2rem;
+            padding: 4rem 2rem 3rem;
             text-align: center;
             opacity: 0;
             animation: fadeUp 1s var(--ease-out) 1.4s forwards;
@@ -1035,18 +1052,10 @@
         <div class="signup-wrap">
             <form id="signup-form" class="signup-form" novalidate autocomplete="off">
                 <input type="email" name="email" id="signup-email" placeholder="email address" required spellcheck="false" autocomplete="email">
-                <input type="password" name="password" id="signup-password" placeholder="password (min 8 characters)" required minlength="8" autocomplete="new-password">
-                <label class="check-row">
-                    <input type="checkbox" id="check-terms">
-                    <span>I agree to the <a href="/terms">terms of service</a> and <a href="/privacy">privacy policy</a></span>
-                </label>
-                <label class="check-row">
-                    <input type="checkbox" id="check-risk">
-                    <span>I understand blank is an autonomous trading tool and that trading involves risk of financial loss</span>
-                </label>
-                <button type="submit" id="signup-btn"><span>create account</span></button>
+                <button type="submit" id="signup-btn"><span>get started</span></button>
             </form>
             <p class="signup-note" id="signup-note"></p>
+            <p class="signin-hint">already have an account? <a href="/signup?mode=login">sign in</a></p>
             <p class="risk-note">trading involves risk &middot; capital at risk</p>
         </div>
 
@@ -1122,9 +1131,9 @@
                         <span class="id">WATCHLIST</span>
                         <span class="state">live</span>
                     </div>
-                    <h3>pick the stocks you like</h3>
+                    <h3>it picks the stocks for you</h3>
                     <p>
-                        tell your blank advisor which companies to watch. it tracks their prices and trades them when the time is right.
+                        the advisor finds opportunities on its own &mdash; reads the news, scans the market, and decides what to watch. you never have to pick tickers yourself.
                     </p>
                     <div class="mock-watch">
                         <div class="row"><span class="sym">NVDA</span><span class="px">864.20</span><span class="pct up">+2.14%</span></div>
@@ -1332,10 +1341,11 @@
                     stored on our servers.</p>
                 </details>
                 <details>
-                    <summary>can i use my own settings?</summary>
-                    <p>yes &mdash; risk limits, watchlists, cadence, paper or live,
-                    and dozens of smaller knobs are all in settings. defaults are
-                    conservative so you can tune from there.</p>
+                    <summary>can i pick my own stocks?</summary>
+                    <p>no &mdash; and that's the point. the advisor picks, researches,
+                    trades and manages everything itself. you turn it on, it does the
+                    rest. you can lock positions you don't want it touching, but the
+                    watchlist, the research and the trades are all its job.</p>
                 </details>
                 <details>
                     <summary>does it have to run 24/7?</summary>
@@ -1415,13 +1425,12 @@
             requestAnimationFrame(tick);
         })();
 
-        // signup — POST /api/signup, show download button on success
+        // signup — bounce the visitor to /signup with their email pre-filled
+        // so the full multi-step flow (incl. EULA, ToS, privacy, risk, and
+        // commission agreements) is the only path to an account.
         (function wireSignup() {
             var form = document.getElementById('signup-form');
             var emailInput = document.getElementById('signup-email');
-            var pwInput = document.getElementById('signup-password');
-            var checkTerms = document.getElementById('check-terms');
-            var checkRisk = document.getElementById('check-risk');
             var btn = document.getElementById('signup-btn');
             var note = document.getElementById('signup-note');
             if (!form || !emailInput || !btn || !note) return;
@@ -1435,65 +1444,14 @@
             form.addEventListener('submit', function(e) {
                 e.preventDefault();
                 var email = (emailInput.value || '').trim();
-                var password = (pwInput ? pwInput.value : '') || '';
-                var termsOk = checkTerms && checkTerms.checked;
-                var riskOk = checkRisk && checkRisk.checked;
-
                 if (!email || email.indexOf('@') < 0) {
                     setNote('please enter a valid email', 'err');
                     emailInput.focus();
                     return;
                 }
-                if (!password || password.length < 8) {
-                    setNote('password must be at least 8 characters', 'err');
-                    if (pwInput) pwInput.focus();
-                    return;
-                }
-                if (!termsOk) {
-                    setNote('please agree to the terms of service and privacy policy', 'err');
-                    return;
-                }
-                if (!riskOk) {
-                    setNote('please acknowledge the risk disclosure', 'err');
-                    return;
-                }
-
                 btn.disabled = true;
-                btn.querySelector('span').textContent = 'creating account...';
-                setNote('', null);
-
-                fetch(window.location.origin + '/api/signup', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ email: email, password: password, agreed_terms: true, agreed_risk: true })
-                }).then(function(r) {
-                    return r.json().then(function(j) { return { ok: r.ok, body: j }; });
-                }).then(function(resp) {
-                    if (resp.ok) {
-                        btn.querySelector('span').textContent = 'done';
-                        setNote('account created — check your inbox for your access key', 'ok');
-                        emailInput.value = '';
-                        if (pwInput) pwInput.value = '';
-                        var wrap = document.querySelector('.signup-wrap');
-                        if (wrap && !document.getElementById('download-btn')) {
-                            var dl = document.createElement('a');
-                            dl.id = 'download-btn';
-                            dl.className = 'download-btn';
-                            dl.textContent = 'download';
-                            dl.href = '/api/download';
-                            wrap.appendChild(dl);
-                        }
-                    } else {
-                        btn.disabled = false;
-                        btn.querySelector('span').textContent = 'create account';
-                        var detail = (resp.body && resp.body.detail) || 'something went wrong — try again';
-                        setNote(String(detail), 'err');
-                    }
-                }).catch(function() {
-                    btn.disabled = false;
-                    btn.querySelector('span').textContent = 'create account';
-                    setNote('network error — try again', 'err');
-                });
+                btn.querySelector('span').textContent = 'opening signup…';
+                window.location.href = '/signup?email=' + encodeURIComponent(email);
             });
         })();
 

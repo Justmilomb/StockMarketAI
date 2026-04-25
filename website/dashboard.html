@@ -1,0 +1,1136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>dashboard · blank</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<script>
+// Auth guard — runs before <body> paints so an unauthenticated visitor
+// is bounced to the unified sign-in page instead of staring at
+// "authenticating…" for the lifetime of the tab.
+(function () {
+  try {
+    var t = localStorage.getItem("blank_token");
+    if (!t) {
+      window.location.replace("/signup?mode=login");
+    }
+  } catch (_) {
+    window.location.replace("/signup?mode=login");
+  }
+})();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@200;300;400;500&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+:root {
+  --fg: #ffffff;
+  --dim: rgba(255,255,255,0.62);
+  --faint: rgba(255,255,255,0.38);
+  --mid: rgba(255,255,255,0.10);
+  --soft: rgba(255,255,255,0.04);
+  --accent: #00ff87;
+  --alert: #ff5f57;
+  --warn: #ffb000;
+  --bg: #000000;
+  --panel: #050505;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  background: var(--bg); color: var(--fg);
+  font-family: 'Outfit', 'Helvetica Neue', Arial, sans-serif;
+  font-size: 14px; line-height: 1.55;
+  min-height: 100vh;
+}
+a { color: inherit; text-decoration: none; }
+
+.shell {
+  max-width: 1140px; margin: 0 auto;
+  padding: 64px 40px 120px;
+}
+.topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 56px; gap: 16px;
+}
+.brand {
+  font-family: 'Outfit', sans-serif;
+  font-weight: 300; font-size: 26px; letter-spacing: -0.02em;
+  position: relative;
+}
+.brand::after {
+  content: ''; display: block;
+  width: 36px; height: 1px; background: var(--accent);
+  margin-top: 12px;
+}
+.user-pill {
+  display: flex; align-items: center; gap: 10px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; letter-spacing: 0.08em;
+  color: var(--dim);
+}
+.user-pill .who { color: var(--fg); text-transform: lowercase; }
+.user-pill button {
+  background: transparent; border: 1px solid var(--mid);
+  color: var(--dim); font-family: inherit;
+  font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase;
+  padding: 6px 10px; cursor: pointer;
+}
+.user-pill button:hover { color: var(--fg); border-color: var(--fg); }
+
+.banner {
+  background: rgba(255,176,0,0.06);
+  border: 1px solid rgba(255,176,0,0.4);
+  padding: 18px 22px; margin-bottom: 36px;
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 18px; flex-wrap: wrap;
+}
+.banner .msg { font-size: 13px; color: var(--fg); }
+.banner .msg b { color: var(--warn); font-weight: 500; }
+.banner button {
+  background: transparent; color: var(--warn);
+  border: 1px solid rgba(255,176,0,0.5);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase;
+  padding: 8px 14px; cursor: pointer;
+}
+.banner button:hover { background: rgba(255,176,0,0.08); }
+.banner.ok { border-color: rgba(0,255,135,0.3); background: rgba(0,255,135,0.04); }
+.banner.ok .msg b { color: var(--accent); }
+
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
+.full { grid-column: 1 / -1; }
+
+.hero-download {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 24px; flex-wrap: wrap;
+  border: 1px solid rgba(0,255,135,0.35);
+  background: linear-gradient(135deg, rgba(0,255,135,0.05), rgba(0,255,135,0.02));
+  padding: 32px 36px; margin-bottom: 36px;
+}
+.hero-download .hero-copy h3 {
+  font-family: 'Outfit', sans-serif; font-size: 28px;
+  font-weight: 300; letter-spacing: -0.02em; margin: 0 0 8px;
+  color: var(--fg);
+}
+.hero-download .hero-copy p {
+  margin: 0; color: var(--dim); font-size: 14px; line-height: 1.5;
+}
+.hero-download .hero-copy .tag {
+  display: inline-block; font-family: 'JetBrains Mono', monospace;
+  font-size: 10px; letter-spacing: 0.22em; text-transform: uppercase;
+  color: var(--accent); margin-bottom: 8px;
+}
+.hero-download a.download-btn {
+  display: inline-flex; align-items: center; gap: 10px;
+  background: var(--accent); color: var(--bg);
+  border: none; padding: 18px 32px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px; letter-spacing: 0.18em; text-transform: uppercase;
+  font-weight: 500; cursor: pointer;
+  text-decoration: none;
+  transition: background 0.12s ease, transform 0.12s ease;
+}
+.hero-download a.download-btn:hover {
+  background: #33ffa3; transform: translateY(-1px);
+}
+.hero-download a.download-btn .arrow { font-size: 16px; line-height: 1; }
+.hero-download .hero-meta {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase;
+  color: var(--faint); margin-top: 6px;
+}
+.panel { background: var(--panel); border: 1px solid var(--mid); padding: 40px 40px 36px; }
+.panel h2 {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; letter-spacing: 0.32em; color: var(--accent);
+  text-transform: uppercase; font-weight: 500;
+  margin: 0 0 22px;
+}
+.panel h3 {
+  font-family: 'Outfit', sans-serif;
+  font-size: 26px; font-weight: 300; letter-spacing: -0.02em;
+  color: var(--fg); margin: 0 0 10px;
+  line-height: 1.25;
+}
+.panel p.lead { color: var(--dim); font-size: 14px; line-height: 1.6; margin: 0 0 28px; max-width: 56ch; }
+
+label.field {
+  display: block; margin: 18px 0 8px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px; letter-spacing: 0.22em;
+  text-transform: uppercase; color: var(--dim);
+}
+input[type=text], input[type=email], input[type=password], input[type=tel] {
+  width: 100%; background: transparent;
+  border: none; border-bottom: 1px solid var(--mid);
+  color: var(--fg); font-size: 15px; padding: 8px 0;
+  outline: none; font-family: inherit;
+}
+input:focus { border-bottom-color: var(--accent); }
+input:disabled { color: var(--faint); cursor: not-allowed; }
+
+button.btn {
+  display: inline-block;
+  background: var(--accent); color: var(--bg);
+  border: none;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase;
+  padding: 12px 22px; cursor: pointer; font-weight: 500;
+}
+button.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+button.btn.ghost {
+  background: transparent; color: var(--fg);
+  border: 1px solid var(--mid);
+}
+button.btn.ghost:hover { border-color: var(--fg); }
+.row-actions { margin-top: 22px; display: flex; gap: 12px; flex-wrap: wrap; }
+.feedback {
+  display: block; margin-top: 10px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; letter-spacing: 0.12em; min-height: 14px;
+}
+.feedback.ok  { color: var(--accent); }
+.feedback.err { color: var(--alert); }
+
+.profile-row {
+  display: flex; align-items: center; gap: 22px;
+  margin-bottom: 20px;
+}
+.avatar-thumb {
+  width: 72px; height: 72px;
+  background: #000; border: 1px solid var(--mid);
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.avatar-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.avatar-thumb.empty {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px; letter-spacing: 0.22em; color: var(--faint);
+  text-transform: uppercase;
+}
+.avatar-grid {
+  display: grid; grid-template-columns: repeat(10, 1fr); gap: 6px;
+  margin-top: 12px; padding: 10px;
+  border: 1px solid var(--mid); background: var(--soft);
+  max-height: 260px; overflow-y: auto;
+}
+.avatar-opt {
+  aspect-ratio: 1; cursor: pointer;
+  background: #000; border: 2px solid transparent;
+  position: relative;
+}
+.avatar-opt img { width: 100%; height: 100%; display: block; opacity: 0.85; }
+.avatar-opt:hover img { opacity: 1; }
+.avatar-opt.selected { border-color: var(--accent); }
+.avatar-opt.selected img { opacity: 1; }
+
+.coming-soon {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 0; border-bottom: 1px solid var(--mid);
+}
+.coming-soon:last-child { border-bottom: none; }
+.coming-soon .lbl { font-size: 13px; color: var(--fg); }
+.coming-soon .val {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px; letter-spacing: 0.18em;
+  text-transform: uppercase; color: var(--faint);
+}
+
+.range { display: flex; gap: 8px; margin-bottom: 26px; }
+.range button {
+  flex: 1; background: transparent; border: 1px solid var(--mid);
+  color: var(--dim);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase;
+  padding: 11px 0; cursor: pointer;
+}
+.range button.on { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+
+.stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; }
+.stat { border: 1px solid var(--mid); padding: 22px 22px 20px; background: var(--bg); }
+.stat .label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px; letter-spacing: 0.22em; color: var(--dim);
+  text-transform: uppercase; margin: 0 0 10px;
+}
+.stat .value {
+  font-family: 'Outfit', sans-serif; font-weight: 300;
+  font-size: 30px; letter-spacing: -0.02em;
+}
+.stat .value.pos { color: var(--accent); }
+.stat .value.neg { color: var(--alert); }
+
+.payment-line {
+  display: flex; justify-content: space-between; align-items: baseline;
+  padding: 18px 0; border-bottom: 1px solid var(--mid);
+}
+.payment-line:last-child { border-bottom: none; }
+.payment-line .l {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase;
+  color: var(--dim);
+}
+.payment-line .r {
+  font-family: 'Outfit', sans-serif; font-size: 18px;
+  font-weight: 300; color: var(--fg);
+}
+.payment-line .r.dim { color: var(--faint); font-size: 13px; }
+
+.plans {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px;
+  margin-top: 8px;
+}
+.plan {
+  background: var(--bg); border: 1px solid var(--mid);
+  padding: 32px 26px 28px; position: relative;
+  display: flex; flex-direction: column; gap: 16px;
+}
+.plan.recommended { border-color: rgba(0,255,135,0.4); }
+.plan.current {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px rgba(0,255,135,0.5);
+}
+.plan.best-fit {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px rgba(0,255,135,0.55);
+}
+.plan .ribbon {
+  position: absolute; top: -1px; right: -1px;
+  background: var(--accent); color: var(--bg);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px; letter-spacing: 0.22em; text-transform: uppercase;
+  padding: 4px 10px; font-weight: 500;
+}
+.plan .plan-projection {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px; letter-spacing: 0.14em;
+  color: var(--accent);
+  text-transform: uppercase;
+  min-height: 12px;
+}
+.plan-suggestion {
+  border: 1px solid rgba(0,255,135,0.35);
+  background: rgba(0,255,135,0.04);
+  padding: 12px 14px;
+  margin: 0 0 14px;
+  font-size: 13px;
+  color: var(--dim);
+  line-height: 1.55;
+}
+.plan-suggestion b { color: var(--fg); font-weight: 500; }
+.plan .plan-name {
+  font-family: 'Outfit', sans-serif;
+  font-size: 18px; font-weight: 300; letter-spacing: -0.01em;
+  color: var(--fg);
+}
+.plan .plan-tag { color: var(--dim); font-size: 12px; line-height: 1.5; }
+.plan .plan-price {
+  display: flex; align-items: baseline; gap: 6px;
+  margin-top: 4px;
+}
+.plan .plan-price .num {
+  font-family: 'Outfit', sans-serif;
+  font-weight: 300; font-size: 30px; color: var(--fg);
+  letter-spacing: -0.02em;
+}
+.plan .plan-price .per {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px; letter-spacing: 0.18em;
+  text-transform: uppercase; color: var(--dim);
+}
+.plan .plan-commission {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase;
+  color: var(--dim);
+  border-top: 1px solid var(--mid); padding-top: 10px;
+}
+.plan ul {
+  list-style: none; padding: 0; margin: 4px 0 8px;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.plan ul li {
+  font-size: 12px; color: var(--dim);
+  padding-left: 14px; position: relative;
+}
+.plan ul li::before {
+  content: '›'; position: absolute; left: 0;
+  color: var(--accent);
+  font-family: 'JetBrains Mono', monospace;
+}
+.plan button {
+  width: 100%; margin-top: auto;
+  background: transparent; color: var(--fg);
+  border: 1px solid var(--mid);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px; letter-spacing: 0.22em; text-transform: uppercase;
+  padding: 11px 0; cursor: pointer;
+}
+.plan button:hover { border-color: var(--fg); }
+.plan button.current-cta {
+  background: var(--accent); color: var(--bg); border-color: var(--accent);
+  cursor: default;
+}
+.plan button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.plan.locked { opacity: 0.55; }
+.plan.locked button,
+.plan.locked button:hover { border-color: var(--mid); color: var(--faint); cursor: not-allowed; }
+.plan.dev-current {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px rgba(0,255,135,0.55);
+  opacity: 1;
+}
+.plan.dev-current .plan-name { color: var(--accent); }
+.plan.dev-current button,
+.plan.dev-current button:hover {
+  background: var(--accent); color: var(--bg); border-color: var(--accent);
+  cursor: default; opacity: 1;
+}
+
+.loading {
+  display: flex; align-items: center; justify-content: center;
+  min-height: 60vh;
+  color: var(--dim);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+
+@media (max-width: 760px) {
+  .shell { padding: 22px 16px 48px; }
+  .grid { grid-template-columns: 1fr; gap: 14px; }
+  .stats { grid-template-columns: 1fr 1fr; }
+  .plans { grid-template-columns: 1fr; }
+  .avatar-grid { grid-template-columns: repeat(6, 1fr); }
+  .panel { padding: 20px 18px; }
+  .topbar { flex-direction: column; align-items: flex-start; gap: 12px; }
+  .stat .value { font-size: 22px; }
+  .plan .plan-price .num { font-size: 26px; }
+}
+</style>
+</head>
+<body>
+<div id="loading" class="loading">loading your dashboard&hellip;</div>
+
+<div class="shell" id="shell" style="display:none">
+
+  <div class="topbar">
+    <div class="brand">blank</div>
+    <div class="user-pill">
+      <span class="who" id="topUser">&mdash;</span>
+      <button id="signoutBtn">sign out</button>
+    </div>
+  </div>
+
+  <div class="banner" id="verifyBanner" style="display:none">
+    <div class="msg" id="verifyMsg"></div>
+    <button id="resendBtn">resend</button>
+  </div>
+
+  <div class="hero-download">
+    <div class="hero-copy">
+      <span class="tag">desktop app</span>
+      <h3>download blank for windows</h3>
+      <p>the full autonomous trading terminal. paper or live. runs on your machine.</p>
+      <div class="hero-meta" id="dlVersion">&mdash;</div>
+    </div>
+    <a class="download-btn" id="dlHero" href="#">
+      <span>download</span><span class="arrow">&rarr;</span>
+    </a>
+  </div>
+
+  <div class="grid">
+
+    <section class="panel full">
+      <h2>profile</h2>
+      <h3 id="welcomeName">welcome.</h3>
+      <p class="lead">manage how blank knows you. your avatar shows up on every panel inside the app.</p>
+
+      <div class="profile-row">
+        <div class="avatar-thumb empty" id="avatarThumb">none</div>
+        <div style="flex:1">
+          <label class="field" for="fullName">full name</label>
+          <input id="fullName" type="text" autocomplete="name" placeholder="your legal name" />
+          <span class="feedback" id="nameFeedback"></span>
+        </div>
+      </div>
+
+      <div class="row-actions">
+        <button class="btn" id="saveNameBtn">save name</button>
+        <button class="btn ghost" id="toggleAvatarsBtn">change avatar</button>
+      </div>
+
+      <div id="avatarGridWrap" style="display:none">
+        <div class="avatar-grid" id="avatarGrid"></div>
+        <span class="feedback" id="avatarFeedback"></span>
+      </div>
+
+      <div style="margin-top:36px">
+        <div class="coming-soon">
+          <span class="lbl">phone number</span>
+          <span class="val">coming soon</span>
+        </div>
+        <div class="coming-soon">
+          <span class="lbl">payment card</span>
+          <span class="val">coming soon &middot; stripe</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel full">
+      <h2>analytics</h2>
+      <h3>your trading numbers</h3>
+      <p class="lead">live figures from the desktop app. switch the window to see different periods.</p>
+
+      <div class="range" id="rangeBtns">
+        <button data-range="today" class="on">today</button>
+        <button data-range="7d">7 days</button>
+        <button data-range="30d">30 days</button>
+        <button data-range="all">all time</button>
+      </div>
+
+      <div class="stats">
+        <div class="stat"><p class="label">total trades</p><p class="value" id="statTrades">&mdash;</p></div>
+        <div class="stat"><p class="label">win rate</p><p class="value" id="statWin">&mdash;</p></div>
+        <div class="stat"><p class="label">profit (window)</p><p class="value" id="statPnlWindow">&mdash;</p></div>
+        <div class="stat"><p class="label">profit (all time)</p><p class="value" id="statPnlAll">&mdash;</p></div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>payment</h2>
+      <h3>this billing cycle</h3>
+      <p class="lead">we collect on monday at 09:00 uk time, only when you're in profit.</p>
+      <div class="payment-line"><span class="l">amount due</span><span class="r" id="payDue">&mdash;</span></div>
+      <div class="payment-line"><span class="l">commission</span><span class="r" id="payRate">&mdash;</span></div>
+      <div class="payment-line"><span class="l">monthly fee</span><span class="r" id="payMonthly">&mdash;</span></div>
+      <div class="payment-line"><span class="l">next charge</span><span class="r" id="payNext">&mdash;</span></div>
+      <div class="payment-line"><span class="l">card on file</span><span class="r dim" id="payCard">none yet</span></div>
+      <div class="payment-line"><span class="l">history</span><span class="r dim">no charges yet</span></div>
+    </section>
+
+    <section class="panel">
+      <h2>settings</h2>
+      <h3>account</h3>
+      <p class="lead">change your password and manage your account.</p>
+
+      <label class="field" for="curPwd">current password</label>
+      <input id="curPwd" type="password" autocomplete="current-password" />
+      <label class="field" for="newPwd">new password</label>
+      <input id="newPwd" type="password" autocomplete="new-password" placeholder="at least 8 characters" />
+      <span class="feedback" id="pwdFeedback"></span>
+      <div class="row-actions">
+        <button class="btn" id="savePwdBtn">change password</button>
+      </div>
+
+      <div style="margin-top:36px">
+        <div class="coming-soon">
+          <span class="lbl">trading 212 api key</span>
+          <span class="val">configure inside the app</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel full">
+      <h2>plan</h2>
+      <h3 id="planHeadline">choose your plan</h3>
+      <p class="lead">switch any time. paid tiers need a verified card on file (coming soon).</p>
+      <div class="plan-suggestion" id="planSuggestion" style="display:none"></div>
+      <div class="plans" id="plansWrap"></div>
+      <span class="feedback" id="planFeedback"></span>
+    </section>
+
+  </div>
+</div>
+
+<script>
+(function () {
+  const $  = (s) => document.querySelector(s);
+  const $$ = (s) => document.querySelectorAll(s);
+
+  const TOKEN_KEY = "blank_token";
+  let token = null;
+  try { token = localStorage.getItem(TOKEN_KEY); } catch (_) { token = null; }
+  if (!token) {
+    window.location.replace("/signup?mode=login");
+    return;
+  }
+
+  const auth = { headers: { "Authorization": "Bearer " + token, "Content-Type": "application/json" } };
+  const state = {
+    user: null,
+    plan: null,
+    plans: [],
+    analytics: null,
+    recommendation: null,
+    range: "today",
+    avatarGridBuilt: false,
+  };
+
+  function fmtMoney(amount, currency) {
+    const sign = amount < 0 ? "-" : "";
+    const abs = Math.abs(Number(amount) || 0);
+    const sym = (currency || "GBP") === "GBP" ? "\u00a3" : (currency || "");
+    return sign + sym + abs.toFixed(2);
+  }
+  function fmtDate(iso) {
+    if (!iso) return "\u2014";
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return "\u2014";
+    return d.toLocaleDateString(undefined, { day: "2-digit", month: "short" })
+      + " " + d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  }
+
+  function setText(id, txt) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = txt;
+  }
+
+  function setVerifyBanner(state) {
+    const b = $("#verifyBanner");
+    const msg = $("#verifyMsg");
+    if (state === "hidden") {
+      b.style.display = "none";
+      return;
+    }
+    b.style.display = "flex";
+    msg.replaceChildren();
+    const strong = document.createElement("b");
+    if (state === "sent") {
+      strong.textContent = "sent.";
+      msg.appendChild(strong);
+      msg.appendChild(document.createTextNode(" check your inbox."));
+      b.classList.add("ok");
+      $("#resendBtn").style.display = "none";
+    } else {
+      strong.textContent = "verify your email.";
+      msg.appendChild(strong);
+      msg.appendChild(document.createTextNode(" we sent a confirmation link to your inbox."));
+      b.classList.remove("ok");
+      $("#resendBtn").style.display = "";
+    }
+  }
+
+  function setAvatarThumb(id) {
+    const t = $("#avatarThumb");
+    t.replaceChildren();
+    if (id && id > 0) {
+      t.classList.remove("empty");
+      const img = document.createElement("img");
+      img.src = "/api/avatars/" + id + ".svg";
+      img.alt = "avatar " + id;
+      t.appendChild(img);
+    } else {
+      t.classList.add("empty");
+      t.textContent = "none";
+    }
+  }
+
+  function renderUser(user) {
+    try {
+      user = user || {};
+      const display = ((user.full_name || user.name || user.email || "you") + "").trim() || "you";
+      const first = (display.split(" ")[0] || display).toLowerCase();
+      setText("topUser", first);
+      setText("welcomeName", "welcome, " + (display.split(" ")[0] || display) + ".");
+      const nameInput = $("#fullName");
+      if (nameInput) nameInput.value = user.full_name || user.name || "";
+      setAvatarThumb(user.avatar_id || 0);
+      setVerifyBanner(user.email_verified ? "hidden" : "needs");
+    } catch (e) {
+      console.error("renderUser failed:", e);
+    }
+  }
+
+  function fmtPct(n) {
+    const v = Number(n) || 0;
+    return (Math.round(v * 10) / 10) + "%";
+  }
+
+  function renderPayment(payment) {
+    try {
+      payment = payment || {};
+      const isDev = !!(state.plan && state.plan.is_dev);
+      if (isDev) {
+        setText("payDue", "\u00a30.00");
+        setText("payRate", "waived \u00b7 dev account");
+        setText("payMonthly", "waived \u00b7 dev account");
+        setText("payNext", "\u2014");
+        setText("payCard", "not required");
+        return;
+      }
+      const currency = payment.currency || "GBP";
+      setText("payDue", fmtMoney(payment.amount_due || 0, currency));
+      let rateText = fmtPct(payment.fee_rate_pct || 0) + " of profit";
+      if (payment.weekly_threshold_gbp != null
+          && payment.commission_pct_above_threshold != null) {
+        rateText = fmtPct(payment.fee_rate_pct || 0)
+          + " now \u00b7 drops to "
+          + fmtPct(payment.commission_pct_above_threshold)
+          + " above \u00a3" + payment.weekly_threshold_gbp + "/wk";
+      }
+      setText("payRate", rateText);
+      setText("payMonthly",
+        (payment.monthly_fee || 0) > 0
+          ? fmtMoney(payment.monthly_fee, currency) + " / month"
+          : "no monthly fee");
+      setText("payNext", fmtDate(payment.next_payment_at));
+      setText("payCard", payment.card_last4 ? "\u2022\u2022\u2022\u2022 " + payment.card_last4 : "none yet");
+    } catch (e) {
+      console.error("renderPayment failed:", e);
+    }
+  }
+
+  function renderAnalytics(analytics) {
+    try {
+      analytics = analytics || {};
+      const rng = state.range;
+      const winKey = rng === "today" ? "pnl_today"
+        : rng === "7d" ? "pnl_7d"
+        : rng === "30d" ? "pnl_30d"
+        : "pnl_all";
+      const v = Number(analytics[winKey]) || 0;
+      const cls = v > 0 ? "pos" : v < 0 ? "neg" : "";
+      setText("statTrades", String(analytics.total_trades || 0));
+      setText("statWin", (Number(analytics.win_rate) || 0).toFixed(1) + "%");
+      const w = $("#statPnlWindow");
+      if (w) {
+        w.textContent = fmtMoney(v, "GBP");
+        w.className = "value " + cls;
+      }
+      const a = $("#statPnlAll");
+      const totalPnl = Number(analytics.total_pnl) || 0;
+      if (a) {
+        a.textContent = fmtMoney(totalPnl, "GBP");
+        a.className = "value " + (totalPnl > 0 ? "pos" : totalPnl < 0 ? "neg" : "");
+      }
+    } catch (e) {
+      console.error("renderAnalytics failed:", e);
+    }
+  }
+
+  function planCommissionLabel(p) {
+    p = p || {};
+    const base = fmtPct(p.commission_pct);
+    if (p.weekly_threshold_gbp != null && p.commission_pct_above_threshold != null) {
+      return base + " up to \u00a3" + p.weekly_threshold_gbp + "/wk \u00b7 "
+        + fmtPct(p.commission_pct_above_threshold) + " above";
+    }
+    return base + " commission";
+  }
+
+  function buildPlanCard(p, currentId, bestId) {
+    p = p || {};
+    const card = document.createElement("div");
+    const isDev = !!(state.plan && state.plan.is_dev);
+    const isBest = bestId && p.id === bestId && !isDev;
+    card.className = "plan"
+      + (p.recommended && !isDev ? " recommended" : "")
+      + (p.id === currentId && !isDev ? " current" : "")
+      + (isBest ? " best-fit" : "")
+      + (isDev ? " locked" : "");
+    if (isDev && p.id === currentId) {
+      card.classList.remove("locked");
+      card.classList.add("dev-current");
+      const r = document.createElement("div");
+      r.className = "ribbon";
+      r.textContent = "dev account";
+      card.appendChild(r);
+    } else if (isBest) {
+      const r = document.createElement("div");
+      r.className = "ribbon";
+      r.textContent = "best for you";
+      card.appendChild(r);
+    } else if (p.recommended && !isDev) {
+      const r = document.createElement("div");
+      r.className = "ribbon";
+      r.textContent = "recommended";
+      card.appendChild(r);
+    }
+    const name = document.createElement("div");
+    name.className = "plan-name";
+    name.textContent = p.label || p.id || "plan";
+    card.appendChild(name);
+
+    const tag = document.createElement("div");
+    tag.className = "plan-tag";
+    tag.textContent = p.tagline || "";
+    card.appendChild(tag);
+
+    const price = document.createElement("div");
+    price.className = "plan-price";
+    const num = document.createElement("span");
+    num.className = "num";
+    const monthlyFee = Number(p.monthly_fee) || 0;
+    num.textContent = (monthlyFee > 0 ? "\u00a3" + monthlyFee : "free");
+    price.appendChild(num);
+    const per = document.createElement("span");
+    per.className = "per";
+    per.textContent = (monthlyFee > 0 ? "/ month" : "no fee");
+    price.appendChild(per);
+    card.appendChild(price);
+
+    const ul = document.createElement("ul");
+    (p.features || []).forEach((f) => {
+      const li = document.createElement("li");
+      li.textContent = String(f || "");
+      ul.appendChild(li);
+    });
+    card.appendChild(ul);
+
+    const com = document.createElement("div");
+    com.className = "plan-commission";
+    com.textContent = planCommissionLabel(p);
+    card.appendChild(com);
+
+    const proj = document.createElement("div");
+    proj.className = "plan-projection";
+    proj.dataset.planProj = p.id || "";
+    card.appendChild(proj);
+
+    const btn = document.createElement("button");
+    const label = (p.label || p.id || "plan").toLowerCase();
+    if (isDev) {
+      btn.textContent = (p.id === currentId) ? "dev \u00b7 all features" : "locked for dev accounts";
+      btn.disabled = true;
+    } else if (p.id === currentId) {
+      btn.textContent = "current";
+      btn.className = "current-cta";
+      btn.disabled = true;
+    } else {
+      btn.textContent = "switch to " + label;
+      btn.addEventListener("click", () => switchPlan(p.id));
+    }
+    card.appendChild(btn);
+    return card;
+  }
+
+  function renderPlans() {
+    try {
+      const wrap = $("#plansWrap");
+      if (!wrap) return;
+      wrap.replaceChildren();
+      const currentId = (state.plan && state.plan.id) || "starter";
+      const rec = state.recommendation || null;
+      const bestId = rec && rec.best_plan_id;
+      const plans = Array.isArray(state.plans) ? state.plans : [];
+      plans.forEach((p) => {
+        try {
+          wrap.appendChild(buildPlanCard(p, currentId, bestId));
+        } catch (e) {
+          console.error("buildPlanCard failed for", p && p.id, e);
+        }
+      });
+      setText("planHeadline", state.plan && state.plan.is_dev
+        ? "dev account \u00b7 all features unlocked"
+        : "choose your plan");
+      renderRecommendation();
+    } catch (e) {
+      console.error("renderPlans failed:", e);
+    }
+  }
+
+  function renderRecommendation() {
+    try {
+      const banner = $("#planSuggestion");
+      if (!banner) return;
+      const rec = state.recommendation;
+      const currentId = (state.plan && state.plan.id) || "starter";
+      if (state.plan && state.plan.is_dev) {
+        banner.style.display = "none";
+        return;
+      }
+      const profitBasis = Number(rec && rec.weekly_profit_basis) || 0;
+      if (!rec || !rec.best_plan_id || profitBasis <= 0) {
+        banner.style.display = "none";
+      } else {
+        banner.style.display = "block";
+        banner.replaceChildren();
+        const profit = fmtMoney(profitBasis, "GBP");
+        if (rec.best_plan_id === currentId) {
+          const b = document.createElement("b");
+          b.textContent = "you're on the cheapest plan for your profits.";
+          banner.appendChild(b);
+          banner.appendChild(document.createTextNode(
+            " based on " + profit + " realised in the last 7 days."));
+        } else {
+          const plans = Array.isArray(state.plans) ? state.plans : [];
+          const bestPlan = plans.find((p) => p && p.id === rec.best_plan_id);
+          const bestLabel = (bestPlan && bestPlan.label) || rec.best_plan_id;
+          const curCost = Number(rec.current_weekly_cost) || 0;
+          const bestCost = Number(rec.best_weekly_cost) || 0;
+          const saving = curCost - bestCost;
+          const b = document.createElement("b");
+          b.textContent = bestLabel + " would cost you about \u00a3"
+            + saving.toFixed(2) + " less per week.";
+          banner.appendChild(b);
+          banner.appendChild(document.createTextNode(
+            " based on " + profit + " realised in the last 7 days ("
+            + fmtMoney(curCost, "GBP") + "/wk now \u2192 "
+            + fmtMoney(bestCost, "GBP") + "/wk on " + bestLabel + ")."));
+        }
+      }
+      const costs = (rec && Array.isArray(rec.plan_costs)) ? rec.plan_costs : [];
+      costs.forEach((c) => {
+        if (!c || !c.plan_id) return;
+        const el = document.querySelector('[data-plan-proj="' + c.plan_id + '"]');
+        if (!el) return;
+        if (profitBasis <= 0) {
+          el.textContent = "";
+          return;
+        }
+        el.textContent = "\u2248 " + fmtMoney(c.weekly_cost, "GBP") + " / wk on your profits";
+      });
+    } catch (e) {
+      console.error("renderRecommendation failed:", e);
+    }
+  }
+
+  function ensureAvatarGrid() {
+    if (state.avatarGridBuilt) return;
+    state.avatarGridBuilt = true;
+    const grid = $("#avatarGrid");
+    for (let i = 1; i <= 100; i++) {
+      const cell = document.createElement("div");
+      cell.className = "avatar-opt";
+      cell.dataset.avatar = String(i);
+      const img = document.createElement("img");
+      img.src = "/api/avatars/" + i + ".svg";
+      img.alt = "avatar " + i;
+      img.loading = "lazy";
+      cell.appendChild(img);
+      cell.addEventListener("click", () => pickAvatar(i));
+      grid.appendChild(cell);
+    }
+    if (state.user && state.user.avatar_id) {
+      const sel = grid.querySelector('[data-avatar="' + state.user.avatar_id + '"]');
+      if (sel) sel.classList.add("selected");
+    }
+  }
+
+  function pickAvatar(id) {
+    $$(".avatar-opt").forEach((c) => {
+      c.classList.toggle("selected", Number(c.dataset.avatar) === id);
+    });
+    fetch("/api/me/avatar", {
+      method: "POST",
+      headers: auth.headers,
+      body: JSON.stringify({ avatar_id: id }),
+    })
+      .then((r) => r.json())
+      .then(() => {
+        state.user.avatar_id = id;
+        setAvatarThumb(id);
+        feedback("avatarFeedback", "saved", "ok");
+      })
+      .catch(() => feedback("avatarFeedback", "could not save", "err"));
+  }
+
+  function feedback(id, msg, cls) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = msg || "";
+    el.className = "feedback" + (cls ? " " + cls : "");
+    if (msg) setTimeout(() => { el.textContent = ""; el.className = "feedback"; }, 4000);
+  }
+
+  $("#signoutBtn").addEventListener("click", () => {
+    try { localStorage.removeItem(TOKEN_KEY); } catch (_) {}
+    window.location.replace("/signup?mode=login");
+  });
+
+  $("#resendBtn").addEventListener("click", () => {
+    fetch("/api/me/resend-verification", { method: "POST", headers: auth.headers })
+      .then((r) => r.json())
+      .then((j) => {
+        if (j && j.already_verified) {
+          setVerifyBanner("hidden");
+          return;
+        }
+        setVerifyBanner("sent");
+      })
+      .catch(() => {});
+  });
+
+  $("#saveNameBtn").addEventListener("click", () => {
+    const name = $("#fullName").value.trim();
+    if (!name) { feedback("nameFeedback", "name can't be empty", "err"); return; }
+    fetch("/api/me/name", {
+      method: "POST", headers: auth.headers,
+      body: JSON.stringify({ full_name: name }),
+    })
+      .then((r) => r.json().then((j) => ({ ok: r.ok, j })))
+      .then(({ ok, j }) => {
+        if (!ok) { feedback("nameFeedback", (j && j.detail) || "save failed", "err"); return; }
+        state.user.full_name = j.full_name;
+        renderUser(state.user);
+        feedback("nameFeedback", "saved", "ok");
+      })
+      .catch(() => feedback("nameFeedback", "network error", "err"));
+  });
+
+  $("#toggleAvatarsBtn").addEventListener("click", () => {
+    const wrap = $("#avatarGridWrap");
+    const open = wrap.style.display !== "none";
+    wrap.style.display = open ? "none" : "block";
+    if (!open) ensureAvatarGrid();
+  });
+
+  $("#savePwdBtn").addEventListener("click", () => {
+    const cur = $("#curPwd").value;
+    const nw = $("#newPwd").value;
+    if (nw.length < 8) { feedback("pwdFeedback", "password must be 8+ characters", "err"); return; }
+    fetch("/api/me/password", {
+      method: "POST", headers: auth.headers,
+      body: JSON.stringify({ current_password: cur, new_password: nw }),
+    })
+      .then((r) => r.json().then((j) => ({ ok: r.ok, j })))
+      .then(({ ok, j }) => {
+        if (!ok) { feedback("pwdFeedback", (j && j.detail) || "change failed", "err"); return; }
+        $("#curPwd").value = "";
+        $("#newPwd").value = "";
+        feedback("pwdFeedback", "password changed", "ok");
+      })
+      .catch(() => feedback("pwdFeedback", "network error", "err"));
+  });
+
+  $$(".range button").forEach((b) => {
+    b.addEventListener("click", () => {
+      $$(".range button").forEach((x) => x.classList.remove("on"));
+      b.classList.add("on");
+      state.range = b.dataset.range;
+      if (state.analytics) renderAnalytics(state.analytics);
+    });
+  });
+
+  function switchPlan(planId) {
+    fetch("/api/me/plan", {
+      method: "POST", headers: auth.headers,
+      body: JSON.stringify({ plan: planId }),
+    })
+      .then((r) => r.json().then((j) => ({ ok: r.ok, j })))
+      .then(({ ok, j }) => {
+        if (!ok) { feedback("planFeedback", (j && j.detail) || "switch failed", "err"); return; }
+        state.plan = j.plan;
+        renderPlans();
+        loadDashboard();
+        feedback("planFeedback", "plan updated", "ok");
+      })
+      .catch(() => feedback("planFeedback", "network error", "err"));
+  }
+
+  function loadDownloadLink() {
+    fetch("/api/version")
+      .then((r) => r.json())
+      .then((v) => {
+        if (v && v.download_url) {
+          const hero = $("#dlHero");
+          if (hero) hero.setAttribute("href", v.download_url);
+        }
+        const ver = $("#dlVersion");
+        if (ver && v) {
+          const parts = [];
+          if (v.version) parts.push("v" + v.version);
+          parts.push("windows 10/11 \u00b7 64-bit");
+          ver.textContent = parts.join(" \u00b7 ");
+        }
+      })
+      .catch(() => {});
+  }
+
+  function loadPlans() {
+    return fetch("/api/plans")
+      .then((r) => r.json())
+      .then((j) => { state.plans = j.plans || []; });
+  }
+
+  function showLoadError(message) {
+    const loading = $("#loading");
+    loading.replaceChildren();
+    loading.appendChild(document.createTextNode(message + " \u00b7 "));
+    const retry = document.createElement("a");
+    retry.href = "#";
+    retry.textContent = "try again";
+    retry.style.color = "var(--accent)";
+    retry.style.borderBottom = "1px solid var(--accent)";
+    retry.style.marginRight = "16px";
+    retry.addEventListener("click", (e) => {
+      e.preventDefault();
+      loading.replaceChildren(document.createTextNode("loading your dashboard\u2026"));
+      loadDashboard();
+    });
+    loading.appendChild(retry);
+    const out = document.createElement("a");
+    out.href = "/signup?mode=login";
+    out.textContent = "sign in again";
+    out.style.color = "var(--muted)";
+    out.style.borderBottom = "1px solid var(--muted)";
+    loading.appendChild(out);
+  }
+
+  function revealShell() {
+    const loading = $("#loading");
+    const shell = $("#shell");
+    if (loading) loading.style.display = "none";
+    if (shell) shell.style.display = "block";
+  }
+
+  function loadDashboard() {
+    console.log("[dashboard] load start");
+    return fetch("/api/me/dashboard", { headers: auth.headers })
+      .then((r) => {
+        console.log("[dashboard] response", r.status);
+        if (r.status === 401 || r.status === 403) {
+          try { localStorage.removeItem(TOKEN_KEY); } catch (_) {}
+          window.location.replace("/signup?mode=login");
+          return null;
+        }
+        if (r.status >= 500) {
+          return r.json().catch(() => null).then((body) => {
+            const detail = (body && body.detail) || ("server error " + r.status);
+            const err = new Error(detail);
+            err.serverSide = true;
+            throw err;
+          });
+        }
+        if (!r.ok) {
+          const err = new Error("http " + r.status);
+          err.serverSide = true;
+          throw err;
+        }
+        return r.json();
+      })
+      .then((j) => {
+        if (!j) return;
+        console.log("[dashboard] payload received", Object.keys(j));
+        state.user = j.user || null;
+        state.plan = j.plan || null;
+        state.analytics = j.analytics || null;
+        state.recommendation = j.recommendation || null;
+        // Each render is independent — a failure in one must not block the others.
+        try { renderUser(j.user); } catch (e) { console.error("renderUser threw:", e); }
+        try { renderPayment(j.payment); } catch (e) { console.error("renderPayment threw:", e); }
+        try { renderAnalytics(j.analytics); } catch (e) { console.error("renderAnalytics threw:", e); }
+        try { renderPlans(); } catch (e) { console.error("renderPlans threw:", e); }
+        revealShell();
+        console.log("[dashboard] render complete");
+      })
+      .catch((err) => {
+        console.error("[dashboard] load failed:", err);
+        if (err && err.serverSide) {
+          showLoadError("dashboard error: " + err.message);
+        } else {
+          // Show the shell anyway so the user isn't stuck on a spinner —
+          // a render or network blip shouldn't lock them out of the page.
+          revealShell();
+          showLoadError("could not reach the server");
+        }
+      });
+  }
+
+  loadDownloadLink();
+  loadPlans().then(loadDashboard);
+})();
+</script>
+</body>
+</html>

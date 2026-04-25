@@ -315,7 +315,7 @@ class UpdateBanner(QFrame):
         self._skip_btn.setVisible(not mandatory)
         self._cancel_schedule_btn.setVisible(False)
         self._dismiss_btn.setVisible(not mandatory)
-        self._status_label.setStyleSheet(f"color: {T.FG_2_HEX};")
+        self._status_label.setStyleSheet(f"color: {T.FG_1_HEX};")
 
     def _set_scheduled_state(self) -> None:
         self._install_btn.setEnabled(True)
@@ -325,7 +325,7 @@ class UpdateBanner(QFrame):
         self._cancel_schedule_btn.setVisible(True)
         self._cancel_schedule_btn.setEnabled(True)
         self._dismiss_btn.setVisible(False)
-        self._status_label.setStyleSheet(f"color: {T.FG_2_HEX};")
+        self._status_label.setStyleSheet(f"color: {T.FG_1_HEX};")
 
     # ─── slot handlers ──────────────────────────────────────────────────
 

@@ -54,8 +54,9 @@
   },
 
   "news": {
-    "refresh_interval_minutes": 5,
-    "scraper_cadence_seconds": 300,
+    "refresh_interval_minutes": 2,
+    "scraper_cadence_seconds": 120,
+    "scraper_max_workers": 10,
     "scrapers_enabled": true,
     "yahoo_scrape_enabled": true,
     "finviz_enabled": true,
@@ -72,7 +73,7 @@
 
   "swarm": {
     "enabled": true,
-    "max_concurrent_workers": 4,
+    "max_concurrent_workers": 10,
     "grok_enabled": true,
     "grok_session_path": "data/grok_session",
     "finding_retention_days": 30
@@ -105,7 +106,7 @@
   },
 
   "dev_monitor": {
-    "enabled": false,
+    "enabled": true,
     "password": "",
     "url": "https://api.useblank.ai/api/dev/agent-status",
     "cadence_seconds": 20

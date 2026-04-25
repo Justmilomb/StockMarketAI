@@ -85,6 +85,23 @@ JOURNAL_TAIL_MAX: int = 500
 #: restoration gets picked up quickly.
 USAGE_LIMIT_BACKOFF_SECONDS: int = 300
 
+#: Minimum wait enforced between iterations when the research swarm
+#: still has pending or running tasks. Waking the supervisor sooner than
+#: this just has it re-read stale findings and fire another batch of
+#: research goals on top of the ones already in flight.
+SWARM_BUSY_MIN_WAIT_SECONDS: float = 300.0
+
+#: Absolute ceiling on how long the swarm-aware sleep will extend past
+#: the base cadence. If the swarm is still chewing through work after
+#: this long, wake anyway so the supervisor can reassess and possibly
+#: kill stuck tasks.
+SWARM_BUSY_HARD_CAP_SECONDS: float = 1800.0
+
+#: Poll interval during the swarm-aware extension phase. 15s is cheap
+#: (two tiny sqlite reads) and keeps the "woke early on new findings"
+#: latency under the time it takes the agent to read and react anyway.
+SWARM_BUSY_POLL_SECONDS: float = 15.0
+
 #: Substrings (case-insensitive) that mean the Claude CLI refused the
 #: request because the account is out of quota, not because of a
 #: programming error. When any of these appear in the combined
@@ -259,11 +276,30 @@ class AgentRunner(QThread):
             wait_secs = self._compute_wait_seconds(self._agent_requested_wait_minutes)
             market_open = self._any_market_open()
             label = "market open" if market_open else "market closed"
+
+            # Swarm-aware minimum: if the agent just dispatched research
+            # and workers are still chewing on it, force at least a 5 min
+            # wait so the supervisor doesn't wake up to read the same
+            # stale findings table and re-fire the same goals.
+            pending_tasks, baseline_findings = self._read_swarm_snapshot()
+            if pending_tasks > 0 and not self._force_fast_next_cadence:
+                if wait_secs < SWARM_BUSY_MIN_WAIT_SECONDS:
+                    self.log_line.emit(
+                        f"[runner] swarm has {pending_tasks} pending/running "
+                        f"tasks — extending wait from {wait_secs:.0f}s to "
+                        f"{SWARM_BUSY_MIN_WAIT_SECONDS:.0f}s",
+                    )
+                    wait_secs = SWARM_BUSY_MIN_WAIT_SECONDS
+
             self.log_line.emit(
                 f"[runner] next check-in in {wait_secs:.0f}s ({label})",
             )
             self.cadence_changed.emit(int(wait_secs))
-            await self._sleep_with_interrupt(wait_secs)
+            await self._sleep_with_swarm_awareness(
+                wait_secs,
+                baseline_findings=baseline_findings,
+                had_pending=pending_tasks > 0,
+            )
 
     # ── iteration plumbing ───────────────────────────────────────────
 
@@ -272,6 +308,46 @@ class AgentRunner(QThread):
         # live pools always see paper_mode=False, paper pools always
         # see paper_mode=True, regardless of what's on disk.
         return self._pool._load_config()
+
+    def _announce_next_cadence(self, minutes: int) -> None:
+        """Emit cadence_changed the moment the agent picks its next wait.
+
+        Called by the end_iteration tool via ``AgentContext.cadence_hook``
+        — fires inside the tool callback, which runs on the agent loop's
+        asyncio task. Qt auto-marshals the signal to the GUI thread via
+        ``QueuedConnection``, so it's safe to call from here. The goal
+        is a sub-second UI countdown flip instead of the ~5-20s lag from
+        waiting until the assessor + reflector stages finish.
+
+        Runs ``_compute_wait_seconds`` with a copy of the requested
+        minutes so the settings panel sees the exact same duration the
+        main loop will actually sleep for, including the 30s floor and
+        any force-fast-next-cadence override.
+        """
+        try:
+            mins = max(0, int(minutes))
+        except (TypeError, ValueError):
+            return
+        # Intentionally does not consume _force_fast_next_cadence here —
+        # _compute_wait_seconds does that when the main loop picks the
+        # real wait. This is just an early UI preview, and using the
+        # non-clamped path keeps it idempotent.
+        if self._force_fast_next_cadence:
+            secs = float(CADENCE_FLOOR_SECONDS)
+        elif mins > 0:
+            secs = float(max(CADENCE_FLOOR_SECONDS, mins * 60))
+        else:
+            market_open = self._any_market_open()
+            if market_open:
+                try:
+                    cfg = self._load_config()
+                    cadence = int(cfg.get("agent", {}).get("cadence_seconds", 90))
+                except Exception:
+                    cadence = 90
+                secs = float(max(CADENCE_FLOOR_SECONDS, cadence))
+            else:
+                secs = float(max(CADENCE_FLOOR_SECONDS, self._closed_market_cadence()))
+        self.cadence_changed.emit(int(secs))
 
     def _compute_wait_seconds(self, agent_requested_minutes: int = 0) -> float:
         """Compute sleep duration with market-aware fallback.
@@ -351,6 +427,133 @@ class AgentRunner(QThread):
                 return
             await asyncio.sleep(0.25)
 
+    def _read_swarm_snapshot(self) -> Tuple[int, int]:
+        """Return ``(pending_task_count, findings_count)`` for sleep decisions.
+
+        ``pending_task_count`` sums pending + running research tasks plus
+        any workers the swarm coordinator reports as active — any of
+        those means the supervisor should not wake on its usual cadence,
+        because the swarm will land fresh findings shortly and the agent
+        should read them instead of working from stale data.
+
+        ``findings_count`` is the number of recent-window findings at
+        this instant, used as a baseline so the sleep loop can detect
+        "new findings arrived" by a simple count comparison. Purely
+        best-effort: on any exception the snapshot is ``(0, 0)``, which
+        disables the swarm-aware extension and falls back to the
+        normal cadence.
+        """
+        from database import HistoryManager
+
+        pending = 0
+        try:
+            stats = HistoryManager(self._db_path).get_research_task_stats()
+            pending = int(stats.get("pending", 0)) + int(stats.get("running", 0))
+        except Exception:
+            logger.debug("could not read research_task_stats", exc_info=True)
+
+        try:
+            swarm = getattr(self._pool, "swarm", None)
+            if swarm is not None and swarm.is_alive():
+                pending += int(swarm.get_status().get("active_workers", 0))
+        except Exception:
+            logger.debug("could not read swarm status", exc_info=True)
+
+        findings_count = 0
+        try:
+            findings = HistoryManager(self._db_path).get_research_findings(
+                since_minutes=60, limit=200,
+            )
+            findings_count = len(findings)
+        except Exception:
+            logger.debug("could not read research_findings baseline", exc_info=True)
+
+        return pending, findings_count
+
+    async def _sleep_with_swarm_awareness(
+        self,
+        seconds: float,
+        baseline_findings: int,
+        had_pending: bool,
+    ) -> None:
+        """Sleep ``seconds``, then extend while the swarm is still busy
+        and no new findings have landed.
+
+        Phase 1 — always sleep the full ``seconds`` (with the same stop /
+        chat interrupt semantics as :meth:`_sleep_with_interrupt`).
+
+        Phase 2 — only entered when ``had_pending`` was True at iteration
+        close. Polls the research-tasks table every
+        :data:`SWARM_BUSY_POLL_SECONDS`; wakes the supervisor the moment
+        the swarm goes idle OR the findings count grows above
+        ``baseline_findings``. Bounded by
+        :data:`SWARM_BUSY_HARD_CAP_SECONDS` so a wedged swarm can't
+        starve the supervisor indefinitely.
+        """
+        from database import HistoryManager
+
+        self._interrupt_sleep = False
+        started_at = time.monotonic()
+        base_deadline = started_at + seconds
+
+        while time.monotonic() < base_deadline:
+            if self._stop_requested or self._interrupt_sleep:
+                return
+            await asyncio.sleep(0.25)
+
+        if not had_pending:
+            return
+
+        hard_deadline = started_at + SWARM_BUSY_HARD_CAP_SECONDS
+        extended = False
+        while time.monotonic() < hard_deadline:
+            if self._stop_requested or self._interrupt_sleep:
+                return
+            try:
+                db = HistoryManager(self._db_path)
+                stats = db.get_research_task_stats()
+                still_busy = (
+                    int(stats.get("pending", 0))
+                    + int(stats.get("running", 0))
+                ) > 0
+                findings = db.get_research_findings(since_minutes=60, limit=200)
+                new_findings = len(findings) > baseline_findings
+            except Exception:
+                # On any DB error, wake rather than sleep forever.
+                return
+
+            if new_findings:
+                self.log_line.emit(
+                    "[runner] new research findings landed — waking supervisor",
+                )
+                return
+            if not still_busy:
+                self.log_line.emit(
+                    "[runner] swarm went idle — waking supervisor",
+                )
+                return
+
+            if not extended:
+                self.log_line.emit(
+                    f"[runner] swarm still busy after {seconds:.0f}s — "
+                    f"holding until findings arrive or tasks complete",
+                )
+                # Push the UI countdown out to the hard cap so the user
+                # isn't staring at "0s" while we extend.
+                remaining = int(hard_deadline - time.monotonic())
+                self.cadence_changed.emit(max(remaining, 60))
+                extended = True
+
+            await asyncio.sleep(SWARM_BUSY_POLL_SECONDS)
+
+        # Hard cap reached — fall through and let the main loop spin up
+        # a fresh iteration. The agent can decide whether to cancel the
+        # stuck tasks.
+        if extended:
+            self.log_line.emit(
+                "[runner] swarm busy past hard cap — waking supervisor anyway",
+            )
+
     def _build_iteration_prompt(self) -> str:
         """The supervisor only ever gets the standard wake prompt.
 
@@ -423,7 +626,7 @@ class AgentRunner(QThread):
         self._cached_personality = trader_personality
 
         iteration_id = f"iter-{uuid.uuid4().hex[:8]}"
-        init_agent_context(
+        ctx = init_agent_context(
             config=effective_config,
             broker_service=broker_service,
             db=db,
@@ -432,6 +635,13 @@ class AgentRunner(QThread):
             paper_mode=paper_mode,
             trader_personality=trader_personality,
         )
+        # Install the cadence hook so end_iteration can announce the
+        # next wake-up to the UI immediately, without waiting for the
+        # iteration-teardown phase (assessor + reflector + cleanup) to
+        # finish. _compute_wait_seconds applies the same clamping the
+        # main loop would, so the settings-panel countdown matches the
+        # real sleep duration the loop is about to enter.
+        ctx.cadence_hook = self._announce_next_cadence
 
         self._tool_call_count = 0
         self._trade_count = 0

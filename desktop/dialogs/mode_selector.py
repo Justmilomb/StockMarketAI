@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
 )
 
 from desktop import tokens as T
+from desktop.widgets.primitives.button import apply_variant
 
 
 class ModeSelector(QDialog):
@@ -100,7 +101,7 @@ class ModeSelector(QDialog):
         root.addStretch(1)
 
         quit_btn = QPushButton("QUIT")
-        quit_btn.setProperty("variant", "ghost")
+        apply_variant(quit_btn, "ghost")
         quit_btn.setCursor(Qt.PointingHandCursor)
         quit_btn.setFixedHeight(32)
         quit_btn.clicked.connect(self.reject)

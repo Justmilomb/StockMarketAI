@@ -44,6 +44,11 @@ _font_datas = [
     if p.suffix.lower() in ('.ttf', '.otf')
 ]
 
+_avatar_datas = [
+    (str(p), 'desktop/assets/avatars')
+    for p in (Path(PROJECT_ROOT) / 'desktop' / 'assets' / 'avatars').glob('*.svg')
+]
+
 a = Analysis(
     [str(Path(PROJECT_ROOT) / 'desktop' / 'main_desktop.py')],
     pathex=[PROJECT_ROOT, str(Path(PROJECT_ROOT) / 'core')],
@@ -52,6 +57,7 @@ a = Analysis(
         (str(Path(PROJECT_ROOT) / 'config.default.json'), '.'),
         (str(Path(PROJECT_ROOT) / 'desktop' / 'assets' / 'icon.ico'), 'desktop/assets'),
         *_font_datas,
+        *_avatar_datas,
         (str(Path(importlib.import_module('xgboost').__file__).parent / 'VERSION'), 'xgboost'),
         (str(Path(importlib.import_module('lightgbm').__file__).parent / 'VERSION.txt'), 'lightgbm'),
     ],
@@ -151,10 +157,13 @@ a = Analysis(
         'core.finetune', 'core.finetune.terminal_finetune',
         # --- desktop (lazy imports not caught by static analysis) ---
         'desktop.paths', 'desktop.fonts', 'desktop.onboarding',
+        'desktop.onboarding_state',
         'desktop.theme', 'desktop.tokens', 'desktop.design',
         'desktop.license', 'desktop.update_service', 'desktop.updater',
         'desktop.data_export', 'desktop.workers', 'desktop.state',
         'desktop.dev_monitor',
+        'desktop.auth', 'desktop.auth_state', 'desktop.auth_gate',
+        'desktop.auth_callback_server', 'desktop.avatars',
         # panels
         'desktop.panels', 'desktop.panels.agent_log', 'desktop.panels.chart',
         'desktop.panels.chat', 'desktop.panels.exchanges',
@@ -164,16 +173,19 @@ a = Analysis(
         'desktop.panels.watchlist',
         # dialogs
         'desktop.dialogs', 'desktop.dialogs._base',
-        'desktop.dialogs.about', 'desktop.dialogs.add_ticker',
+        'desktop.dialogs.about',
+        'desktop.dialogs.account_dashboard', 'desktop.dialogs.account_settings',
         'desktop.dialogs.help', 'desktop.dialogs.history',
-        'desktop.dialogs.instruments', 'desktop.dialogs.license',
-        'desktop.dialogs.mode_selector', 'desktop.dialogs.pies',
+        'desktop.dialogs.signin',
+        'desktop.dialogs.live_onboarding',
+        'desktop.dialogs.mode_selector',
+        'desktop.dialogs.paper_onboarding',
         'desktop.dialogs.risk_disclosure', 'desktop.dialogs.schedule_update',
-        'desktop.dialogs.search_ticker', 'desktop.dialogs.setup_wizard',
-        'desktop.dialogs.trade',
+        'desktop.dialogs.setup_wizard',
         # widgets + primitives
         'desktop.widgets', 'desktop.widgets.mode_banner',
         'desktop.widgets.mode_watermark',
+        'desktop.widgets.profile_button', 'desktop.widgets.signin_banner',
         'desktop.widgets.primitives',
         'desktop.widgets.primitives.button', 'desktop.widgets.primitives.card',
         'desktop.widgets.primitives.divider',

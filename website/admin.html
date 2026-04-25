@@ -978,14 +978,34 @@
             <div class="section" data-section="users">
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.25rem;">
                     <p class="section-title" style="margin-bottom:0;">license management</p>
-                    <button id="btn-new-license" style="background:var(--glow-dim); color:var(--glow);
-                        border:1px solid rgba(0,255,135,0.25); padding:0.4rem 1rem; font-family:'Outfit',sans-serif;
-                        font-size:0.6875rem; letter-spacing:0.06em; cursor:pointer;">+ new license</button>
+                    <div style="display:flex; align-items:center; gap:0.75rem;">
+                        <label style="display:flex; align-items:center; gap:0.5rem; font-family:'JetBrains Mono', monospace; font-size:0.6875rem; letter-spacing:0.08em; color:var(--text-dim); cursor:pointer;">
+                            <input type="checkbox" id="show-revoked" style="accent-color: var(--glow); cursor:pointer;">
+                            show revoked
+                        </label>
+                        <button id="btn-new-license" style="background:var(--glow-dim); color:var(--glow);
+                            border:1px solid rgba(0,255,135,0.25); padding:0.4rem 1rem; font-family:'Outfit',sans-serif;
+                            font-size:0.6875rem; letter-spacing:0.06em; cursor:pointer;">+ new license</button>
+                    </div>
                 </div>
                 <div class="table-wrap">
                     <table>
-                        <thead><tr><th>name</th><th>email</th><th>license</th><th>status</th><th>last active</th><th>actions</th></tr></thead>
+                        <thead><tr><th>name</th><th>email</th><th>license</th><th>plan</th><th>status</th><th>last active</th><th>actions</th></tr></thead>
                         <tbody id="license-tbody"></tbody>
+                    </table>
+                </div>
+
+                <div style="display:flex; justify-content:space-between; align-items:center; margin: 2.5rem 0 1.25rem;">
+                    <p class="section-title" style="margin-bottom:0;">dev accounts</p>
+                    <span id="dev-accounts-count" style="font-size:0.6875rem; color:var(--text-dim); font-family:'JetBrains Mono', monospace; letter-spacing:0.06em;"></span>
+                </div>
+                <p style="font-size:0.6875rem; color:var(--text-dim); margin-bottom:1rem;">
+                    dev accounts skip every fee &amp; commission and unlock all features regardless of plan.
+                </p>
+                <div class="table-wrap">
+                    <table>
+                        <thead><tr><th>name</th><th>email</th><th>plan</th><th>actions</th></tr></thead>
+                        <tbody id="dev-accounts-tbody"></tbody>
                     </table>
                 </div>
             </div>
@@ -1273,7 +1293,7 @@
             return body;
         }
 
-        function loadAll() { loadStats(); loadChart(); loadLicenses(); loadConfig(); loadReleases(); loadLogs(); }
+        function loadAll() { loadStats(); loadChart(); loadLicenses(); loadDevAccounts(); loadConfig(); loadReleases(); loadLogs(); }
 
         function renderStat(label, value, change, green) {
             return el('div', { class: 'stat' }, [
@@ -1320,7 +1340,9 @@
         const BADGE_CLASSES = { active: 'badge active', trial: 'badge trial', expired: 'badge expired', revoked: 'badge expired' };
 
         async function loadLicenses() {
-            const licenses = await api('/api/admin/licenses');
+            const all = await api('/api/admin/licenses');
+            const showRevoked = !!(document.getElementById('show-revoked') || {}).checked;
+            const licenses = showRevoked ? all : all.filter(l => l.status !== 'revoked');
             document.getElementById('license-tbody').replaceChildren(...licenses.map(l => {
                 const actions = [];
                 actions.push(el('button', {
@@ -1328,6 +1350,16 @@
                     class: 'inspect-btn',
                     style: { marginRight: '0.375rem' },
                     onclick: () => openInspect(l.key),
+                }));
+                actions.push(el('button', {
+                    text: l.is_dev ? 'remove dev' : 'set as dev',
+                    style: { background:'none',
+                        border:'1px solid ' + (l.is_dev ? 'rgba(0,255,135,0.4)' : 'rgba(255,255,255,0.16)'),
+                        color: l.is_dev ? 'var(--glow)' : 'var(--text-mid)',
+                        fontFamily:"'Outfit',sans-serif", fontSize:'0.625rem',
+                        padding:'0.2rem 0.5rem', marginRight:'0.375rem',
+                        cursor:'pointer', letterSpacing:'0.04em' },
+                    onclick: () => toggleDev(l.key, !l.is_dev),
                 }));
                 if (l.status !== 'revoked') {
                     actions.push(el('button', {
@@ -1337,11 +1369,41 @@
                             cursor:'pointer', letterSpacing:'0.04em' },
                         onclick: () => revokeLicense(l.key),
                     }));
+                } else {
+                    actions.push(el('button', {
+                        text: 'delete',
+                        style: { background:'var(--red)', border:'1px solid var(--red)', color:'#000',
+                            fontFamily:"'Outfit',sans-serif", fontSize:'0.625rem', padding:'0.2rem 0.5rem',
+                            cursor:'pointer', letterSpacing:'0.04em', fontWeight:'500' },
+                        onclick: () => hardDeleteLicense(l.key, l.email),
+                    }));
                 }
+                const nameCell = el('td', { text: l.name || '\u2014' });
+                if (l.is_dev) {
+                    nameCell.replaceChildren(
+                        el('span', { text: l.name || '\u2014' }),
+                        el('span', {
+                            text: 'DEV',
+                            style: { marginLeft: '0.4rem', fontSize: '0.55rem',
+                                color: 'var(--glow)',
+                                border: '1px solid rgba(0,255,135,0.4)',
+                                padding: '0.05rem 0.3rem',
+                                fontFamily: "'JetBrains Mono', monospace",
+                                letterSpacing: '0.08em' },
+                        }),
+                    );
+                }
+                const planCell = el('td', {
+                    text: l.is_dev ? 'DEV ACCOUNT' : (l.plan || 'starter').toUpperCase(),
+                    style: { color: l.is_dev ? 'var(--glow)' : 'var(--text-mid)',
+                        fontSize: '0.6875rem',
+                        fontFamily: "'JetBrains Mono', monospace", letterSpacing: '0.06em' },
+                });
                 return el('tr', {}, [
-                    el('td', { text: l.name || '\u2014' }),
+                    nameCell,
                     el('td', { text: l.email }),
                     el('td', { text: l.key, style: { color:'var(--text-dim)', fontFamily:'monospace', fontSize:'0.6875rem' } }),
+                    planCell,
                     el('td', {}, [el('span', { class: BADGE_CLASSES[l.status] || 'badge', text: l.status })]),
                     el('td', { text: timeAgo(l.last_active) }),
                     el('td', {}, actions),
@@ -1353,6 +1415,72 @@
             await api('/api/admin/licenses/' + encodeURIComponent(key), { method: 'DELETE' });
             loadLicenses();
             loadStats();
+        }
+
+        async function hardDeleteLicense(key, email) {
+            const label = email ? (email + ' (' + key + ')') : key;
+            if (!window.confirm('Permanently delete ' + label + '? This removes the licence row and all telemetry. This cannot be undone.')) return;
+            try {
+                await api('/api/admin/licenses/' + encodeURIComponent(key) + '/hard', { method: 'DELETE' });
+            } catch (e) {
+                window.alert('Delete failed: ' + String(e));
+                return;
+            }
+            loadLicenses();
+            loadStats();
+        }
+
+        async function toggleDev(key, makeDev) {
+            await api('/api/admin/licenses/' + encodeURIComponent(key) + '/dev', {
+                method: 'POST',
+                body: JSON.stringify({ is_dev: makeDev }),
+            });
+            loadLicenses();
+            loadDevAccounts();
+        }
+
+        async function loadDevAccounts() {
+            const tbody = document.getElementById('dev-accounts-tbody');
+            const countEl = document.getElementById('dev-accounts-count');
+            if (!tbody) return;
+            let result;
+            try {
+                result = await api('/api/admin/dev-accounts');
+            } catch (e) {
+                tbody.replaceChildren(el('tr', {}, [
+                    el('td', { text: 'failed to load: ' + String(e), colspan: '4',
+                        style: { color: 'var(--red)', textAlign: 'center', padding: '1rem' } }),
+                ]));
+                if (countEl) countEl.textContent = '';
+                return;
+            }
+            const accounts = result.accounts || [];
+            if (countEl) countEl.textContent = accounts.length === 1 ? '1 account' : accounts.length + ' accounts';
+            if (accounts.length === 0) {
+                tbody.replaceChildren(el('tr', {}, [
+                    el('td', { text: 'no dev accounts \u2014 use the "set as dev" button on any licence',
+                        colspan: '4',
+                        style: { color: 'var(--text-dim)', textAlign: 'center', padding: '1.5rem' } }),
+                ]));
+                return;
+            }
+            tbody.replaceChildren(...accounts.map(a => el('tr', {}, [
+                el('td', { text: a.full_name || a.name || '\u2014' }),
+                el('td', { text: a.email }),
+                el('td', { text: 'DEV ACCOUNT',
+                    style: { color: 'var(--glow)', fontFamily: "'JetBrains Mono', monospace",
+                        fontSize: '0.6875rem', letterSpacing: '0.06em' } }),
+                el('td', {}, [
+                    el('button', {
+                        text: 'remove dev',
+                        style: { background:'none', border:'1px solid rgba(0,255,135,0.4)',
+                            color:'var(--glow)', fontFamily:"'Outfit',sans-serif",
+                            fontSize:'0.625rem', padding:'0.2rem 0.5rem',
+                            cursor:'pointer', letterSpacing:'0.04em' },
+                        onclick: () => toggleDev(a.key, false),
+                    }),
+                ]),
+            ])));
         }
 
         async function loadConfig() {
@@ -1644,7 +1772,7 @@
                 void section.offsetWidth;
                 section.style.animation = 'fadeUp 0.5s var(--ease-out) forwards';
                 if (target === 'overview') { loadStats(); loadChart(); }
-                if (target === 'users') loadLicenses();
+                if (target === 'users') { loadLicenses(); loadDevAccounts(); }
                 if (target === 'config') loadConfig();
                 if (target === 'releases') loadReleases();
                 if (target === 'system') loadLogs();
@@ -1677,6 +1805,12 @@
             loadLicenses();
             loadStats();
         });
+
+        // show-revoked toggle: re-renders the licences table client-side
+        const showRevokedToggle = document.getElementById('show-revoked');
+        if (showRevokedToggle) {
+            showRevokedToggle.addEventListener('change', () => loadLicenses());
+        }
 
         // auto-refresh logs every 10s
         setInterval(() => {
@@ -2029,10 +2163,27 @@
 
             if (!snap) {
                 const c = makeICard('live status', true);
+                // Pick the most informative message we can — a
+                // telemetry_error from the server beats "no snapshot",
+                // and a positive event_count means the client IS
+                // uploading but we failed to read the latest row.
+                let msg = 'no snapshot yet — dev monitor not enabled for this user, or no uploads received';
+                if (data.telemetry_error) {
+                    msg = 'telemetry read failed on server: ' + data.telemetry_error;
+                } else if (data.event_count && data.event_count > 0) {
+                    msg = 'have ' + data.event_count + ' uploads but latest snapshot failed to decode';
+                }
                 c.cardBody.appendChild(el('p', {
-                    text: 'no snapshot yet — dev monitor not enabled for this user',
+                    text: msg,
                     style: { color: 'var(--text-dim)', fontSize: '0.75rem' }
                 }));
+                if (data.first_upload || data.last_upload) {
+                    addIRow(c.cardBody, 'first upload',
+                        data.first_upload ? timeAgo(data.first_upload) : '—');
+                    addIRow(c.cardBody, 'last upload',
+                        data.last_upload ? timeAgo(data.last_upload) : '—');
+                    addIRow(c.cardBody, 'total uploads', data.event_count || 0);
+                }
                 body.appendChild(c.card);
             } else {
                 // 1. Live status
@@ -2179,6 +2330,40 @@
                     c8.cardBody.appendChild(el('span', { text: 'no journal entries', style: { color: 'var(--text-dim)' } }));
                 }
                 body.appendChild(c8.card);
+
+                // 8b. Chat history
+                const chat = snap.chat_history || [];
+                const cChat = makeICard('chat history (' + chat.length + ')');
+                if (chat.length) {
+                    const wrap = el('div', {});
+                    chat.slice(-20).forEach(m => {
+                        const role = String(m.role || '');
+                        const content = String(m.content || '');
+                        const line = el('div', {});
+                        Object.assign(line.style, {
+                            padding: '0.35rem 0.5rem',
+                            marginBottom: '0.25rem',
+                            background: '#000',
+                            border: '1px solid rgba(255,255,255,0.06)',
+                            fontFamily: "'JetBrains Mono',monospace",
+                            fontSize: '0.625rem',
+                            lineHeight: '1.55',
+                            color: 'rgba(255,255,255,0.75)',
+                            wordBreak: 'break-word',
+                            whiteSpace: 'pre-wrap',
+                        });
+                        const tag = el('span', { text: role.toUpperCase() + ' · ' });
+                        tag.style.color = role === 'user' ? 'var(--glow)' : 'rgba(255,255,255,0.45)';
+                        tag.style.letterSpacing = '0.08em';
+                        line.appendChild(tag);
+                        line.appendChild(document.createTextNode(content));
+                        wrap.appendChild(line);
+                    });
+                    cChat.cardBody.appendChild(wrap);
+                } else {
+                    cChat.cardBody.appendChild(el('span', { text: 'no chat messages', style: { color: 'var(--text-dim)' } }));
+                }
+                body.appendChild(cChat.card);
             }
 
             // 9. Telemetry stats (always shown)

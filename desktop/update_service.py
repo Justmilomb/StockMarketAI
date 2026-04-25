@@ -221,6 +221,11 @@ class UpdateService(QObject):
     # ─── manifest fetch ─────────────────────────────────────────────────
 
     def _check(self) -> None:
+        # Plan sync rides on the same 60 s tick — flipping a plan or
+        # the dev flag on the website propagates within one minute
+        # without forcing the user to restart the app.
+        self._sync_plan_quietly()
+
         manifest = self._fetch_manifest()
         if manifest is None:
             return
@@ -271,6 +276,38 @@ class UpdateService(QObject):
         self._last_manifest = manifest
         logger.info("update available: %s (running %s)", remote, __version__)
         self.update_available.emit(manifest)
+
+    def _sync_plan_quietly(self) -> None:
+        """Pull the user's plan from the server and stash it in AuthState.
+
+        Errors are swallowed by design — the heartbeat fires every 60 s,
+        and a missed plan refresh is harmless: the AuthState keeps the
+        last-known snapshot.
+        """
+        try:
+            from desktop.auth import fetch_plan, read_token
+            from desktop.auth_state import auth_state
+        except Exception:
+            return
+        if not read_token():
+            return
+        plan = fetch_plan()
+        if not plan.get("ok"):
+            return
+        state = auth_state()
+        if (
+            state.plan == plan["plan"]
+            and state.commission_pct == plan["commission_pct"]
+            and state.monthly_fee == plan["monthly_fee"]
+            and state.is_dev == plan["is_dev"]
+        ):
+            return  # nothing changed → don't broadcast a redundant signal
+        state.set_plan(
+            plan=plan["plan"],
+            commission_pct=plan["commission_pct"],
+            monthly_fee=plan["monthly_fee"],
+            is_dev=plan["is_dev"],
+        )
 
     def _fetch_manifest(self) -> Optional[dict[str, Any]]:
         """POST a heartbeat and return the server's manifest reply.

@@ -89,7 +89,7 @@ QPushButton:pressed {{
     border-color: {T.ACCENT};
 }}
 QPushButton:disabled {{
-    color: {T.FG_3};
+    color: {T.FG_2};
     border-color: {T.BORDER_0};
 }}
 
@@ -142,14 +142,14 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{
 # Secondary button style (dim, for "quit" / "skip" buttons).
 SECONDARY_BTN_QSS = f"""
 QPushButton {{
-    color: {T.FG_2};
-    border-color: {T.BORDER_0};
+    color: {T.FG_1};
+    border-color: {T.BORDER_1};
     background: transparent;
 }}
 QPushButton:hover {{
     color: {T.FG_0};
     background: transparent;
-    border-color: {T.BORDER_1};
+    border-color: {T.FG_1};
 }}
 """
 
@@ -183,7 +183,7 @@ QPushButton:hover {{
 }}
 QPushButton:disabled {{
     background: {T.BG_2};
-    color: {T.FG_3};
+    color: {T.FG_2};
     border-color: {T.BORDER_0};
 }}
 """

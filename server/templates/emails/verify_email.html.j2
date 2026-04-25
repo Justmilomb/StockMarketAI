@@ -1,0 +1,22 @@
+{% extends "_layout.html.j2" %}
+{% block content %}
+<div style="font-family:'JetBrains Mono','Consolas','Courier New',monospace;color:#00ff87;font-size:11px;letter-spacing:0.28em;text-transform:uppercase;margin:0 0 14px;">verify your email</div>
+<h1 style="font-family:'Outfit','Helvetica Neue',Arial,sans-serif;font-size:28px;font-weight:300;letter-spacing:-0.01em;color:#ffffff;margin:0 0 16px;line-height:1.25;">welcome, {{ name|e }}.</h1>
+<p style="font-family:'Outfit','Helvetica Neue',Arial,sans-serif;color:rgba(255,255,255,0.6);font-size:15px;line-height:1.65;margin:0 0 24px;">
+your blank account is created. one last step &mdash; click the button below to confirm this email address.
+</p>
+<table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 28px;">
+  <tr><td style="background:#00ff87;padding:0;">
+    <a href="{{ verify_url|e }}" style="display:inline-block;padding:14px 28px;font-family:'JetBrains Mono','Consolas','Courier New',monospace;font-size:11px;font-weight:500;letter-spacing:0.16em;text-transform:uppercase;color:#000000;text-decoration:none;">verify email</a>
+  </td></tr>
+</table>
+<p style="font-family:'Outfit','Helvetica Neue',Arial,sans-serif;color:rgba(255,255,255,0.32);font-size:13px;line-height:1.7;margin:0 0 14px;">
+or paste this link into your browser:
+</p>
+<p style="font-family:'JetBrains Mono','Consolas','Courier New',monospace;color:rgba(255,255,255,0.6);font-size:12px;line-height:1.55;word-break:break-all;margin:0 0 24px;">
+<a href="{{ verify_url|e }}" style="color:rgba(255,255,255,0.6);text-decoration:underline;">{{ verify_url|e }}</a>
+</p>
+<p style="font-family:'Outfit','Helvetica Neue',Arial,sans-serif;color:rgba(255,255,255,0.32);font-size:12px;line-height:1.7;margin:0;">
+the link expires in 24 hours. if you didn't create an account, ignore this email.
+</p>
+{% endblock %}

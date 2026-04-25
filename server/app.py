@@ -16,6 +16,7 @@ from datetime import datetime, timedelta, timezone
 from threading import Lock
 from typing import Any, Deque, Dict, Generator, List, Optional
 
+import jwt
 import psycopg2
 import psycopg2.extras
 import requests
@@ -34,6 +35,19 @@ if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 ADMIN_KEY = os.environ.get("BLANK_ADMIN_KEY", "admin")
 WEBSITE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "website")
+# Avatars live under desktop/ so the PyInstaller bundle picks them up
+# automatically. Serving them from FastAPI lets the signup page render a
+# selection grid without bundling SVGs into the website source.
+AVATARS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "desktop", "assets", "avatars")
+AVATAR_COUNT = 100
+
+# JWT secret used to sign user auth tokens. Production MUST set
+# BLANK_JWT_SECRET — without it tokens become trivially forgeable once
+# an attacker sees the source. The dev fallback is deliberately obvious
+# so a missing env var in prod fails loudly in log greps.
+JWT_SECRET = os.environ.get("BLANK_JWT_SECRET", "dev-jwt-secret-do-not-ship")
+JWT_ALGORITHM = "HS256"
+JWT_TTL_DAYS = 30
 
 # Resend email — used by the public signup flow to email each new user
 # their access key. When RESEND_API_KEY is unset (dev), the signup
@@ -48,9 +62,28 @@ DOWNLOAD_URL = os.environ.get(
 # Public-facing URL used in outbound emails that ask the user to take
 # action (renew, contact, give feedback). No billing page yet — point at
 # the marketing site root and let the admin override per-deploy via env.
-SITE_URL = os.environ.get("BLANK_SITE_URL", "https://stockmarketai-3qhs.onrender.com/")
+SITE_URL = os.environ.get("BLANK_SITE_URL", "https://blan-api.onrender.com/")
 SUPPORT_URL = os.environ.get("BLANK_SUPPORT_URL", SITE_URL)
 ADMIN_EMAIL = os.environ.get("BLANK_ADMIN_EMAIL", "milomilomilomb@gmail.com")
+
+# Stripe — used during signup to attach a card and place a £1 auth hold
+# (immediately released) so the cardholder name + fingerprint are
+# captured for fraud checks. When STRIPE_SECRET_KEY is unset we
+# soft-fail: signups still proceed with placeholder card values so dev
+# environments don't need Stripe wired up. The publishable key is
+# served back to the signup page so the browser can mount Stripe.js.
+STRIPE_SECRET_KEY = os.environ.get("STRIPE_SECRET_KEY", "")
+STRIPE_PUBLISHABLE_KEY = os.environ.get("STRIPE_PUBLISHABLE_KEY", "")
+
+# Twilio — used to send the SMS one-time code during phone verification.
+# Same soft-fail story: when any of these are unset we accept "123456"
+# as the OTP so dev/CI can drive the flow without sending real SMS.
+TWILIO_SID = os.environ.get("TWILIO_SID", "")
+TWILIO_AUTH_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN", "")
+TWILIO_PHONE_NUMBER = os.environ.get("TWILIO_PHONE_NUMBER", "")
+
+OTP_TTL_SECONDS = 600  # 10 minutes
+DEV_FALLBACK_OTP = "123456"
 
 # ── Database ─────────────────────────────────────────────────────────────
 
@@ -162,14 +195,125 @@ def _init_db(conn: psycopg2.extensions.connection) -> None:
         cur.execute(
             "ALTER TABLE licenses ADD COLUMN IF NOT EXISTS password_hash TEXT",
         )
+        # Account fields added by the full signup flow (KYC-lite + payment auth).
+        # Each ALTER is independent and idempotent so partial migrations are safe.
+        for stmt in (
+            "ALTER TABLE licenses ADD COLUMN IF NOT EXISTS full_name TEXT DEFAULT ''",
+            "ALTER TABLE licenses ADD COLUMN IF NOT EXISTS phone_number TEXT DEFAULT ''",
+            "ALTER TABLE licenses ADD COLUMN IF NOT EXISTS phone_verified BOOLEAN DEFAULT FALSE",
+            "ALTER TABLE licenses ADD COLUMN IF NOT EXISTS stripe_customer_id TEXT DEFAULT ''",
+            "ALTER TABLE licenses ADD COLUMN IF NOT EXISTS card_stripe_id TEXT DEFAULT ''",
+            "ALTER TABLE licenses ADD COLUMN IF NOT EXISTS card_fingerprint TEXT DEFAULT ''",
+            "ALTER TABLE licenses ADD COLUMN IF NOT EXISTS card_last4 TEXT DEFAULT ''",
+            "ALTER TABLE licenses ADD COLUMN IF NOT EXISTS card_name TEXT DEFAULT ''",
+            "ALTER TABLE licenses ADD COLUMN IF NOT EXISTS card_verified BOOLEAN DEFAULT FALSE",
+            # avatar_id: integer 1..100 referencing desktop/assets/avatars/avatar_NNN.svg.
+            # 0 means unset — the desktop app renders a neutral placeholder.
+            "ALTER TABLE licenses ADD COLUMN IF NOT EXISTS avatar_id INTEGER DEFAULT 0",
+            # Email verification: set TRUE only after the user clicks the
+            # one-time link. The token+expiry let us re-send a fresh
+            # link without keeping a separate verification table.
+            "ALTER TABLE licenses ADD COLUMN IF NOT EXISTS email_verified BOOLEAN DEFAULT FALSE",
+            "ALTER TABLE licenses ADD COLUMN IF NOT EXISTS email_verify_token TEXT DEFAULT ''",
+            "ALTER TABLE licenses ADD COLUMN IF NOT EXISTS email_verify_token_expires_at TIMESTAMPTZ",
+            # Plan tier: 'starter' (free, 25% commission tiered down to
+            # 20% above £150/wk profit), 'pro' (£25/mo, 12.5% commission),
+            # 'unlimited' (£75/mo, 5% commission). Default starter so any
+            # legacy account behaves as before. is_dev unlocks every
+            # paid feature with no commission/payment — used for staff,
+            # alpha testers, and demo accounts.
+            "ALTER TABLE licenses ADD COLUMN IF NOT EXISTS plan TEXT DEFAULT 'starter'",
+            "ALTER TABLE licenses ADD COLUMN IF NOT EXISTS is_dev BOOLEAN DEFAULT FALSE",
+            "CREATE INDEX IF NOT EXISTS idx_licenses_phone ON licenses(phone_number)",
+            "CREATE INDEX IF NOT EXISTS idx_licenses_card_fp ON licenses(card_fingerprint)",
+            "CREATE INDEX IF NOT EXISTS idx_licenses_verify_token ON licenses(email_verify_token)",
+            "CREATE INDEX IF NOT EXISTS idx_licenses_plan ON licenses(plan)",
+            "CREATE INDEX IF NOT EXISTS idx_licenses_is_dev ON licenses(is_dev)",
+        ):
+            cur.execute(stmt)
+        # Anti-fraud audit table — admin reviews and resolves entries from
+        # the /api/admin/flags endpoint. ``details`` holds the structured
+        # context for the flag (e.g. the conflicting account id).
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS admin_flags (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER,
+                user_email TEXT DEFAULT '',
+                flag_type TEXT NOT NULL,
+                details JSONB DEFAULT '{}'::jsonb,
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                resolved BOOLEAN DEFAULT FALSE,
+                resolved_at TIMESTAMPTZ,
+                resolved_by TEXT DEFAULT ''
+            )
+            """,
+        )
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS idx_admin_flags_unresolved "
+            "ON admin_flags(resolved, created_at DESC)",
+        )
+        # Pending signups: holds OTPs and card-setup state for an
+        # in-progress registration. Rows are created on the first
+        # /api/auth/verify-phone call, updated by /api/auth/setup-card,
+        # and consumed (deleted) by /api/auth/register on success. A
+        # nightly sweep drops rows older than 24 h so abandoned signups
+        # don't accumulate.
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS pending_signups (
+                email TEXT PRIMARY KEY,
+                full_name TEXT DEFAULT '',
+                phone_number TEXT DEFAULT '',
+                phone_otp_hash TEXT DEFAULT '',
+                phone_otp_expires_at TIMESTAMPTZ,
+                phone_verified BOOLEAN DEFAULT FALSE,
+                stripe_customer_id TEXT DEFAULT '',
+                card_payment_method_id TEXT DEFAULT '',
+                card_fingerprint TEXT DEFAULT '',
+                card_last4 TEXT DEFAULT '',
+                card_name TEXT DEFAULT '',
+                card_verified BOOLEAN DEFAULT FALSE,
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                updated_at TIMESTAMPTZ DEFAULT NOW()
+            )
+            """,
+        )
+        # pending_signups: every column may be missing on DBs created
+        # before the column was added to the CREATE TABLE block. ADD
+        # COLUMN IF NOT EXISTS is idempotent so this is safe to re-run.
+        for stmt in (
+            "ALTER TABLE pending_signups ADD COLUMN IF NOT EXISTS full_name TEXT DEFAULT ''",
+            "ALTER TABLE pending_signups ADD COLUMN IF NOT EXISTS phone_number TEXT DEFAULT ''",
+            "ALTER TABLE pending_signups ADD COLUMN IF NOT EXISTS phone_otp_hash TEXT DEFAULT ''",
+            "ALTER TABLE pending_signups ADD COLUMN IF NOT EXISTS phone_otp_expires_at TIMESTAMPTZ",
+            "ALTER TABLE pending_signups ADD COLUMN IF NOT EXISTS phone_verified BOOLEAN DEFAULT FALSE",
+            "ALTER TABLE pending_signups ADD COLUMN IF NOT EXISTS stripe_customer_id TEXT DEFAULT ''",
+            "ALTER TABLE pending_signups ADD COLUMN IF NOT EXISTS card_payment_method_id TEXT DEFAULT ''",
+            "ALTER TABLE pending_signups ADD COLUMN IF NOT EXISTS card_fingerprint TEXT DEFAULT ''",
+            "ALTER TABLE pending_signups ADD COLUMN IF NOT EXISTS card_last4 TEXT DEFAULT ''",
+            "ALTER TABLE pending_signups ADD COLUMN IF NOT EXISTS card_name TEXT DEFAULT ''",
+            "ALTER TABLE pending_signups ADD COLUMN IF NOT EXISTS card_verified BOOLEAN DEFAULT FALSE",
+            "ALTER TABLE pending_signups ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()",
+            "ALTER TABLE pending_signups ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()",
+        ):
+            cur.execute(stmt)
+        cur.execute(
+            "DELETE FROM pending_signups WHERE created_at < NOW() - INTERVAL '24 hours'",
+        )
         cur.execute(
             "CREATE INDEX IF NOT EXISTS idx_releases_schedule ON releases(scheduled_at)",
         )
-        # telemetry_events: uploaded_at may be missing on DBs created before the
-        # column was added to the CREATE TABLE block.
-        cur.execute(
+        # telemetry_events: every column may be missing on DBs created
+        # before the current CREATE TABLE block — Render's database
+        # predates the table itself in some cases. Each ADD COLUMN is
+        # idempotent so partial migrations are safe.
+        for stmt in (
+            "ALTER TABLE telemetry_events ADD COLUMN IF NOT EXISTS license_key TEXT",
+            "ALTER TABLE telemetry_events ADD COLUMN IF NOT EXISTS snapshot JSONB",
             "ALTER TABLE telemetry_events ADD COLUMN IF NOT EXISTS uploaded_at TIMESTAMPTZ DEFAULT NOW()",
-        )
+        ):
+            cur.execute(stmt)
         cur.execute(
             "CREATE INDEX IF NOT EXISTS idx_telemetry_key_time "
             "ON telemetry_events(license_key, uploaded_at DESC)",
@@ -298,6 +442,60 @@ class SignupRequest(BaseModel):
     agreed_risk: bool = False
 
 
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+class VerifyPhoneRequest(BaseModel):
+    """Step 1 of phone verification — sends an SMS OTP to the number."""
+    email: str
+    phone: str
+    full_name: str = ""
+
+
+class ConfirmPhoneRequest(BaseModel):
+    """Step 2 of phone verification — checks the OTP the user entered."""
+    email: str
+    otp: str
+
+
+class SetupCardRequest(BaseModel):
+    """Step 3 of signup — creates the Stripe customer + auth hold.
+
+    The browser hands us a Stripe-tokenised PaymentMethod id; we never
+    see the raw card details. Stripe returns the fingerprint we use for
+    multi-account fraud checks.
+    """
+    email: str
+    payment_method_id: str
+
+
+class RegisterRequest(BaseModel):
+    """Final signup submit — collects everything, validates agreements,
+    materialises the licence row, and consumes the pending_signups row.
+
+    ``phone`` is currently optional because the SMS-OTP step is hidden
+    from the signup UI. The infrastructure (verify-phone /
+    confirm-phone / Twilio helpers) stays wired up, so re-enabling the
+    gate is a UI change only."""
+    email: str
+    full_name: str
+    password: str
+    phone: str = ""
+    avatar_id: int = 0
+    agreed_eula: bool = False
+    agreed_terms: bool = False
+    agreed_privacy: bool = False
+    agreed_risk: bool = False
+    agreed_commission: bool = False
+
+
+class AvatarUpdateRequest(BaseModel):
+    """POST /api/me/avatar — set the signed-in user's chosen avatar."""
+    avatar_id: int
+
+
 class LicenseUpdateRequest(BaseModel):
     status: Optional[str] = None
     email: Optional[str] = None
@@ -355,6 +553,63 @@ def require_admin(x_admin_key: str = Header(...)) -> str:
     if x_admin_key != ADMIN_KEY:
         raise HTTPException(status_code=403, detail="invalid admin key")
     return x_admin_key
+
+
+def _hash_password(raw: str) -> str:
+    """Return ``salt:hex`` with 260k PBKDF2-SHA256 iterations. Matches
+    the format already produced by the old signup endpoint so existing
+    rows keep verifying."""
+    salt = secrets.token_hex(16)
+    digest = hashlib.pbkdf2_hmac(
+        "sha256", raw.encode(), salt.encode(), 260_000,
+    ).hex()
+    return f"{salt}:{digest}"
+
+
+def _verify_password(raw: str, stored: str) -> bool:
+    if not stored or ":" not in stored:
+        return False
+    salt, expected = stored.split(":", 1)
+    candidate = hashlib.pbkdf2_hmac(
+        "sha256", raw.encode(), salt.encode(), 260_000,
+    ).hex()
+    return secrets.compare_digest(candidate, expected)
+
+
+def _issue_jwt(license_row: dict[str, Any]) -> str:
+    """Mint a 30-day JWT for a licence row. ``sub`` is the licence key
+    (our internal user id — never shown to the user)."""
+    now = datetime.now(timezone.utc)
+    payload = {
+        "sub": license_row["key"],
+        "email": license_row["email"],
+        "name": license_row.get("name") or "",
+        "iat": int(now.timestamp()),
+        "exp": int((now + timedelta(days=JWT_TTL_DAYS)).timestamp()),
+    }
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+
+def _decode_jwt(token: str) -> dict[str, Any]:
+    try:
+        return jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="session expired — please sign in again")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="invalid session token")
+
+
+def require_auth(
+    authorization: str = Header(default=""),
+) -> dict[str, Any]:
+    """FastAPI dependency: accept ``Authorization: Bearer <jwt>`` and
+    return the decoded payload, or 401."""
+    if not authorization.lower().startswith("bearer "):
+        raise HTTPException(status_code=401, detail="missing bearer token")
+    token = authorization[7:].strip()
+    if not token:
+        raise HTTPException(status_code=401, detail="missing bearer token")
+    return _decode_jwt(token)
 
 
 # ── App ──────────────────────────────────────────────────────────────────
@@ -543,12 +798,163 @@ def terms_page() -> HTMLResponse:
     return HTMLResponse(content=html)
 
 
+@app.get("/auth/login")
+def auth_login_redirect(request: Request) -> RedirectResponse:
+    """Legacy auth path. The standalone login page has been folded into
+    /signup behind a Sign in / Create account toggle so the entry point
+    is consistent. Preserve any ``callback_port`` from the desktop app's
+    local auth bridge so the handoff still works after the bounce."""
+    qs = request.url.query
+    target = "/signup?mode=login" + (("&" + qs) if qs else "")
+    return RedirectResponse(url=target, status_code=307)
+
+
+@app.get("/auth/login.legacy", response_class=HTMLResponse)
+def auth_login_page() -> HTMLResponse:
+    """Serve the sign-in page. Accepts ``?callback_port=<int>`` so the
+    desktop app can spin up a loopback listener and receive the token
+    without any shared state. Without that param the page redirects the
+    user to ``/dashboard`` after a successful sign-in."""
+    with open(os.path.join(WEBSITE_DIR, "auth_login.html"), encoding="utf-8") as f:
+        return HTMLResponse(content=f.read())
+
+
+@app.get("/dashboard", response_class=HTMLResponse)
+def dashboard_page() -> HTMLResponse:
+    """Serve the signed-in user dashboard. The page reads the JWT from
+    localStorage; if missing it bounces the visitor back to /auth/login."""
+    with open(os.path.join(WEBSITE_DIR, "dashboard.html"), encoding="utf-8") as f:
+        return HTMLResponse(content=f.read())
+
+
+@app.get("/verify-email", response_class=HTMLResponse)
+def verify_email_page(
+    token: str = "",
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> HTMLResponse:
+    """Land the verification link from the welcome email. Marks the
+    licence as verified and renders a small confirmation page so the
+    user can hop straight to their dashboard."""
+    status_label = "verified"
+    headline = "email verified."
+    body = "your blank account is fully active. head to your dashboard to keep going."
+    cta_label = "open dashboard"
+    cta_href = "/dashboard"
+    if not token:
+        status_label = "invalid link"
+        headline = "this link is missing its token."
+        body = "open the verification email again or request a fresh one from the dashboard."
+    else:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, email_verified, email_verify_token_expires_at "
+                "FROM licenses WHERE email_verify_token = %s",
+                (token,),
+            )
+            row = cur.fetchone()
+        if not row:
+            status_label = "invalid link"
+            headline = "this verification link isn't valid."
+            body = "ask for a new one from your dashboard — old links stop working after a fresh request."
+        else:
+            expires_at = row.get("email_verify_token_expires_at")
+            now = datetime.now(timezone.utc)
+            if not row["email_verified"] and expires_at and expires_at < now:
+                status_label = "link expired"
+                headline = "this link expired."
+                body = "click resend on your dashboard to get a fresh verification email."
+            else:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "UPDATE licenses SET email_verified = TRUE, "
+                        "email_verify_token = '', "
+                        "email_verify_token_expires_at = NULL "
+                        "WHERE id = %s",
+                        (row["id"],),
+                    )
+                conn.commit()
+    html = f"""<!doctype html>
+<html lang=\"en\"><head><meta charset=\"utf-8\">
+<title>blank — {status_label}</title>
+<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">
+<link rel=\"preconnect\" href=\"https://fonts.googleapis.com\">
+<link rel=\"preconnect\" href=\"https://fonts.gstatic.com\" crossorigin>
+<link rel=\"stylesheet\" href=\"https://fonts.googleapis.com/css2?family=Outfit:wght@200;300;400;500&family=JetBrains+Mono:wght@400;500&display=swap\">
+<style>
+*{{box-sizing:border-box;margin:0;padding:0}}
+body{{background:#000;color:#fff;font-family:'Outfit','Helvetica Neue',Arial,sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}}
+.card{{max-width:520px;width:100%;background:#050505;border:1px solid rgba(255,255,255,0.08);padding:36px 32px}}
+.brand{{font-family:'Outfit',sans-serif;font-size:22px;font-weight:300;letter-spacing:-0.02em;margin:0 0 24px}}
+.brand::after{{content:'';display:block;width:32px;height:1px;background:#00ff87;margin-top:14px}}
+.kicker{{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:0.28em;text-transform:uppercase;color:#00ff87;margin:0 0 14px}}
+h1{{font-family:'Outfit',sans-serif;font-size:26px;font-weight:300;letter-spacing:-0.01em;margin:0 0 14px;line-height:1.25}}
+p{{color:rgba(255,255,255,0.6);font-size:15px;line-height:1.65;margin:0 0 24px}}
+a.cta{{display:inline-block;background:#00ff87;color:#000;text-decoration:none;font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:0.16em;text-transform:uppercase;padding:14px 26px;font-weight:500}}
+</style></head>
+<body><div class=\"card\">
+<p class=\"brand\">blank</p>
+<p class=\"kicker\">{status_label}</p>
+<h1>{headline}</h1>
+<p>{body}</p>
+<a class=\"cta\" href=\"{cta_href}\">{cta_label}</a>
+</div></body></html>"""
+    return HTMLResponse(content=html)
+
+
 # ── Health / version (public) ────────────────────────────────────────────
 
 @app.get("/api/health")
 def health_check() -> dict[str, str]:
-    """Simple health check for app connectivity verification."""
-    return {"status": "ok", "version": "1.0.0"}
+    """Simple health check for app connectivity verification.
+
+    Returns the deploy commit SHA (``RENDER_GIT_COMMIT`` on Render) so we
+    can verify from the browser which revision is actually live — useful
+    when a fix is pushed and we need to confirm it rolled out.
+    """
+    return {
+        "status": "ok",
+        "version": "1.0.0",
+        "commit": os.environ.get("RENDER_GIT_COMMIT", "unknown"),
+    }
+
+
+@app.get("/api/debug/dashboard-test")
+def debug_dashboard_test(
+    email: str,
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> dict[str, Any]:
+    """No-auth probe that runs the dashboard build path for a given email.
+
+    Intentionally public so the fix can be verified from a browser
+    without a token. Returns the exception chain verbatim when the
+    build path crashes — the whole point is to make silent 500s
+    visible. Remove once the dashboard stabilises.
+    """
+    import traceback
+    with conn.cursor() as cur:
+        cur.execute("SELECT key FROM licenses WHERE email = %s LIMIT 1", (email,))
+        row = cur.fetchone()
+    if not row:
+        return {"ok": False, "stage": "lookup", "error": "no licence for that email"}
+    claims = {"sub": row["key"]}
+    try:
+        payload = _build_dashboard_payload(conn, claims)
+        return {
+            "ok": True,
+            "commit": os.environ.get("RENDER_GIT_COMMIT", "unknown"),
+            "keys": sorted(payload.keys()),
+            "user_keys": sorted((payload.get("user") or {}).keys()),
+            "analytics_keys": sorted((payload.get("analytics") or {}).keys()),
+        }
+    except HTTPException as exc:
+        return {"ok": False, "stage": "http", "status": exc.status_code, "detail": exc.detail}
+    except Exception as exc:
+        return {
+            "ok": False,
+            "stage": "build",
+            "error": f"{type(exc).__name__}: {exc}",
+            "traceback": traceback.format_exc(),
+        }
 
 
 @app.get("/api/version")
@@ -759,6 +1165,733 @@ def validate_license(
     }
 
 
+# ── Account auth (users never see the underlying licence key) ───────────
+
+@app.post("/api/auth/login")
+def auth_login(
+    body: LoginRequest,
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> dict[str, Any]:
+    """Email + password → JWT. Returns 401 on any failure so the UI
+    doesn't leak whether the email exists."""
+    email = (body.email or "").strip().lower()
+    password = body.password or ""
+    if not email or not password:
+        raise HTTPException(status_code=401, detail="invalid email or password")
+
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT * FROM licenses WHERE LOWER(email) = %s "
+            "ORDER BY created_at DESC LIMIT 1",
+            (email,),
+        )
+        row = cur.fetchone()
+
+    if not row or not _verify_password(password, row.get("password_hash") or ""):
+        raise HTTPException(status_code=401, detail="invalid email or password")
+
+    if row["status"] in ("revoked", "expired"):
+        raise HTTPException(status_code=403, detail=f"account {row['status']}")
+
+    if row.get("expires_at"):
+        expires = row["expires_at"]
+        if expires.tzinfo is None:
+            expires = expires.replace(tzinfo=timezone.utc)
+        if datetime.now(timezone.utc) > expires:
+            raise HTTPException(status_code=403, detail="account expired")
+
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE licenses SET last_active = NOW() WHERE key = %s",
+            (row["key"],),
+        )
+    conn.commit()
+
+    token = _issue_jwt(dict(row))
+    return {
+        "token": token,
+        "email": row["email"],
+        "name": row.get("name") or "",
+        "expires_at": row["expires_at"].isoformat() if row["expires_at"] else None,
+    }
+
+
+@app.get("/api/auth/me")
+def auth_me(
+    claims: dict[str, Any] = Depends(require_auth),
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> dict[str, Any]:
+    """Return the current user and the same remote-config blob the old
+    ``/api/license/validate`` handed back, so the desktop app can keep
+    honouring kill-switch / maintenance / force-update flags."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT * FROM licenses WHERE key = %s", (claims["sub"],))
+        row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=401, detail="account no longer exists")
+    if row["status"] in ("revoked", "expired"):
+        raise HTTPException(status_code=403, detail=f"account {row['status']}")
+
+    with conn.cursor() as cur:
+        cur.execute("SELECT key, value FROM config")
+        cfg = {r["key"]: r["value"] for r in cur.fetchall()}
+
+    return {
+        "email": row["email"],
+        "name": row.get("name") or "",
+        "full_name": row.get("full_name") or row.get("name") or "",
+        "avatar_id": int(row.get("avatar_id") or 0),
+        "status": row["status"],
+        "expires_at": row["expires_at"].isoformat() if row["expires_at"] else None,
+        "config": cfg,
+    }
+
+
+# ── Avatars ─────────────────────────────────────────────────────────────
+
+@app.get("/api/avatars")
+def list_avatars() -> dict[str, Any]:
+    """List all available avatar ids. Clients pair the id with
+    /api/avatars/{id}.svg to render a picker grid."""
+    return {
+        "count": AVATAR_COUNT,
+        "avatars": [
+            {"id": i, "url": f"/api/avatars/{i}.svg"}
+            for i in range(1, AVATAR_COUNT + 1)
+        ],
+    }
+
+
+@app.get("/api/avatars/{avatar_id}.svg")
+def get_avatar_svg(avatar_id: int) -> Response:
+    """Serve a single avatar SVG. Returns 404 if the id is out of range
+    or the file is missing from the deploy (e.g. someone regenerated
+    locally but didn't commit)."""
+    if avatar_id < 1 or avatar_id > AVATAR_COUNT:
+        raise HTTPException(status_code=404, detail="avatar not found")
+    path = os.path.join(AVATARS_DIR, f"avatar_{avatar_id:03d}.svg")
+    if not os.path.isfile(path):
+        raise HTTPException(status_code=404, detail="avatar file missing")
+    with open(path, "rb") as f:
+        svg = f.read()
+    return Response(
+        content=svg,
+        media_type="image/svg+xml",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
+# ── Plans ───────────────────────────────────────────────────────────────
+#
+# Three tiers, hard-coded so the UI on website + desktop can render the
+# picker without an extra round trip. Anything beyond cosmetic copy
+# (commission %, monthly fee, default-ness) lives here so the fee
+# engine and admin tools share one source of truth.
+
+PLANS: List[Dict[str, Any]] = [
+    {
+        "id": "starter",
+        "label": "Starter",
+        "tagline": "Perfect for small accounts",
+        "monthly_fee": 0,
+        # Starter is tiered: 25% on weeks where realised profit is at
+        # or below the threshold, 20% above it. The headline number we
+        # quote is 25% so the user sees the worst-case figure first.
+        "commission_pct": 25,
+        "commission_pct_above_threshold": 20,
+        "weekly_threshold_gbp": 150,
+        "currency": "GBP",
+        "features": [
+            "25% of weekly profit up to £150",
+            "20% of weekly profit above £150",
+            "no monthly subscription",
+            "all core features",
+        ],
+        "recommended": False,
+        "is_default": True,
+    },
+    {
+        "id": "pro",
+        "label": "Pro",
+        "tagline": "Best for active traders",
+        "monthly_fee": 25,
+        "commission_pct": 12.5,
+        "commission_pct_above_threshold": None,
+        "weekly_threshold_gbp": None,
+        "currency": "GBP",
+        "features": [
+            "12.5% of weekly profit",
+            "£25 / month",
+            "priority research roles",
+            "all core features",
+        ],
+        "recommended": True,
+        "is_default": False,
+    },
+    {
+        "id": "unlimited",
+        "label": "Unlimited",
+        "tagline": "For serious traders",
+        "monthly_fee": 75,
+        "commission_pct": 5,
+        "commission_pct_above_threshold": None,
+        "weekly_threshold_gbp": None,
+        "currency": "GBP",
+        "features": [
+            "5% of weekly profit",
+            "£75 / month",
+            "all features unlocked",
+            "early access to new builds",
+        ],
+        "recommended": False,
+        "is_default": False,
+    },
+]
+
+
+def _plan_by_id(plan_id: str) -> Dict[str, Any]:
+    for p in PLANS:
+        if p["id"] == plan_id:
+            return p
+    raise HTTPException(status_code=400, detail=f"unknown plan: {plan_id}")
+
+
+def _plan_for_user(row: Dict[str, Any]) -> Dict[str, Any]:
+    """Resolve the effective plan blob for a licence row.
+
+    Dev accounts always read as Unlimited at zero cost so the desktop
+    fee engine stops collecting fees the moment the admin flips the
+    flag — no need to also adjust the user's stored plan.
+    """
+    if row.get("is_dev"):
+        base = _plan_by_id("unlimited")
+        return {
+            **base,
+            "id": base["id"],
+            "monthly_fee": 0,
+            "commission_pct": 0,
+            "commission_pct_above_threshold": None,
+            "weekly_threshold_gbp": None,
+            "is_dev": True,
+        }
+    plan_id = (row.get("plan") or "starter").strip() or "starter"
+    try:
+        base = _plan_by_id(plan_id)
+    except HTTPException:
+        base = _plan_by_id("starter")
+    return {**base, "is_dev": False}
+
+
+def _effective_commission_pct(plan: Dict[str, Any], weekly_profit_gbp: float) -> float:
+    """Return the commission rate that actually applies this week.
+
+    Starter is the only tiered plan today: the better rate kicks in
+    when the user's realised weekly profit clears the threshold. Other
+    plans ignore both extra fields and just return their flat rate.
+    """
+    base = float(plan.get("commission_pct") or 0)
+    threshold = plan.get("weekly_threshold_gbp")
+    above = plan.get("commission_pct_above_threshold")
+    if threshold is None or above is None:
+        return base
+    if weekly_profit_gbp > float(threshold):
+        return float(above)
+    return base
+
+
+def _weekly_cost_for_plan(plan: Dict[str, Any], weekly_profit_gbp: float) -> float:
+    """Total weekly cost (commission + monthly fee prorated to a week).
+
+    Used by the dashboard's "best plan for you" indicator so the
+    comparison matches what each plan would actually charge against
+    the user's current trailing 7-day profit. The monthly subscription
+    is divided by 4.345 to convert it to a weekly equivalent — the
+    same denominator the dashboard quotes back to the user.
+    """
+    profit = max(0.0, float(weekly_profit_gbp))
+    rate = _effective_commission_pct(plan, profit) / 100.0
+    weekly_sub = float(plan.get("monthly_fee") or 0) / 4.345
+    return profit * rate + weekly_sub
+
+
+@app.get("/api/plans")
+def list_plans() -> dict[str, Any]:
+    """Public plan catalogue — used by the website signup + dashboard."""
+    return {"plans": PLANS}
+
+
+@app.get("/api/me/plan")
+def my_plan(
+    claims: dict[str, Any] = Depends(require_auth),
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> dict[str, Any]:
+    """Return the signed-in user's current plan, including dev override."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT plan, is_dev, card_verified FROM licenses WHERE key = %s",
+            (claims["sub"],),
+        )
+        row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="account not found")
+    return {"plan": _plan_for_user(dict(row))}
+
+
+class PlanUpdateRequest(BaseModel):
+    plan: str = "starter"
+
+
+@app.post("/api/me/plan")
+def set_my_plan(
+    body: PlanUpdateRequest,
+    claims: dict[str, Any] = Depends(require_auth),
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> dict[str, Any]:
+    """Switch the signed-in user's plan. Paid plans require a verified
+    card on file — we don't gate the request on the dev flag because
+    dev accounts never see this endpoint in the UI."""
+    plan = _plan_by_id(body.plan)
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT id, card_verified, is_dev FROM licenses WHERE key = %s",
+            (claims["sub"],),
+        )
+        row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="account not found")
+
+    needs_card = (plan["monthly_fee"] or 0) > 0
+    if needs_card and not row.get("card_verified") and not row.get("is_dev"):
+        raise HTTPException(
+            status_code=402,
+            detail="add a verified payment card before choosing a paid plan",
+        )
+
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE licenses SET plan = %s WHERE id = %s",
+            (plan["id"], row["id"]),
+        )
+    conn.commit()
+
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT plan, is_dev, card_verified FROM licenses WHERE id = %s",
+            (row["id"],),
+        )
+        fresh = cur.fetchone()
+    return {"status": "ok", "plan": _plan_for_user(dict(fresh))}
+
+
+@app.post("/api/me/avatar")
+def set_my_avatar(
+    body: AvatarUpdateRequest,
+    claims: dict[str, Any] = Depends(require_auth),
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> dict[str, Any]:
+    """Change the signed-in user's chosen avatar. 0 clears the choice."""
+    avatar_id = int(body.avatar_id or 0)
+    if avatar_id < 0 or avatar_id > AVATAR_COUNT:
+        raise HTTPException(status_code=400, detail="invalid avatar id")
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE licenses SET avatar_id = %s WHERE key = %s RETURNING id",
+            (avatar_id, claims["sub"]),
+        )
+        row = cur.fetchone()
+    conn.commit()
+    if not row:
+        raise HTTPException(status_code=404, detail="account not found")
+    return {"status": "ok", "avatar_id": avatar_id}
+
+
+class NameUpdateRequest(BaseModel):
+    full_name: str = ""
+
+
+@app.post("/api/me/name")
+def set_my_name(
+    body: NameUpdateRequest,
+    claims: dict[str, Any] = Depends(require_auth),
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> dict[str, Any]:
+    """Save the signed-in user's full name. Empty strings are rejected
+    so the field on the licence row can be relied on by other panels."""
+    name = (body.full_name or "").strip()
+    if not name or len(name) > 200:
+        raise HTTPException(status_code=400, detail="invalid name")
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE licenses SET full_name = %s, name = %s WHERE key = %s RETURNING id",
+            (name, name, claims["sub"]),
+        )
+        row = cur.fetchone()
+    conn.commit()
+    if not row:
+        raise HTTPException(status_code=404, detail="account not found")
+    return {"status": "ok", "full_name": name}
+
+
+class PasswordUpdateRequest(BaseModel):
+    current_password: str = ""
+    new_password: str = ""
+
+
+@app.post("/api/me/password")
+def set_my_password(
+    body: PasswordUpdateRequest,
+    claims: dict[str, Any] = Depends(require_auth),
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> dict[str, Any]:
+    """Rotate the signed-in user's password. Requires the current
+    password so a stolen JWT alone can't lock the user out."""
+    new_pw = body.new_password or ""
+    if len(new_pw) < 8:
+        raise HTTPException(status_code=400, detail="password must be at least 8 characters")
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT id, password_hash FROM licenses WHERE key = %s",
+            (claims["sub"],),
+        )
+        row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="account not found")
+    stored = row.get("password_hash") or ""
+    if stored:
+        if not _verify_password(body.current_password or "", stored):
+            raise HTTPException(status_code=401, detail="current password is incorrect")
+    new_hash = _hash_password(new_pw)
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE licenses SET password_hash = %s WHERE id = %s",
+            (new_hash, row["id"]),
+        )
+    conn.commit()
+    return {"status": "ok"}
+
+
+@app.post("/api/me/resend-verification")
+def resend_verification(
+    claims: dict[str, Any] = Depends(require_auth),
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> dict[str, Any]:
+    """Mint a fresh verification token for the signed-in user and resend
+    the verify_email template. No-op (still 200) if the email is already
+    verified — keeps the front-end's resend button idempotent."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT id, email, name, full_name, email_verified, key FROM licenses "
+            "WHERE key = %s",
+            (claims["sub"],),
+        )
+        row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="account not found")
+    if row["email_verified"]:
+        return {"status": "ok", "already_verified": True}
+
+    token = secrets.token_urlsafe(32)
+    expires = datetime.now(timezone.utc) + timedelta(hours=24)
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE licenses SET email_verify_token = %s, "
+            "email_verify_token_expires_at = %s WHERE id = %s",
+            (token, expires, row["id"]),
+        )
+    conn.commit()
+
+    name_full = (row.get("full_name") or row.get("name") or "").strip() or "there"
+    first = name_full.split(" ")[0] or name_full
+    # Each resend gets its own dedup reason so a user can request
+    # multiple fresh links without the second send being eaten by
+    # the once-only guard.
+    sent, info = send_template_once(
+        conn,
+        "verify_email",
+        {
+            "name": first,
+            "verify_url": f"{SITE_URL.rstrip('/')}/verify-email?token={token}",
+        },
+        recipient=row["email"],
+        reason_key=f"verify:{row['key']}:{int(time.time())}",
+    )
+    if not sent:
+        logger.info("resend verification skipped for %s (%s)", row["email"], info)
+    return {"status": "ok", "sent": bool(sent)}
+
+
+# ── User dashboard + analytics ──────────────────────────────────────────
+
+def _compute_user_analytics(
+    conn: psycopg2.extensions.connection, license_key: str,
+) -> dict[str, Any]:
+    """Aggregate telemetry_events for a licence key into the stat blob
+    both /api/me/dashboard and /api/me/analytics return.
+
+    Trades come in via ``telemetry_snapshot_push`` — each snapshot may
+    contain a ``trades`` array. We dedupe by (side, ticker, ts) before
+    computing win rate / P/L so a user whose desktop re-uploads the
+    same snapshot doesn't double-count.
+    """
+    now = datetime.now(timezone.utc)
+    since_all = now - timedelta(days=3650)
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT snapshot, uploaded_at FROM telemetry_events "
+            "WHERE license_key = %s AND uploaded_at >= %s "
+            "ORDER BY uploaded_at DESC LIMIT 2000",
+            (license_key, since_all),
+        )
+        rows = cur.fetchall()
+
+    seen: set[tuple[Any, Any, Any]] = set()
+    trades: List[Dict[str, Any]] = []
+    latest_positions: List[Dict[str, Any]] = []
+    latest_ts: Optional[datetime] = None
+    for r in rows:
+        raw = r.get("snapshot")
+        if raw is None:
+            continue
+        try:
+            snap = raw if isinstance(raw, dict) else json.loads(raw)
+        except (TypeError, ValueError):
+            continue
+        if not isinstance(snap, dict):
+            continue
+        ts: Optional[datetime] = r.get("uploaded_at")
+        if ts and (latest_ts is None or ts > latest_ts):
+            latest_ts = ts
+            latest_positions = list(snap.get("positions") or [])
+        for t in (snap.get("trades") or []):
+            if not isinstance(t, dict):
+                continue
+            sig = (t.get("side"), t.get("ticker"), t.get("ts"))
+            if sig in seen:
+                continue
+            seen.add(sig)
+            # Use the snapshot's upload timestamp when the trade itself
+            # has no ts so time-window slicing still works.
+            trade_ts = t.get("ts") or (ts.isoformat() if ts else None)
+            trades.append({**t, "ts": trade_ts})
+
+    def _profit(t: Dict[str, Any]) -> float:
+        for k in ("profit", "pnl", "realised_pnl", "realized_pnl"):
+            v = t.get(k)
+            if v is not None:
+                try:
+                    return float(v)
+                except (TypeError, ValueError):
+                    pass
+        return 0.0
+
+    def _within(t: Dict[str, Any], since: datetime) -> bool:
+        raw = t.get("ts")
+        if not raw:
+            return False
+        try:
+            dt = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+        except ValueError:
+            return False
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt >= since
+
+    total_trades = len(trades)
+    profits = [_profit(t) for t in trades]
+    wins = sum(1 for p in profits if p > 0)
+    win_rate = (wins / total_trades * 100.0) if total_trades else 0.0
+    total_pnl = sum(profits)
+
+    def _window_pnl(days: int) -> float:
+        since = now - timedelta(days=days)
+        return sum(_profit(t) for t in trades if _within(t, since))
+
+    best = max(trades, key=_profit, default=None)
+    worst = min(trades, key=_profit, default=None)
+
+    return {
+        "total_trades": total_trades,
+        "win_rate": round(win_rate, 1),
+        "total_pnl": round(total_pnl, 2),
+        "pnl_today": round(_window_pnl(1), 2),
+        "pnl_7d": round(_window_pnl(7), 2),
+        "pnl_30d": round(_window_pnl(30), 2),
+        "pnl_all": round(total_pnl, 2),
+        "best_trade": {
+            "ticker": best.get("ticker") if best else "",
+            "profit": round(_profit(best), 2) if best else 0.0,
+            "ts": best.get("ts") if best else None,
+        } if best else None,
+        "worst_trade": {
+            "ticker": worst.get("ticker") if worst else "",
+            "profit": round(_profit(worst), 2) if worst else 0.0,
+            "ts": worst.get("ts") if worst else None,
+        } if worst else None,
+        "open_positions": len(latest_positions),
+        "last_snapshot_at": latest_ts.isoformat() if latest_ts else None,
+    }
+
+
+def _next_monday_0900(now: datetime) -> datetime:
+    """Performance fee billing anchor — Monday 09:00 UTC."""
+    days_ahead = (0 - now.weekday()) % 7
+    if days_ahead == 0 and (now.hour >= 9):
+        days_ahead = 7
+    target = (now + timedelta(days=days_ahead)).replace(
+        hour=9, minute=0, second=0, microsecond=0,
+    )
+    return target
+
+
+@app.get("/api/me/analytics")
+def my_analytics(
+    claims: dict[str, Any] = Depends(require_auth),
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> dict[str, Any]:
+    """Compact analytics blob for the Settings panel — no payment info."""
+    return _compute_user_analytics(conn, claims["sub"])
+
+
+@app.get("/api/me/dashboard")
+def my_dashboard(
+    claims: dict[str, Any] = Depends(require_auth),
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> dict[str, Any]:
+    """Full dashboard payload: identity, analytics, payment status.
+
+    The desktop Account Dashboard panel renders everything here. Payment
+    data is a stub for now — the real invoicing pipeline lands later;
+    until then ``amount_due`` reflects 20% of realised profit since the
+    last Monday 09:00 cutoff so the figure is still informative.
+    """
+    try:
+        return _build_dashboard_payload(conn, claims)
+    except HTTPException:
+        raise
+    except Exception:
+        # Without this, FastAPI swallows the traceback into a generic
+        # 500 and the user is stuck on a spinner with no clue why.
+        logger.exception("dashboard build failed for %s", claims.get("sub"))
+        raise HTTPException(
+            status_code=500,
+            detail="could not load dashboard — please try again in a moment",
+        )
+
+
+def _build_dashboard_payload(
+    conn: psycopg2.extensions.connection, claims: dict[str, Any],
+) -> dict[str, Any]:
+    with conn.cursor() as cur:
+        cur.execute("SELECT * FROM licenses WHERE key = %s", (claims["sub"],))
+        row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=401, detail="account no longer exists")
+
+    stats = _compute_user_analytics(conn, claims["sub"])
+
+    # Amount due this cycle = 20% of realised profit since last Monday 09:00.
+    now = datetime.now(timezone.utc)
+    last_monday = _next_monday_0900(now) - timedelta(days=7)
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT snapshot FROM telemetry_events "
+            "WHERE license_key = %s AND uploaded_at >= %s",
+            (claims["sub"], last_monday),
+        )
+        cycle_rows = cur.fetchall()
+    cycle_trades: List[Dict[str, Any]] = []
+    seen: set[tuple[Any, Any, Any]] = set()
+    for r in cycle_rows:
+        raw = r.get("snapshot")
+        if raw is None:
+            continue
+        try:
+            snap = raw if isinstance(raw, dict) else json.loads(raw)
+        except (TypeError, ValueError):
+            continue
+        if not isinstance(snap, dict):
+            continue
+        for t in (snap.get("trades") or []):
+            if not isinstance(t, dict):
+                continue
+            sig = (t.get("side"), t.get("ticker"), t.get("ts"))
+            if sig in seen:
+                continue
+            seen.add(sig)
+            cycle_trades.append(t)
+    cycle_profit = 0.0
+    for t in cycle_trades:
+        for k in ("profit", "pnl", "realised_pnl", "realized_pnl"):
+            v = t.get(k)
+            if v is not None:
+                try:
+                    cycle_profit += float(v)
+                except (TypeError, ValueError):
+                    pass
+                break
+    plan = _plan_for_user(dict(row))
+    weekly_profit = max(0.0, cycle_profit)
+    fee_rate_pct = _effective_commission_pct(plan, weekly_profit)
+    amount_due = round(weekly_profit * (fee_rate_pct / 100.0), 2)
+
+    # "Best plan for you" — model the trailing-7d profit against every
+    # plan and surface the cheapest. This is a hint, not a hard switch:
+    # the user still has to pick a plan, but they can see at a glance
+    # whether they'd save by upgrading or whether Starter is fine.
+    pnl_7d = float((stats or {}).get("pnl_7d") or 0.0)
+    plan_costs = [
+        {
+            "plan_id": p["id"],
+            "label": p["label"],
+            "weekly_cost": round(_weekly_cost_for_plan(p, pnl_7d), 2),
+            "effective_commission_pct": _effective_commission_pct(p, pnl_7d),
+            "monthly_fee": float(p.get("monthly_fee") or 0),
+        }
+        for p in PLANS
+    ]
+    best = min(plan_costs, key=lambda c: c["weekly_cost"]) if pnl_7d > 0 else None
+    recommendation = {
+        "weekly_profit_basis": round(pnl_7d, 2),
+        "plan_costs": plan_costs,
+        "best_plan_id": best["plan_id"] if best else None,
+        # Cost user pays today vs. cost on the cheapest plan, both
+        # quoted on the same trailing-7d basis. The UI uses this to
+        # phrase "you'd save £X / week by switching to Y".
+        "current_weekly_cost": round(_weekly_cost_for_plan(plan, pnl_7d), 2),
+        "best_weekly_cost": best["weekly_cost"] if best else None,
+    }
+
+    created_at = row.get("created_at")
+    return {
+        "user": {
+            "email": row.get("email") or "",
+            "name": row.get("name") or "",
+            "full_name": row.get("full_name") or row.get("name") or "",
+            "avatar_id": int(row.get("avatar_id") or 0),
+            "status": row.get("status") or "active",
+            "email_verified": bool(row.get("email_verified")),
+            "is_dev": bool(row.get("is_dev")),
+            "created_at": created_at.isoformat() if created_at else None,
+        },
+        "plan": plan,
+        "analytics": stats,
+        "payment": {
+            "amount_due": amount_due,
+            "currency": plan.get("currency") or "GBP",
+            "fee_rate_pct": fee_rate_pct,
+            "monthly_fee": float(plan.get("monthly_fee") or 0),
+            "weekly_threshold_gbp": plan.get("weekly_threshold_gbp"),
+            "commission_pct_above_threshold": plan.get("commission_pct_above_threshold"),
+            "weekly_profit_so_far": round(weekly_profit, 2),
+            "next_payment_at": _next_monday_0900(now).isoformat(),
+            "history": [],  # populated when billing infra lands
+            "card_last4": row.get("card_last4") or "",
+            "card_verified": bool(row.get("card_verified")),
+        },
+        "recommendation": recommendation,
+    }
+
+
 # ── Public signup (email → access key via Resend) ───────────────────────
 
 # RFC-5322 is ridiculous; this regex covers the 99% case and we let
@@ -907,6 +2040,11 @@ def public_signup(
             status_code=400,
             detail="you must acknowledge the risk disclosure",
         )
+    if not body.password or len(body.password) < 8:
+        raise HTTPException(
+            status_code=400,
+            detail="please choose a password of at least 8 characters",
+        )
 
     ip = request.client.host if request.client else "unknown"
     if not _signup_rate_ok(ip):
@@ -915,31 +2053,40 @@ def public_signup(
             detail="too many signup attempts — try again in an hour",
         )
 
-    # Look up any existing licence for this email first. Re-sending the
-    # same key is much nicer UX than handing out fresh keys each time
-    # someone re-submits the form.
+    # Look up any existing licence for this email first. Two cases:
+    # (a) an older pre-auth row with no password_hash — we set the
+    #     password the user just typed so they can sign in;
+    # (b) a row that already has a password — reject with a pointer to
+    #     the sign-in page so we don't silently overwrite credentials.
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT key, expires_at FROM licenses WHERE LOWER(email) = %s "
-            "ORDER BY created_at DESC LIMIT 1",
+            "SELECT key, expires_at, password_hash FROM licenses "
+            "WHERE LOWER(email) = %s ORDER BY created_at DESC LIMIT 1",
             (email,),
         )
         existing = cur.fetchone()
 
+    if existing and existing.get("password_hash"):
+        raise HTTPException(
+            status_code=409,
+            detail="an account already exists for this email — please sign in",
+        )
+
+    password_hash = _hash_password(body.password)
     if existing:
         key = existing["key"]
         expires = existing["expires_at"]
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE licenses SET password_hash = %s, name = COALESCE(NULLIF(%s, ''), name) "
+                "WHERE key = %s",
+                (password_hash, (body.name or "").strip(), key),
+            )
+        conn.commit()
     else:
         key = _generate_license_key()
         expires = datetime.now(timezone.utc) + timedelta(days=365)
         with conn.cursor() as cur:
-            password_hash: str | None = None
-            if body.password:
-                salt = secrets.token_hex(16)
-                raw = hashlib.pbkdf2_hmac(
-                    "sha256", body.password.encode(), salt.encode(), 260_000
-                ).hex()
-                password_hash = f"{salt}:{raw}"
             cur.execute(
                 "INSERT INTO licenses (key, email, name, status, expires_at, password_hash) "
                 "VALUES (%s, %s, %s, 'active', %s, %s)",
@@ -957,7 +2104,6 @@ def public_signup(
         {
             "name": (body.name or "there").strip() or "there",
             "license_key": key,
-            "download_url": DOWNLOAD_URL,
         },
         recipient=email,
         reason_key=f"issue:{key}",
@@ -966,15 +2112,664 @@ def public_signup(
     if not ok:
         logger.info("signup email skipped for %s (%s)", email, info)
 
+    with conn.cursor() as cur:
+        cur.execute("SELECT * FROM licenses WHERE key = %s", (key,))
+        license_row = cur.fetchone()
+    token = _issue_jwt(dict(license_row)) if license_row else None
+
     return {
         "status": "ok",
         "sent": sent,
         "email": email,
-        # Only echo the key back on the API response when Resend was
-        # skipped (dev mode). Production responses never expose the
-        # key so a shoulder-surfer on the signup page can't farm it.
-        "key": key if not RESEND_API_KEY else None,
+        "token": token,
     }
+
+
+# ── Full signup flow (KYC-lite + payment auth + multi-step OTP) ─────────
+#
+# This sits alongside the legacy `/api/signup` (which is a single-step
+# email→key flow used by the marketing landing page). The full flow is
+# driven from /signup and posts to four endpoints in sequence:
+#
+#   /api/auth/verify-phone   → sends Twilio SMS OTP
+#   /api/auth/confirm-phone  → checks the OTP
+#   /api/auth/setup-card     → tokenises the card via Stripe + £1 hold
+#   /api/auth/register       → final commit, mints JWT, issues licence
+#
+# Anti-fraud lives inside register: card fingerprint dedup, phone
+# uniqueness, and name-mismatch flagging (recorded in admin_flags
+# without blocking the signup).
+
+_PHONE_RE = re.compile(r"^\+?[0-9 \-().]{7,20}$")
+
+
+def _normalise_phone(raw: str) -> str:
+    """Strip whitespace and punctuation for unique-match lookups.
+
+    We accept user input with spaces/dashes/parens but store and
+    compare on the digits-only canonical form (with a leading + if the
+    user supplied one).
+    """
+    raw = (raw or "").strip()
+    if not raw:
+        return ""
+    keep_plus = raw.startswith("+")
+    digits = re.sub(r"[^0-9]", "", raw)
+    if not digits:
+        return ""
+    return ("+" + digits) if keep_plus else digits
+
+
+def _is_valid_phone(raw: str) -> bool:
+    return bool(_PHONE_RE.match((raw or "").strip()))
+
+
+def _hash_otp(raw: str) -> str:
+    """OTPs are short-lived but we still avoid storing them plaintext."""
+    return hashlib.sha256((raw or "").encode()).hexdigest()
+
+
+def _stripe_enabled() -> bool:
+    return bool(STRIPE_SECRET_KEY)
+
+
+def _twilio_enabled() -> bool:
+    return bool(TWILIO_SID and TWILIO_AUTH_TOKEN and TWILIO_PHONE_NUMBER)
+
+
+def _send_otp_via_twilio(phone: str, otp: str) -> bool:
+    """Dispatch the SMS. Returns True on success.
+
+    When Twilio is unconfigured we log and return False — the caller
+    falls back to accepting `DEV_FALLBACK_OTP` so the UI flow still
+    completes end-to-end without a real Twilio account. Failures are
+    non-fatal: the OTP row is still written so the user can resend or
+    the admin can read it from the logs in dev.
+    """
+    if not _twilio_enabled():
+        logger.warning(
+            "twilio unconfigured — pretending to send OTP %s to %s "
+            "(dev fallback %s will be accepted)",
+            otp, phone, DEV_FALLBACK_OTP,
+        )
+        return False
+    try:
+        from twilio.rest import Client as TwilioClient
+        client = TwilioClient(TWILIO_SID, TWILIO_AUTH_TOKEN)
+        client.messages.create(
+            to=phone,
+            from_=TWILIO_PHONE_NUMBER,
+            body=f"Your blank verification code is {otp}. It expires in 10 minutes.",
+        )
+        return True
+    except Exception as e:
+        logger.error("twilio send failed for %s: %s", phone, e)
+        return False
+
+
+def _stripe_setup_card(email: str, payment_method_id: str) -> Dict[str, Any]:
+    """Attach a PaymentMethod to a fresh Stripe customer and place a
+    £1 manual-capture authorisation hold that is then cancelled.
+
+    Returns a dict with: customer_id, payment_method_id, fingerprint,
+    last4, name, ok (bool), error (str).
+    """
+    if not _stripe_enabled():
+        # Dev path — synthesise a deterministic fingerprint per email so
+        # the uniqueness check still distinguishes "two accounts using
+        # the same dev card" from "two accounts using different dev
+        # cards" without ever talking to Stripe.
+        digest = hashlib.sha256(f"dev:{email}".encode()).hexdigest()[:24]
+        logger.warning(
+            "stripe unconfigured — using dev placeholder card for %s", email,
+        )
+        return {
+            "ok": True,
+            "customer_id": f"cus_dev_{digest[:14]}",
+            "payment_method_id": payment_method_id or f"pm_dev_{digest[:14]}",
+            "fingerprint": f"dev_{digest}",
+            "last4": "0000",
+            "name": "",
+            "error": "",
+        }
+    try:
+        import stripe
+        stripe.api_key = STRIPE_SECRET_KEY
+        pm = stripe.PaymentMethod.retrieve(payment_method_id)
+        if pm.get("type") != "card":
+            return {"ok": False, "error": "only card payment methods are supported"}
+        card = pm.get("card") or {}
+        billing = pm.get("billing_details") or {}
+        customer = stripe.Customer.create(email=email)
+        stripe.PaymentMethod.attach(payment_method_id, customer=customer["id"])
+        stripe.Customer.modify(
+            customer["id"],
+            invoice_settings={"default_payment_method": payment_method_id},
+        )
+        # £1 manual-capture authorisation — confirm it (placing the hold
+        # on the card) then cancel immediately so funds are released.
+        intent = stripe.PaymentIntent.create(
+            amount=100,  # 100 pence
+            currency="gbp",
+            customer=customer["id"],
+            payment_method=payment_method_id,
+            confirm=True,
+            off_session=False,
+            capture_method="manual",
+            description="blank account verification (released immediately)",
+        )
+        if intent.get("status") not in ("requires_capture", "succeeded"):
+            return {
+                "ok": False,
+                "error": f"card authorisation failed: {intent.get('status')}",
+            }
+        try:
+            stripe.PaymentIntent.cancel(intent["id"])
+        except Exception as cancel_err:
+            logger.warning(
+                "could not cancel auth hold %s for %s: %s",
+                intent["id"], email, cancel_err,
+            )
+        return {
+            "ok": True,
+            "customer_id": customer["id"],
+            "payment_method_id": payment_method_id,
+            "fingerprint": card.get("fingerprint") or "",
+            "last4": card.get("last4") or "",
+            "name": billing.get("name") or "",
+            "error": "",
+        }
+    except Exception as e:  # pragma: no cover — exercised in prod
+        logger.error("stripe setup-card failed for %s: %s", email, e)
+        return {"ok": False, "error": f"card setup failed: {e}"}
+
+
+def _record_admin_flag(
+    conn: psycopg2.extensions.connection,
+    *,
+    user_id: Optional[int],
+    user_email: str,
+    flag_type: str,
+    details: Dict[str, Any],
+) -> None:
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO admin_flags (user_id, user_email, flag_type, details) "
+            "VALUES (%s, %s, %s, %s::jsonb)",
+            (user_id, user_email, flag_type, json.dumps(details)),
+        )
+    conn.commit()
+
+
+def _upsert_pending_signup(
+    conn: psycopg2.extensions.connection, email: str, **fields: Any,
+) -> None:
+    """Idempotent upsert keyed on the email column."""
+    if not fields:
+        return
+    fields["updated_at"] = datetime.now(timezone.utc)
+    cols = ["email", *fields.keys()]
+    placeholders = ", ".join(["%s"] * len(cols))
+    update_cols = [c for c in cols if c != "email"]
+    update_sql = ", ".join(f"{c} = EXCLUDED.{c}" for c in update_cols)
+    sql = (
+        f"INSERT INTO pending_signups ({', '.join(cols)}) VALUES ({placeholders}) "
+        f"ON CONFLICT (email) DO UPDATE SET {update_sql}"
+    )
+    values = [email, *fields.values()]
+    with conn.cursor() as cur:
+        cur.execute(sql, values)
+    conn.commit()
+
+
+def _get_pending_signup(
+    conn: psycopg2.extensions.connection, email: str,
+) -> Optional[dict[str, Any]]:
+    with conn.cursor() as cur:
+        cur.execute("SELECT * FROM pending_signups WHERE email = %s", (email,))
+        row = cur.fetchone()
+    return dict(row) if row else None
+
+
+@app.get("/signup", response_class=HTMLResponse)
+def signup_page() -> HTMLResponse:
+    """Serve the multi-step signup page."""
+    with open(os.path.join(WEBSITE_DIR, "signup.html"), encoding="utf-8") as f:
+        return HTMLResponse(content=f.read())
+
+
+@app.get("/api/auth/signup-config")
+def signup_config() -> dict[str, Any]:
+    """Tell the signup page which third-party services are wired up.
+
+    The frontend uses this to decide whether to mount Stripe.js and
+    whether to surface the dev-only OTP shortcut. We never expose
+    secrets here — only the publishable key (designed for the browser)
+    and boolean feature flags.
+    """
+    return {
+        "stripe_publishable_key": STRIPE_PUBLISHABLE_KEY,
+        "stripe_enabled": _stripe_enabled(),
+        "sms_enabled": _twilio_enabled(),
+        "dev_otp": "" if _twilio_enabled() else DEV_FALLBACK_OTP,
+    }
+
+
+@app.post("/api/auth/verify-phone")
+def auth_verify_phone(
+    body: VerifyPhoneRequest,
+    request: Request,
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> dict[str, Any]:
+    """Send (or re-send) the SMS OTP for this phone number.
+
+    Rate-limited per IP using the same hourly bucket as the legacy
+    signup endpoint so attackers can't brute-force OTPs.
+    """
+    email = (body.email or "").strip().lower()
+    phone = _normalise_phone(body.phone)
+    if not _is_valid_email(email):
+        raise HTTPException(status_code=400, detail="please enter a valid email address")
+    if not phone or not _is_valid_phone(body.phone):
+        raise HTTPException(status_code=400, detail="please enter a valid phone number")
+
+    ip = request.client.host if request.client else "unknown"
+    if not _signup_rate_ok(ip):
+        raise HTTPException(
+            status_code=429,
+            detail="too many signup attempts — try again in an hour",
+        )
+
+    # Reject if some other completed account already owns this phone
+    # number. Checking pending_signups too would block honest re-tries
+    # so we only enforce against persisted licences.
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT id, email FROM licenses WHERE phone_number = %s AND phone_verified = TRUE",
+            (phone,),
+        )
+        owner = cur.fetchone()
+    if owner and (owner["email"] or "").lower() != email:
+        raise HTTPException(
+            status_code=409,
+            detail="this phone number is already linked to another account",
+        )
+
+    otp = f"{secrets.randbelow(1_000_000):06d}"
+    expires = datetime.now(timezone.utc) + timedelta(seconds=OTP_TTL_SECONDS)
+    _upsert_pending_signup(
+        conn, email,
+        full_name=(body.full_name or "").strip(),
+        phone_number=phone,
+        phone_otp_hash=_hash_otp(otp),
+        phone_otp_expires_at=expires,
+        phone_verified=False,
+    )
+    sent = _send_otp_via_twilio(phone, otp)
+    return {
+        "status": "ok",
+        "sent": sent,
+        "sms_enabled": _twilio_enabled(),
+        # In dev (Twilio off) tell the page to surface the fallback OTP
+        # banner. The fallback itself is never returned here.
+        "dev_mode": not _twilio_enabled(),
+    }
+
+
+@app.post("/api/auth/confirm-phone")
+def auth_confirm_phone(
+    body: ConfirmPhoneRequest,
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> dict[str, Any]:
+    """Verify the SMS OTP. Marks pending_signups.phone_verified."""
+    email = (body.email or "").strip().lower()
+    submitted = (body.otp or "").strip()
+    if not submitted or len(submitted) < 4:
+        raise HTTPException(status_code=400, detail="enter the 6-digit code")
+
+    pending = _get_pending_signup(conn, email)
+    if not pending:
+        raise HTTPException(status_code=404, detail="start the phone step again")
+
+    expires = pending.get("phone_otp_expires_at")
+    if expires and expires.tzinfo is None:
+        expires = expires.replace(tzinfo=timezone.utc)
+    if expires and datetime.now(timezone.utc) > expires:
+        raise HTTPException(status_code=410, detail="code expired — request a new one")
+
+    expected_hash = pending.get("phone_otp_hash") or ""
+    matches = secrets.compare_digest(_hash_otp(submitted), expected_hash)
+    # Dev fallback: when Twilio is unconfigured the user can also enter
+    # the well-known DEV_FALLBACK_OTP so signups work without SMS.
+    if not matches and not _twilio_enabled() and submitted == DEV_FALLBACK_OTP:
+        matches = True
+    if not matches:
+        raise HTTPException(status_code=401, detail="that code is incorrect")
+
+    _upsert_pending_signup(
+        conn, email,
+        phone_verified=True,
+        phone_otp_hash="",  # one-shot — clear so it can't be replayed
+    )
+    return {"status": "ok"}
+
+
+@app.post("/api/auth/setup-card")
+def auth_setup_card(
+    body: SetupCardRequest,
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> dict[str, Any]:
+    """Tokenise the card via Stripe and place a £1 auth hold (released).
+
+    Anti-fraud: rejects the request when the card fingerprint is already
+    linked to another account. Same-card-different-pending flow is
+    allowed (re-trying signup with the same card on the same email).
+    """
+    email = (body.email or "").strip().lower()
+    if not _is_valid_email(email):
+        raise HTTPException(status_code=400, detail="please enter a valid email address")
+    # Phone-OTP gate is currently disabled: the signup UI no longer
+    # collects a number, so we don't require pending.phone_verified
+    # here. _upsert_pending_signup creates the row on demand.
+
+    result = _stripe_setup_card(email, body.payment_method_id)
+    if not result["ok"]:
+        raise HTTPException(status_code=402, detail=result["error"] or "card was declined")
+
+    fingerprint = result["fingerprint"]
+    if fingerprint:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, email FROM licenses WHERE card_fingerprint = %s "
+                "AND card_verified = TRUE LIMIT 1",
+                (fingerprint,),
+            )
+            owner = cur.fetchone()
+        if owner and (owner["email"] or "").lower() != email:
+            raise HTTPException(
+                status_code=409,
+                detail="this card is already linked to another account",
+            )
+
+    _upsert_pending_signup(
+        conn, email,
+        stripe_customer_id=result["customer_id"],
+        card_payment_method_id=result["payment_method_id"],
+        card_fingerprint=fingerprint,
+        card_last4=result["last4"],
+        card_name=result["name"],
+        card_verified=True,
+    )
+    return {
+        "status": "ok",
+        "last4": result["last4"],
+        "name_on_card": result["name"],
+    }
+
+
+@app.post("/api/auth/register")
+def auth_register(
+    body: RegisterRequest,
+    request: Request,
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> dict[str, Any]:
+    """Final signup commit. All five legal agreements must be ticked,
+    pending_signups must show phone+card verified, and email+phone+card
+    must be unique across active accounts."""
+    email = (body.email or "").strip().lower()
+    full_name = (body.full_name or "").strip()
+    phone = _normalise_phone(body.phone)
+
+    if not _is_valid_email(email):
+        raise HTTPException(status_code=400, detail="please enter a valid email address")
+    if not full_name or " " not in full_name:
+        raise HTTPException(status_code=400, detail="please enter your full legal name (first and last)")
+    if not body.password or len(body.password) < 8:
+        raise HTTPException(status_code=400, detail="please choose a password of at least 8 characters")
+    missing = [name for name, ok in (
+        ("End User Licence Agreement", body.agreed_eula),
+        ("Terms of Service", body.agreed_terms),
+        ("Privacy Policy", body.agreed_privacy),
+        ("Risk Disclosure", body.agreed_risk),
+        ("Commission Agreement", body.agreed_commission),
+    ) if not ok]
+    if missing:
+        raise HTTPException(
+            status_code=400,
+            detail="please agree to: " + ", ".join(missing),
+        )
+
+    ip = request.client.host if request.client else "unknown"
+    if not _signup_rate_ok(ip):
+        raise HTTPException(
+            status_code=429,
+            detail="too many signup attempts — try again in an hour",
+        )
+
+    pending = _get_pending_signup(conn, email)
+    # Phone-OTP gate is currently disabled — pending may legitimately
+    # have phone_verified = FALSE. We still require a card row.
+    if not pending or not pending.get("card_verified"):
+        raise HTTPException(status_code=400, detail="add your payment card first")
+
+    # Re-check uniqueness: the user's pending row was created before
+    # other concurrent signups may have completed. We block on
+    # email/card collisions and flag (don't block) on shared name. Phone
+    # collision is only checked when the user actually supplied a number.
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT id, password_hash FROM licenses WHERE LOWER(email) = %s "
+            "ORDER BY created_at DESC LIMIT 1",
+            (email,),
+        )
+        existing = cur.fetchone()
+        if existing and existing.get("password_hash"):
+            raise HTTPException(
+                status_code=409,
+                detail="an account already exists for this email — please sign in",
+            )
+
+        if phone:
+            cur.execute(
+                "SELECT id, email FROM licenses WHERE phone_number = %s "
+                "AND phone_verified = TRUE LIMIT 1",
+                (phone,),
+            )
+            phone_owner = cur.fetchone()
+            if phone_owner and (phone_owner["email"] or "").lower() != email:
+                raise HTTPException(
+                    status_code=409,
+                    detail="this phone number is already linked to another account",
+                )
+
+        fp = pending.get("card_fingerprint") or ""
+        if fp:
+            cur.execute(
+                "SELECT id, email FROM licenses WHERE card_fingerprint = %s "
+                "AND card_verified = TRUE LIMIT 1",
+                (fp,),
+            )
+            card_owner = cur.fetchone()
+            if card_owner and (card_owner["email"] or "").lower() != email:
+                raise HTTPException(
+                    status_code=409,
+                    detail="this card is already linked to another account",
+                )
+
+        # Same-name flag (informational only).
+        cur.execute(
+            "SELECT id, email FROM licenses WHERE LOWER(full_name) = %s "
+            "AND LOWER(email) <> %s LIMIT 5",
+            (full_name.lower(), email),
+        )
+        same_name_rows = cur.fetchall()
+
+    password_hash = _hash_password(body.password)
+    expires = datetime.now(timezone.utc) + timedelta(days=365)
+
+    avatar_id = int(body.avatar_id or 0)
+    if avatar_id < 0 or avatar_id > AVATAR_COUNT:
+        avatar_id = 0
+
+    phone_verified_flag = bool(phone)
+    if existing:
+        # Pre-auth row from the legacy /api/signup flow. Promote it.
+        key = None
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE licenses SET full_name = %s, name = %s, password_hash = %s, "
+                "phone_number = %s, phone_verified = %s, "
+                "stripe_customer_id = %s, card_stripe_id = %s, "
+                "card_fingerprint = %s, card_last4 = %s, card_name = %s, "
+                "card_verified = TRUE, avatar_id = %s, expires_at = %s "
+                "WHERE id = %s RETURNING key",
+                (
+                    full_name, full_name, password_hash, phone, phone_verified_flag,
+                    pending.get("stripe_customer_id") or "",
+                    pending.get("card_payment_method_id") or "",
+                    fp, pending.get("card_last4") or "",
+                    pending.get("card_name") or "",
+                    avatar_id, expires, existing["id"],
+                ),
+            )
+            key = cur.fetchone()["key"]
+        conn.commit()
+        license_id = existing["id"]
+    else:
+        key = _generate_license_key()
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO licenses ("
+                "key, email, name, full_name, status, expires_at, password_hash, "
+                "phone_number, phone_verified, stripe_customer_id, card_stripe_id, "
+                "card_fingerprint, card_last4, card_name, card_verified, avatar_id"
+                ") VALUES (%s, %s, %s, %s, 'active', %s, %s, "
+                "%s, %s, %s, %s, %s, %s, %s, TRUE, %s) RETURNING id",
+                (
+                    key, email, full_name, full_name, expires, password_hash,
+                    phone, phone_verified_flag,
+                    pending.get("stripe_customer_id") or "",
+                    pending.get("card_payment_method_id") or "",
+                    fp, pending.get("card_last4") or "",
+                    pending.get("card_name") or "",
+                    avatar_id,
+                ),
+            )
+            license_id = cur.fetchone()["id"]
+        conn.commit()
+
+    # Anti-fraud flag: cardholder name vs account name mismatch.
+    card_name = (pending.get("card_name") or "").strip().lower()
+    if card_name and card_name != full_name.lower():
+        _record_admin_flag(
+            conn,
+            user_id=license_id,
+            user_email=email,
+            flag_type="card_name_mismatch",
+            details={
+                "account_name": full_name,
+                "card_name": pending.get("card_name") or "",
+            },
+        )
+    if same_name_rows:
+        _record_admin_flag(
+            conn,
+            user_id=license_id,
+            user_email=email,
+            flag_type="duplicate_full_name",
+            details={
+                "name": full_name,
+                "matches": [
+                    {"id": r["id"], "email": r["email"]} for r in same_name_rows
+                ],
+            },
+        )
+
+    # Best-effort: drop the pending row so the email is free for retries
+    # against new flows.
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM pending_signups WHERE email = %s", (email,))
+    conn.commit()
+
+    with conn.cursor() as cur:
+        cur.execute("SELECT * FROM licenses WHERE id = %s", (license_id,))
+        row = cur.fetchone()
+    token = _issue_jwt(dict(row)) if row else None
+
+    # Welcome email — same dedup key as the legacy signup so a user who
+    # hit both flows still only gets one welcome.
+    send_template_once(
+        conn,
+        "welcome_new_license",
+        {
+            "name": full_name.split(" ")[0] or full_name or "there",
+            "license_key": key,
+        },
+        recipient=email,
+        reason_key=f"issue:{key}",
+    )
+
+    # Email verification — separate dedup key so a re-issue of the licence
+    # doesn't replay the verification mail. Token expires in 24 hours.
+    verify_token = secrets.token_urlsafe(32)
+    verify_expires = datetime.now(timezone.utc) + timedelta(hours=24)
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE licenses SET email_verify_token = %s, "
+            "email_verify_token_expires_at = %s WHERE id = %s",
+            (verify_token, verify_expires, license_id),
+        )
+    conn.commit()
+    send_template_once(
+        conn,
+        "verify_email",
+        {
+            "name": full_name.split(" ")[0] or full_name or "there",
+            "verify_url": f"{SITE_URL.rstrip('/')}/verify-email?token={verify_token}",
+        },
+        recipient=email,
+        reason_key=f"verify:{key}",
+    )
+
+    return {
+        "status": "ok",
+        "token": token,
+        "email": email,
+        "name": full_name,
+        "license_key": key,
+    }
+
+
+@app.get("/api/admin/flags")
+def admin_list_flags(
+    resolved: bool = False,
+    _: str = Depends(require_admin),
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> dict[str, Any]:
+    """Return open (or resolved) anti-fraud flags for the admin panel."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT id, user_id, user_email, flag_type, details, created_at, "
+            "resolved, resolved_at, resolved_by "
+            "FROM admin_flags WHERE resolved = %s "
+            "ORDER BY created_at DESC LIMIT 200",
+            (resolved,),
+        )
+        rows = cur.fetchall()
+    items = []
+    for r in rows:
+        items.append({
+            "id": r["id"],
+            "user_id": r["user_id"],
+            "user_email": r["user_email"],
+            "flag_type": r["flag_type"],
+            "details": r["details"] or {},
+            "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+            "resolved": bool(r["resolved"]),
+            "resolved_at": r["resolved_at"].isoformat() if r["resolved_at"] else None,
+            "resolved_by": r["resolved_by"] or "",
+        })
+    return {"flags": items, "count": len(items)}
 
 
 # ── Waitlist (coming-soon page — no access key) ─────────────────────────
@@ -1133,22 +2928,22 @@ def public_waitlist(
     request: Request,
     conn: psycopg2.extensions.connection = Depends(db_dependency),
 ) -> dict[str, Any]:
-    """Pre-launch waitlist: email only, no access key.
+    """Pre-launch waitlist: email only.
 
-    First signup: stores the email and sends a welcome email.
-    Repeat signup: sends the enthusiastic "we see you" email on every
-    re-submission — no dedup, because the user clearly wants to hear
-    from us. Always returns success so the form never shows an error.
+    Joining the waitlist is just expressing interest, not a signup —
+    the actual legal agreements (ToS, privacy, EULA, risk, fee) get
+    collected at /signup. So we don't gate on ``agreed_terms`` here;
+    the field is still on ``SignupRequest`` because the live landing
+    page's full self-serve signup uses the same model.
+
+    First submission: stores the email and sends a welcome email.
+    Repeat submission: sends the enthusiastic "we see you" email on
+    every re-submission — no dedup, because the user clearly wants to
+    hear from us. Always returns success so the form never errors.
     """
     email = (body.email or "").strip().lower()
     if not _is_valid_email(email):
         raise HTTPException(status_code=400, detail="please enter a valid email address")
-
-    if not body.agreed_terms:
-        raise HTTPException(
-            status_code=400,
-            detail="you must agree to the terms of service and privacy policy",
-        )
 
     ip = request.client.host if request.client else "unknown"
     if not _signup_rate_ok(ip):
@@ -1353,6 +3148,56 @@ def admin_list_licenses(
     return results
 
 
+@app.get("/api/admin/dev-accounts")
+def admin_list_dev_accounts(
+    _: str = Depends(require_admin),
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> dict[str, Any]:
+    """Return every licence with the dev flag set — used by the admin
+    panel's 'dev accounts' section so the operator can see at a glance
+    which emails skip fees and payment checks."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT key, email, name, full_name, plan, created_at, last_active "
+            "FROM licenses WHERE is_dev = TRUE ORDER BY email ASC",
+        )
+        rows = cur.fetchall()
+    accounts = []
+    for r in rows:
+        d = dict(r)
+        for k in ("created_at", "last_active"):
+            if d.get(k) is not None:
+                d[k] = d[k].isoformat()
+        accounts.append(d)
+    return {"accounts": accounts, "count": len(accounts)}
+
+
+class DevToggleRequest(BaseModel):
+    is_dev: bool = False
+
+
+@app.post("/api/admin/licenses/{license_key}/dev")
+def admin_set_dev(
+    license_key: str,
+    body: DevToggleRequest,
+    _: str = Depends(require_admin),
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> dict[str, Any]:
+    """Flip the ``is_dev`` flag on a licence. The flag short-circuits
+    every fee calculation and payment check downstream — flipping it
+    off again restores the user's stored plan as-is."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE licenses SET is_dev = %s WHERE key = %s RETURNING email",
+            (bool(body.is_dev), license_key),
+        )
+        row = cur.fetchone()
+    conn.commit()
+    if not row:
+        raise HTTPException(status_code=404, detail="license not found")
+    return {"status": "ok", "key": license_key, "email": row["email"], "is_dev": bool(body.is_dev)}
+
+
 def _generate_license_key() -> str:
     """Generate a key like BLK-7F2A-X9D1."""
     parts = [secrets.token_hex(2).upper() for _ in range(2)]
@@ -1382,7 +3227,6 @@ def admin_create_license(
             {
                 "name": (body.name or "there").strip() or "there",
                 "license_key": key,
-                "download_url": DOWNLOAD_URL,
             },
             recipient=body.email,
             reason_key=f"issue:{key}",
@@ -1486,6 +3330,38 @@ def admin_revoke_license(
                 reason_key=f"revoke:{license_key}",
             )
     return {"status": "revoked"}
+
+
+@app.delete("/api/admin/licenses/{license_key}/hard")
+def admin_hard_delete_license(
+    license_key: str,
+    _: str = Depends(require_admin),
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> dict[str, str]:
+    """Permanently remove a licence row and its telemetry history.
+    Only allowed on already-revoked licences so a typo can't nuke a
+    paying customer; the UI only surfaces this for status='revoked'."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT status FROM licenses WHERE key = %s",
+            (license_key,),
+        )
+        row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="license not found")
+    if (row["status"] or "").lower() != "revoked":
+        raise HTTPException(
+            status_code=400,
+            detail="license must be revoked before it can be deleted",
+        )
+    # Tables are all created at startup by _init_db, so we can delete in
+    # one transaction. Order: dependent rows first, then the licence itself.
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM telemetry_events WHERE license_key = %s", (license_key,))
+        cur.execute("DELETE FROM logs WHERE license_key = %s", (license_key,))
+        cur.execute("DELETE FROM licenses WHERE key = %s", (license_key,))
+    conn.commit()
+    return {"status": "deleted", "key": license_key}
 
 
 @app.get("/api/admin/inspect/{license_key}")
@@ -1716,6 +3592,21 @@ def admin_export_training_data(
             bucket["personality_snapshots"].append({
                 "ts": snap.get("ts") or (ts.isoformat() if ts else None),
                 "data": pers,
+            })
+
+        # chat transcripts — dedupe by (role, content) pair
+        seen_chats = {(x.get("role"), x.get("content")) for x in bucket["chat_transcripts"]}
+        for msg in (snap.get("chat_history") or []):
+            if not isinstance(msg, dict):
+                continue
+            sig = (msg.get("role"), msg.get("content"))
+            if sig in seen_chats:
+                continue
+            seen_chats.add(sig)
+            bucket["chat_transcripts"].append({
+                "role": msg.get("role"),
+                "content": msg.get("content"),
+                "ts": msg.get("ts") or snap.get("ts") or (ts.isoformat() if ts else None),
             })
 
     # Fetch server-side error logs for each licence key in this range

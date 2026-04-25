@@ -137,7 +137,7 @@ class YourAIPanel(QGroupBox):
         )
         footer.setWordWrap(True)
         footer.setStyleSheet(
-            f"color: {T.FG_2_HEX}; font-family: {T.FONT_MONO};"
+            f"color: {T.FG_1_HEX}; font-family: {T.FONT_MONO};"
             f" font-size: 10px; font-style: italic;"
         )
         self._body_layout.addWidget(footer)
@@ -327,7 +327,7 @@ def _empty_line(text: str) -> QLabel:
     label = QLabel(text)
     label.setWordWrap(True)
     label.setStyleSheet(
-        f"color: {T.FG_2_HEX}; font-family: {T.FONT_MONO};"
+        f"color: {T.FG_1_HEX}; font-family: {T.FONT_MONO};"
         f" font-size: 11px; font-style: italic;"
     )
     return label

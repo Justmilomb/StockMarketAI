@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>sign in · blank</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<style>
+:root {
+  --fg: #fff;
+  --dim: rgba(255,255,255,0.55);
+  --mid: rgba(255,255,255,0.12);
+  --accent: #00ff87;
+  --alert: #ff5f57;
+}
+* { box-sizing: border-box; }
+html, body {
+  margin: 0; padding: 0; background: #000; color: var(--fg);
+  font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+}
+main {
+  min-height: 100vh; display: flex; align-items: center;
+  justify-content: center; padding: 40px 20px;
+}
+.card {
+  width: 100%; max-width: 420px;
+  border: 1px solid var(--mid); padding: 36px 32px; background: #050505;
+}
+h1 { margin: 0 0 4px; font-size: 40px; letter-spacing: -0.04em; font-weight: 700; }
+.kicker {
+  margin: 0 0 28px;
+  font-family: "JetBrains Mono", ui-monospace, Menlo, monospace;
+  font-size: 10px; letter-spacing: 0.28em; color: var(--dim);
+  text-transform: uppercase;
+}
+label {
+  display: block; margin: 16px 0 6px;
+  font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase;
+  color: var(--dim);
+}
+input {
+  width: 100%; background: transparent; border: none;
+  border-bottom: 1px solid var(--mid);
+  color: var(--fg); font-size: 15px; padding: 8px 0; outline: none;
+}
+input:focus { border-bottom-color: var(--accent); }
+button {
+  width: 100%; margin-top: 28px; padding: 14px;
+  background: #000; color: var(--accent);
+  border: 1px solid rgba(0,255,135,0.35);
+  letter-spacing: 0.12em; font-size: 12px; text-transform: uppercase;
+  cursor: pointer;
+}
+button:disabled { opacity: 0.4; cursor: default; }
+button:hover:not(:disabled) { background: rgba(0,255,135,0.08); }
+.status {
+  margin-top: 14px; min-height: 18px;
+  font-family: "JetBrains Mono", ui-monospace, Menlo, monospace;
+  font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase;
+}
+.status.err { color: var(--alert); }
+.status.ok  { color: var(--accent); }
+.small {
+  margin-top: 22px; font-size: 12px; color: var(--dim); text-align: center;
+}
+.small a { color: var(--fg); text-decoration: none; border-bottom: 1px solid var(--mid); }
+.small a:hover { border-bottom-color: var(--accent); color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <form class="card" id="loginForm" autocomplete="on">
+    <h1>blank</h1>
+    <p class="kicker">sign in</p>
+    <label for="email">email</label>
+    <input id="email" name="email" type="email" autocomplete="email" required />
+    <label for="password">password</label>
+    <input id="password" name="password" type="password" autocomplete="current-password" required minlength="8" />
+    <button type="submit" id="submit">continue</button>
+    <div id="status" class="status"></div>
+    <p class="small">no account? <a href="/#signup">sign up here</a>.</p>
+  </form>
+</main>
+<script>
+(function () {
+  const params = new URLSearchParams(window.location.search);
+  const callbackPort = params.get("callback_port");
+  const form = document.getElementById("loginForm");
+  const status = document.getElementById("status");
+  const submit = document.getElementById("submit");
+
+  function setStatus(msg, cls) {
+    status.textContent = msg;
+    status.className = "status " + (cls || "");
+  }
+
+  form.addEventListener("submit", async function (ev) {
+    ev.preventDefault();
+    submit.disabled = true;
+    setStatus("authenticating\u2026", "");
+    try {
+      const body = {
+        email: document.getElementById("email").value.trim(),
+        password: document.getElementById("password").value,
+      };
+      const r = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) {
+        let detail = "sign in failed";
+        try {
+          const j = await r.json();
+          detail = j.detail || detail;
+        } catch (_) { /* ignore */ }
+        throw new Error(detail);
+      }
+      const data = await r.json();
+      try {
+        localStorage.setItem("blank_token", data.token);
+        if (data.email) localStorage.setItem("blank_email", data.email);
+        if (data.name) localStorage.setItem("blank_name", data.name);
+      } catch (_) { /* private mode — ignore */ }
+      if (callbackPort) {
+        setStatus("signed in \u2014 handing off to the app\u2026", "ok");
+        window.location.replace(
+          "http://127.0.0.1:" + encodeURIComponent(callbackPort)
+          + "/auth/callback?token=" + encodeURIComponent(data.token)
+        );
+      } else {
+        setStatus("signed in \u2014 redirecting\u2026", "ok");
+        window.location.replace("/dashboard");
+      }
+    } catch (e) {
+      setStatus((e && e.message) || "sign in failed", "err");
+      submit.disabled = false;
+    }
+  });
+})();
+</script>
+</body>
+</html>

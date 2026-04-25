@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 )
 
 from desktop import tokens as T
+from desktop.widgets.primitives.button import apply_variant
 
 
 class BaseDialog(QDialog):
@@ -108,7 +109,7 @@ class BaseDialog(QDialog):
         slot=None,
     ) -> QPushButton:
         btn = QPushButton(text.upper())
-        btn.setProperty("variant", variant)
+        apply_variant(btn, variant)
         btn.setCursor(Qt.PointingHandCursor)
         if slot is not None:
             btn.clicked.connect(slot)

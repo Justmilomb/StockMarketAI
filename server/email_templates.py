@@ -57,9 +57,15 @@ class TemplateSpec:
 TEMPLATES: List[TemplateSpec] = [
     TemplateSpec(
         id="welcome_new_license",
-        label="Welcome (new licence issued)",
-        subject="Your blank licence",
-        required_vars=["name", "license_key", "download_url"],
+        label="Welcome (account created)",
+        subject="Your blank account is ready",
+        required_vars=["name"],
+    ),
+    TemplateSpec(
+        id="verify_email",
+        label="Verify email (signup)",
+        subject="Verify your blank email",
+        required_vars=["name", "verify_url"],
     ),
     TemplateSpec(
         id="waitlist_joined",
@@ -71,7 +77,7 @@ TEMPLATES: List[TemplateSpec] = [
         id="release_announcement",
         label="Release announcement",
         subject="blank {{ version }} is out",
-        required_vars=["version", "headline", "intro", "highlights", "download_url"],
+        required_vars=["version", "headline", "intro", "highlights"],
     ),
     TemplateSpec(
         id="maintenance_notice",
@@ -83,7 +89,7 @@ TEMPLATES: List[TemplateSpec] = [
         id="launch_day_announcement",
         label="Launch day blast",
         subject="blank is live",
-        required_vars=["name", "download_url"],
+        required_vars=["name"],
     ),
     TemplateSpec(
         id="waitlist_repeat",

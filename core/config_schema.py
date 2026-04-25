@@ -83,8 +83,9 @@ class PaperBrokerConfig(BaseModel):
 class NewsConfig(BaseModel):
     model_config = ConfigDict(extra="allow")
 
-    refresh_interval_minutes: int = 5
-    scraper_cadence_seconds: int = 300
+    refresh_interval_minutes: int = 2
+    scraper_cadence_seconds: int = 120
+    scraper_max_workers: int = 10
 
 
 class ScraperVisionConfig(BaseModel):

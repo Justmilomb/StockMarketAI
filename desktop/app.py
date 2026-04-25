@@ -28,6 +28,7 @@ from PySide6.QtCore import Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QDockWidget,
+    QHBoxLayout,
     QLabel,
     QMainWindow,
     QStatusBar,
@@ -36,6 +37,9 @@ from PySide6.QtWidgets import (
 )
 
 from desktop import tokens as T
+from desktop.auth import clear_token
+from desktop.auth_gate import bus as auth_bus, require_auth
+from desktop.auth_state import auth_state
 from desktop.state import init_state, load_config, resolve_config_path
 from desktop.panels.settings import SettingsPanel
 from desktop.panels.your_ai import YourAIPanel
@@ -52,6 +56,8 @@ from desktop.panels.mandatory_update_overlay import MandatoryUpdateOverlay
 from desktop.dialogs.about import AboutDialog
 from desktop.dialogs.schedule_update import ScheduleUpdateDialog
 from desktop.update_service import UpdateService
+from desktop.widgets.profile_button import ProfileButton
+from desktop.widgets.signin_banner import SignInBanner
 from desktop.workers import BackgroundTask
 
 # Phase 4: agent pool owns the supervisor + chat-worker fleet.
@@ -278,16 +284,31 @@ class MainWindow(QMainWindow):
         )
         from desktop import tokens as _T
         self._header_label.setStyleSheet(
-            f"color: {_T.FG_2_HEX}; font-family: {_T.FONT_MONO};"
+            f"color: {_T.FG_1_HEX}; font-family: {_T.FONT_MONO};"
             f" font-size: 10px; letter-spacing: 2px;"
             f" background: transparent; padding: 2px 10px;",
         )
-        menu_bar.setCornerWidget(self._header_label, Qt.TopRightCorner)
 
-        # Central widget wraps the update banner + chart panel. Paper vs
-        # live has no chrome impact anywhere in the window — the only
-        # visual tell is the PAPER watermark the ChartPanel paints over
-        # itself when ``state.agent_paper_mode`` is True.
+        # Corner widget = existing header text + a profile button so
+        # SIGN IN / account lives top-right where users expect it.
+        corner = QWidget()
+        corner_row = QHBoxLayout(corner)
+        corner_row.setContentsMargins(0, 0, 6, 0)
+        corner_row.setSpacing(10)
+        corner_row.addWidget(self._header_label)
+        self.profile_button = ProfileButton()
+        self.profile_button.signin_requested.connect(self._open_signin_dialog)
+        self.profile_button.signout_requested.connect(self._on_signed_out)
+        self.profile_button.dashboard_requested.connect(self._open_account_dashboard)
+        self.profile_button.settings_requested.connect(self._open_account_settings)
+        corner_row.addWidget(self.profile_button)
+        menu_bar.setCornerWidget(corner, Qt.TopRightCorner)
+
+        # Central widget wraps the update banner + sign-in banner +
+        # chart panel. Paper vs live has no chrome impact anywhere in
+        # the window — the only visual tell is the PAPER watermark the
+        # ChartPanel paints over itself when ``state.agent_paper_mode``
+        # is True.
         self.chart_panel = ChartPanel(self.state)
         central = QWidget()
         central_layout = QVBoxLayout(central)
@@ -298,9 +319,17 @@ class MainWindow(QMainWindow):
         # Not in the central layout — it's a detached top-level window
         # parented to MainWindow so it closes with the app.
         self.mandatory_overlay = MandatoryUpdateOverlay(self)
+        self.signin_banner = SignInBanner()
+        self.signin_banner.signin_requested.connect(self._open_signin_dialog)
         central_layout.addWidget(self.update_banner)
+        central_layout.addWidget(self.signin_banner)
         central_layout.addWidget(self.chart_panel, 1)
         self.setCentralWidget(central)
+
+        # Any gated action (from any widget) can ask the window to raise
+        # the sign-in dialog via the shared bus.
+        auth_bus().signin_requested.connect(self._open_signin_dialog)
+        auth_state().changed.connect(self._on_auth_changed)
 
         self.settings_panel = SettingsPanel(self.state)
         self.your_ai_panel = YourAIPanel(self.state)
@@ -354,7 +383,7 @@ class MainWindow(QMainWindow):
             "  ? Help | B About | R Refresh | C Chat | G Chart | Q Quit",
         )
         self._status_label.setStyleSheet(
-            f"color: {T.FG_2_HEX}; font-family: {T.FONT_MONO};"
+            f"color: {T.FG_1_HEX}; font-family: {T.FONT_MONO};"
             f" font-size: 10px; letter-spacing: 1px; padding: 0 4px;",
         )
         status.addPermanentWidget(self._status_label, 1)
@@ -445,22 +474,19 @@ class MainWindow(QMainWindow):
 
     def _setup_shortcuts(self) -> None:
         """Register all keyboard shortcuts."""
+        # Manual ticker/watchlist/news shortcuts intentionally removed —
+        # the AI supervisor owns watchlist composition and news refresh
+        # end-to-end. The user's role is lock/protect positions, toggle
+        # the agent, and chat. Everything else is automated.
         shortcuts = [
             ("?", self.action_show_help),
             ("Q", self.close),
             ("R", self.action_refresh_data),
             ("A", self.action_toggle_mode),
             ("W", self.action_cycle_watchlist),
-            ("N", self.action_refresh_news),
             ("C", self.action_focus_chat),
             ("G", self.action_show_chart),
-            ("T", self.action_open_trade),
-            ("=", self.action_add_ticker),
-            ("-", self.action_remove_ticker),
-            ("/", self.action_search_ticker),
             ("H", self.action_show_history),
-            ("P", self.action_show_pies),
-            ("E", self.action_show_instruments),
             ("L", self.action_toggle_protect),
             ("B", self.action_show_about),
         ]
@@ -985,7 +1011,7 @@ class MainWindow(QMainWindow):
         )
         from desktop import tokens as _T
         self._header_label.setStyleSheet(
-            f"color: {_T.FG_2_HEX}; font-family: {_T.FONT_MONO};"
+            f"color: {_T.FG_1_HEX}; font-family: {_T.FONT_MONO};"
             f" font-size: 10px; letter-spacing: 2px;"
             f" background: transparent; padding: 2px 10px;",
         )
@@ -1041,33 +1067,14 @@ class MainWindow(QMainWindow):
         self.action_refresh_data()
 
     @Slot()
-    def action_refresh_news(self) -> None:
-        if not self.news_agent:
-            self.statusBar().showMessage("News agent not available — check feedparser is installed", 5000)
-            return
-        if getattr(self, "_refreshing_news", False):
-            self.statusBar().showMessage("News is already refreshing...", 2000)
-            return
-        self._refreshing_news = True
-        self.statusBar().showMessage("FETCHING NEWS — this may take a moment...", 60000)
-        self._run_background(
-            lambda: (self.news_agent.fetch_now(), self.news_agent.news_data)[-1],
-            self._on_news_refreshed,
-            on_error=lambda e: setattr(self, "_refreshing_news", False),
-        )
-
-    def _on_news_refreshed(self, news_data: Any) -> None:
-        self._refreshing_news = False
-        self.state.news_sentiment = news_data
-        if self.news_panel:
-            self.news_panel.refresh_view(self.state)
-        self.statusBar().showMessage("News refreshed", 3000)
-
-    @Slot()
     def action_focus_chat(self) -> None:
         self.chat_panel.focus_input()
 
     def _handle_chat_message(self, message: str) -> None:
+        """Gate chat behind sign-in then hand off to the real impl."""
+        require_auth(self, lambda: self._handle_chat_message_impl(message))
+
+    def _handle_chat_message_impl(self, message: str) -> None:
         """Spawn a chat worker for this message.
 
         Every message goes through the agent pool: a fresh AI
@@ -1108,6 +1115,11 @@ class MainWindow(QMainWindow):
 
     @Slot()
     def _on_agent_start(self) -> None:
+        """Start the supervisor. Gated behind sign-in so we never run
+        the paid agent loop for signed-out users."""
+        require_auth(self, self._on_agent_start_impl)
+
+    def _on_agent_start_impl(self) -> None:
         """Start the supervisor inside the pool (build pool if needed)."""
         try:
             self._ensure_agent_pool()
@@ -1143,6 +1155,64 @@ class MainWindow(QMainWindow):
         self.state.agent_running = False
         self.agent_log_panel.refresh_view(self.state)
         self.statusBar().showMessage("Agent killed", 3000)
+
+    # ── Account auth plumbing ───────────────────────────────────────
+
+    @Slot()
+    def _open_signin_dialog(self) -> None:
+        """Raise the sign-in dialog. Safe to call from any code path —
+        if the user is already signed in we no-op. Fetches remote
+        config after a successful sign-in so kill-switch / maintenance
+        / force-update flags are honoured without restarting."""
+        if auth_state().is_signed_in:
+            return
+        from desktop.dialogs.signin import SignInDialog
+        dialog = SignInDialog(self)
+        dialog.run()
+        if auth_state().is_signed_in:
+            try:
+                from desktop.auth import fetch_me
+                me = fetch_me()
+                if me.get("ok"):
+                    from desktop.main import _apply_remote_config
+                    _apply_remote_config(me.get("config", {}) or {})
+            except Exception:
+                logger.debug("post-signin remote config apply failed", exc_info=True)
+
+    @Slot()
+    def _on_signed_out(self) -> None:
+        """User clicked 'sign out' in the profile dropdown."""
+        clear_token()
+        auth_state().set_signed_out()
+        self.statusBar().showMessage("signed out", 3000)
+
+    @Slot()
+    def _open_account_dashboard(self) -> None:
+        """Show the full account dashboard (analytics + payment info)."""
+        if not auth_state().is_signed_in:
+            self._open_signin_dialog()
+            return
+        from desktop.dialogs.account_dashboard import AccountDashboardDialog
+        AccountDashboardDialog(self).run()
+
+    @Slot()
+    def _open_account_settings(self) -> None:
+        """Show the account Settings dialog (analytics + preferences)."""
+        if not auth_state().is_signed_in:
+            self._open_signin_dialog()
+            return
+        from desktop.dialogs.account_settings import AccountSettingsDialog
+        AccountSettingsDialog(self).run()
+
+    @Slot()
+    def _on_auth_changed(self) -> None:
+        """Refresh any widget that gates on sign-in state (start button,
+        chat placeholder, …). Panels also subscribe to ``auth_state()``
+        directly, so this is mostly defensive."""
+        if hasattr(self, "agent_log_panel"):
+            self.agent_log_panel.refresh_view(self.state)
+        if hasattr(self, "chat_panel"):
+            self.chat_panel.refresh_view(self.state)
 
     @Slot()
     def _on_export_user_data(self) -> None:
@@ -1340,12 +1410,14 @@ class MainWindow(QMainWindow):
             return
 
         news_cfg = self.config.get("news", {}) or {}
-        cadence = int(news_cfg.get("scraper_cadence_seconds", 300))
+        cadence = int(news_cfg.get("scraper_cadence_seconds", 120))
+        workers = int(news_cfg.get("scraper_max_workers", 10))
 
         self.scraper_runner = ScraperRunner(
             db=self.history_manager,
             watchlist_provider=self._get_active_tickers,
             cadence_seconds=cadence,
+            max_workers=workers,
             wake_callback=self._on_breaking_news,
         )
         # Queued-connection bridge for cross-thread log lines from the
@@ -1708,95 +1780,14 @@ class MainWindow(QMainWindow):
             f"Vol: {vol:,.0f}"
         )
 
-    @Slot()
-    def action_open_trade(self) -> None:
-        if not self._require_stocks():
-            return
-        if not self.watchlist_panel:
-            self.statusBar().showMessage("Trading not available in this mode", 3000)
-            return
-        ticker = self.watchlist_panel.selected_ticker()
-        if not ticker:
-            self.statusBar().showMessage("Select a ticker first", 3000)
-            return
-        from desktop.dialogs.trade import TradeDialog
-        dlg = TradeDialog(ticker, self)
-        if dlg.exec() and dlg.result_data:
-            trade = dlg.result_data
-            self.statusBar().showMessage(
-                f"Submitting: {trade['side']} {trade['quantity']} {trade['ticker']}...", 10000,
-            )
-            self._run_background(
-                lambda: self.broker_service.submit_order(
-                    ticker=trade["ticker"],
-                    side=trade["side"].lower(),
-                    quantity=trade["quantity"],
-                    order_type=trade["order_type"],
-                    limit_price=trade.get("price") if trade["order_type"] in ("limit", "stop_limit") else None,
-                    stop_price=trade.get("price") if trade["order_type"] in ("stop", "stop_limit") else None,
-                ),
-                self._on_trade_result,
-            )
-
-    def _on_trade_result(self, result: Dict[str, Any]) -> None:
-        self.state.recent_orders.append(result)
-        self.orders_panel.refresh_view(self.state)
-        self.statusBar().showMessage("Order submitted", 5000)
-        self.action_refresh_data()
-
-    @Slot()
-    def action_add_ticker(self) -> None:
-        if not self._require_stocks():
-            return
-        from desktop.dialogs.add_ticker import AddTickerDialog
-        dlg = AddTickerDialog(self)
-        if dlg.exec() and dlg.ticker:
-            watchlist_name = self.state.active_watchlist
-            wl_key = self._watchlist_config_key()
-            wl = self.config.get(wl_key, {}).get(watchlist_name, [])
-            if dlg.ticker not in wl:
-                wl.append(dlg.ticker)
-                self._save_config_key(f"{wl_key}.{watchlist_name}", wl)
-                self.statusBar().showMessage(f"Added {dlg.ticker}", 3000)
-                self.action_refresh_data()
-
-    @Slot()
-    def action_remove_ticker(self) -> None:
-        if not self._require_stocks():
-            return
-        if not self.watchlist_panel:
-            return
-        ticker = self.watchlist_panel.selected_ticker()
-        if not ticker:
-            return
-        watchlist_name = self.state.active_watchlist
-        wl_key = self._watchlist_config_key()
-        wl = self.config.get(wl_key, {}).get(watchlist_name, [])
-        if ticker in wl:
-            wl.remove(ticker)
-            self._save_config_key(f"{wl_key}.{watchlist_name}", wl)
-            self.statusBar().showMessage(f"Removed {ticker}", 3000)
-            self.action_refresh_data()
-
-    @Slot()
-    def action_search_ticker(self) -> None:
-        from desktop.dialogs.search_ticker import SearchTickerDialog
-        dlg = SearchTickerDialog(self)
-        self._search_dialog = dlg
-
-        def do_search(query: str) -> None:
-            self._run_background(
-                lambda: self._ai_client.search_tickers(query) if self._ai_client else [],
-                lambda results: dlg.populate_results(results) if dlg.isVisible() else None,
-            )
-
-        dlg.set_search_callback(do_search)
-        if dlg.exec() and dlg.selected_ticker:
-            self._add_ticker_to_watchlist(dlg.selected_ticker)
-        self._search_dialog = None
-
     def _get_active_tickers(self) -> List[str]:
-        """Get all tickers from the active asset class's watchlists."""
+        """Get all tickers from the active asset class's watchlists.
+
+        Kept as an internal helper: the news agent and the Claude agent
+        pool both consume this list via a provider callback. The AI
+        supervisor owns watchlist composition end-to-end — there is no
+        user-facing add/remove flow.
+        """
         asset = self.state.active_asset_class
         tickers: set[str] = set()
         if asset == "stocks":
@@ -1810,46 +1801,6 @@ class MainWindow(QMainWindow):
             if t:
                 tickers.add(t)
         return sorted(tickers)
-
-    def _add_ticker_to_watchlist(self, ticker: str) -> None:
-        """Add a ticker to the active watchlist and refresh."""
-        # Preserve case — T212 LSE tickers use lowercase `l` (e.g. RRl_EQ).
-        ticker = ticker.strip()
-        if not ticker:
-            return
-        asset = self.state.active_asset_class
-        if asset == "stocks":
-            watchlists = self.config.get(self._watchlist_config_key(), {})
-        else:
-            watchlists = self.config.get(asset, {}).get("watchlists", {})
-        active = self.state.active_watchlist
-        if active in watchlists:
-            if ticker not in watchlists[active]:
-                watchlists[active].append(ticker)
-                self._save_config()
-                if self.news_agent:
-                    self.news_agent.update_tickers(self._get_active_tickers())
-                self.statusBar().showMessage(f"Added {ticker}", 3000)
-                self._refresh_all_panels()
-
-    def _remove_ticker_from_watchlist(self, ticker: str) -> bool:
-        """Programmatically remove a ticker from the active watchlist."""
-        ticker = ticker.strip()
-        if not ticker:
-            return False
-        asset = self.state.active_asset_class
-        if asset == "stocks":
-            watchlists = self.config.get(self._watchlist_config_key(), {})
-        else:
-            watchlists = self.config.get(asset, {}).get("watchlists", {})
-        active = self.state.active_watchlist
-        if active in watchlists and ticker in watchlists[active]:
-            watchlists[active].remove(ticker)
-            self._save_config()
-            if self.news_agent:
-                self.news_agent.update_tickers(self._get_active_tickers())
-            return True
-        return False
 
     @Slot()
     def action_show_history(self) -> None:
@@ -1876,41 +1827,6 @@ class MainWindow(QMainWindow):
         self._run_background(load_history, on_loaded)
         dlg.exec()
         self._history_dialog = None
-
-    @Slot()
-    def action_show_pies(self) -> None:
-        from desktop.dialogs.pies import PiesDialog
-        dlg = PiesDialog(self)
-        self._pies_dialog = dlg
-
-        def on_loaded(pies: List[Dict[str, Any]]) -> None:
-            self.state.pies = pies
-            if dlg.isVisible():
-                dlg.populate_pies(pies)
-
-        self._run_background(
-            lambda: self.broker_service.get_pies(),
-            on_loaded,
-        )
-        dlg.exec()
-        self._pies_dialog = None
-
-    @Slot()
-    def action_show_instruments(self) -> None:
-        from desktop.dialogs.instruments import InstrumentsDialog
-        dlg = InstrumentsDialog(self)
-        self._instruments_dialog = dlg
-
-        def on_loaded(instruments: List[Dict[str, Any]]) -> None:
-            if dlg.isVisible():
-                dlg.populate(instruments)
-
-        self._run_background(
-            lambda: self.broker_service.get_instruments(),
-            on_loaded,
-        )
-        dlg.exec()
-        self._instruments_dialog = None
 
     @Slot()
     def action_toggle_protect(self) -> None:
