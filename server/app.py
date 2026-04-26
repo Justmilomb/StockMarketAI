@@ -33,7 +33,7 @@ logger = logging.getLogger("blank.server")
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
-ADMIN_KEY = os.environ.get("BLANK_ADMIN_KEY", "admin")
+ADMIN_KEY = os.environ.get("BLANK_ADMIN_KEY", "")
 WEBSITE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "website")
 # Avatars live under desktop/ so the PyInstaller bundle picks them up
 # automatically. Serving them from FastAPI lets the signup page render a
@@ -701,10 +701,23 @@ class ScheduleNotificationRequest(BaseModel):
 
 # ── Auth ─────────────────────────────────────────────────────────────────
 
-def require_admin(x_admin_key: str = Header(...)) -> str:
-    if x_admin_key != ADMIN_KEY:
+def require_admin(
+    x_admin_key: str = Header(default=""),
+    authorization: str = Header(default=""),
+) -> str:
+    """Accept either ``x-admin-key: <key>`` or ``Authorization: Bearer <key>``.
+    The server's BLANK_ADMIN_KEY must be a non-empty string — an unset
+    env var refuses every request rather than degrading to an empty key
+    that would match an empty-string client header.
+    """
+    if not ADMIN_KEY:
+        raise HTTPException(status_code=503, detail="admin auth not configured")
+    presented = x_admin_key.strip()
+    if not presented and authorization.lower().startswith("bearer "):
+        presented = authorization[7:].strip()
+    if not presented or not secrets.compare_digest(presented, ADMIN_KEY):
         raise HTTPException(status_code=403, detail="invalid admin key")
-    return x_admin_key
+    return presented
 
 
 def _hash_password(raw: str) -> str:
@@ -3523,6 +3536,53 @@ def admin_list_dev_accounts(
                 d[k] = d[k].isoformat()
         accounts.append(d)
     return {"accounts": accounts, "count": len(accounts)}
+
+
+@app.get("/api/admin/cloud-users")
+def admin_list_cloud_users(
+    _: str = Depends(require_admin),
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> dict[str, Any]:
+    """Users that BlankServer should consider for cloud-instance allocation.
+
+    Returns every active, email-verified account with the fields the
+    cloud worker needs to provision an instance. BlankServer applies
+    its own filtering on top (mobile-only users, idle desktops, plan
+    eligibility) — this endpoint just supplies the candidate set.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT
+                l.key            AS user_id,
+                l.email          AS email,
+                l.full_name      AS full_name,
+                l.plan           AS plan,
+                l.avatar_id      AS avatar_id,
+                COALESCE(i.mode, 'paper')      AS mode,
+                t.encrypted_key  AS t212_key_encrypted
+            FROM licenses l
+            LEFT JOIN user_instance  i ON i.license_key = l.key
+            LEFT JOIN user_t212_keys t ON t.license_key = l.key
+            WHERE l.status = 'active'
+              AND l.email_verified = TRUE
+            ORDER BY l.email ASC
+            """,
+        )
+        rows = cur.fetchall()
+    users = [
+        {
+            "user_id": r["user_id"],
+            "email": r["email"],
+            "full_name": r.get("full_name") or "",
+            "plan": r.get("plan") or "starter",
+            "mode": r["mode"],
+            "avatar_id": int(r.get("avatar_id") or 0),
+            "t212_key_encrypted": r.get("t212_key_encrypted") or "",
+        }
+        for r in rows
+    ]
+    return {"users": users}
 
 
 class DevToggleRequest(BaseModel):
