@@ -681,6 +681,8 @@ input:focus { border-bottom-color: var(--accent); }
     if (prefill && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(prefill)) {
       const inp = $("#email");
       if (inp) inp.value = prefill;
+      // Auto-skip email step since it was entered on the main page
+      setTimeout(function() { go(1); }, 100);
     }
   } catch (_) { /* noop */ }
 
