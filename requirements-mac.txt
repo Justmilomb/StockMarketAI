@@ -75,9 +75,18 @@ youtube-transcript-api>=0.6.2
 # on Apple Silicon Macs and falls back to the bundled binary.
 yt-dlp>=2024.10.7
 
+# PyTorch — required by transformers, chronos, kronos, pytorch-forecasting.
+torch>=2.0.0
+
 # Kronos vendored under core/kronos/ from github.com/shiyu-coder/Kronos
 # (MIT licensed). einops is the only runtime dep not pulled by torch.
 einops>=0.8.0
+
+# LightGBM — gradient boosting for ensemble forecaster.
+lightgbm>=4.0.0
+
+# HuggingFace Hub — model downloads.
+huggingface_hub>=0.20.0
 
 # Forecasting meta-learner + FinBERT sentiment.
 xgboost>=2.0.0
