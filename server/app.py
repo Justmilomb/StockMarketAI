@@ -5156,7 +5156,35 @@ try:
 except ImportError:  # pragma: no cover — FastAPI guarantees these exist
     WebSocket = WebSocketDisconnect = None  # type: ignore
 
-from encryption import encrypt_secret, decrypt_secret  # noqa: E402
+# Inline Fernet helper for at-rest secret encryption (T212 API keys etc.).
+# Lives here rather than in server/encryption.py because Render's working
+# directory makes the bare ``from encryption import …`` path unreliable —
+# duplicating ~10 lines is cheaper than fighting the deploy layout.
+import base64 as _b64  # noqa: E402
+from cryptography.fernet import Fernet as _Fernet, InvalidToken as _InvalidToken  # noqa: E402
+
+
+def _t212_fernet() -> _Fernet:
+    key = os.environ.get("BLANK_T212_ENCRYPTION_KEY", "").strip()
+    if key:
+        return _Fernet(key.encode("utf-8"))
+    # Dev fallback: derive a deterministic key from the JWT secret so
+    # local environments work without extra config. Production MUST set
+    # BLANK_T212_ENCRYPTION_KEY to a real Fernet key.
+    secret = os.environ.get("BLANK_JWT_SECRET", "dev-jwt-secret-do-not-ship")
+    raw = secret.encode("utf-8").ljust(32, b"0")[:32]
+    return _Fernet(_b64.urlsafe_b64encode(raw))
+
+
+def encrypt_secret(plaintext: str) -> str:
+    return _t212_fernet().encrypt(plaintext.encode("utf-8")).decode("utf-8")
+
+
+def decrypt_secret(ciphertext: str) -> str:
+    try:
+        return _t212_fernet().decrypt(ciphertext.encode("utf-8")).decode("utf-8")
+    except _InvalidToken as exc:
+        raise ValueError("encrypted secret could not be decrypted") from exc
 
 # In-memory WebSocket registry: license_key -> set of live WebSocket objects.
 # Survives only as long as the process. Multi-worker deploys would need a
