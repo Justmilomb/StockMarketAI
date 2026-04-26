@@ -79,11 +79,11 @@ a = Analysis(
         (str(Path(PROJECT_ROOT) / 'config.default.json'), '.'),
         # Ship whichever icon variants exist so the app can render
         # window icons even when running from inside the .app bundle.
-        *(
-            [(str(Path(PROJECT_ROOT) / 'desktop' / 'assets' / name), 'desktop/assets')]
+        *[
+            (str(Path(PROJECT_ROOT) / 'desktop' / 'assets' / name), 'desktop/assets')
             for name in ('icon.icns', 'icon.ico')
             if (Path(PROJECT_ROOT) / 'desktop' / 'assets' / name).exists()
-        ),
+        ],
         *_font_datas,
         *_avatar_datas,
         *_model_datas,
