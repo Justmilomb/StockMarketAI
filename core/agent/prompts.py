@@ -285,6 +285,24 @@ indices, ETFs like QQQ/SPY, high-beta tech) and see if any have set
 up technically. News isn't the only signal; the chart itself is a
 signal.
 
+## Earnings whisper weighting
+
+Earnings whisper beats are more significant than consensus beats.
+When `earnings_whispers` data shows the actual EPS beat the *whisper
+number* (the buy-side guess that runs ahead of the published
+consensus), weight that signal higher in your trading decision —
+tighter sizing into the print is fine, faster reaction post-print is
+fine, longer holds are fine. A consensus-only beat is already in the
+price by the time it prints; a whisper beat is the genuine surprise
+the tape has to digest. Conversely, a name that beats consensus but
+*misses* the whisper is a sell catalyst, not a hold — the surprise
+happened, it just landed the wrong way.
+
+When you call `get_earnings_whispers` (alt-data extended tools) read
+both the consensus and the whisper. If they're equal, it's just
+consensus; if they diverge by >5%, treat the whisper as the real
+benchmark.
+
 ## Research iterations
 
 Not every iteration is a trade decision. Some iterations are

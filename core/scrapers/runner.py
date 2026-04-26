@@ -30,6 +30,10 @@ import threading
 import time
 from typing import Any, Callable, Dict, List, Optional
 
+from core.correlation_engine import (
+    match_correlations,
+    queue_correlation_action,
+)
 from core.database import HistoryManager
 from core.scrapers import SCRAPERS, ScrapedItem, ScraperBase
 from core.scrapers._sentiment import score_item
@@ -39,8 +43,11 @@ logger = logging.getLogger(__name__)
 
 #: Cadence floor — the runner never polls more often than this even
 #: if the caller asks for a lower value. Keeps scrapers well below
-#: the rate limits on every source.
-CADENCE_FLOOR_SECONDS: int = 60
+#: the rate limits on every source. 30s is the practical floor: every
+#: free RSS / Reddit / X mirror will serve a request that often without
+#: throttling, but going below would burn through the cheap public
+#: budget on Reddit and BBC.
+CADENCE_FLOOR_SECONDS: int = 30
 
 #: Retention window for cached items. Older rows are purged on each
 #: cycle to keep the sqlite file from growing unbounded.
@@ -94,7 +101,7 @@ class ScraperRunner(threading.Thread):
         watchlist_provider: Callable[[], List[str]],
         *,
         scrapers: Optional[List[ScraperBase]] = None,
-        cadence_seconds: int = 120,
+        cadence_seconds: int = 30,
         max_workers: int = 10,
         wake_callback: Optional[Callable[[List[Dict[str, Any]]], None]] = None,
     ) -> None:
@@ -167,6 +174,7 @@ class ScraperRunner(threading.Thread):
         watchlist_set = {_normalise_ticker(t) for t in tickers}
         watchlist_set.discard("")
 
+        correlation_hits = 0
         for name, items in results:
             if not items:
                 stats[name] = 0
@@ -190,6 +198,26 @@ class ScraperRunner(threading.Thread):
             for row in rows:
                 if _is_hot_item(row, watchlist_set):
                     hot_items.append(row)
+                # Correlation engine — scan headline + summary for
+                # curated trigger keywords and queue any matches as
+                # pending suggestions for the agent.
+                try:
+                    text = " ".join(filter(None, [
+                        str(row.get("title") or ""),
+                        str(row.get("summary") or ""),
+                    ]))
+                    if not text.strip():
+                        continue
+                    matches = match_correlations(text, list(watchlist_set))
+                    for m in matches:
+                        queue_correlation_action(
+                            self._db.db_path, m,
+                            source_text=text[:500],
+                            source_url=str(row.get("url") or ""),
+                        )
+                        correlation_hits += 1
+                except Exception as exc:
+                    logger.debug("[scraper-runner] correlation match failed: %s", exc)
 
         # Housekeeping — keep the cache size bounded.
         try:
@@ -208,8 +236,9 @@ class ScraperRunner(threading.Thread):
             self._last_run_stats = dict(stats)
 
         logger.info(
-            "[scraper-runner] cycle done in %.1fs, inserted=%d, sources=%s",
-            time.monotonic() - started, total_inserted,
+            "[scraper-runner] cycle done in %.1fs, inserted=%d, "
+            "correlation_hits=%d, sources=%s",
+            time.monotonic() - started, total_inserted, correlation_hits,
             ",".join(f"{k}:{v}" for k, v in stats.items()),
         )
 

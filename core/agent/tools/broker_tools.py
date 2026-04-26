@@ -267,31 +267,60 @@ async def place_order(args: Dict[str, Any]) -> Dict[str, Any]:
             )
             return _text_result({"status": "rejected", "reason": msg})
 
-    # ── submit ────────────────────────────────────────────────────────
-    try:
-        resp = svc.submit_order(
-            ticker=ticker,
-            side=side_raw.upper(),
-            quantity=quantity,
-            order_type=order_type,
-            limit_price=float(limit_price) if limit_price else None,
-            stop_price=float(stop_price) if stop_price else None,
-        )
-    except Exception as e:
-        _journal(
-            "order_error",
-            {"tool": "place_order", "ticker": ticker, "side": side_raw,
-             "quantity": quantity, "error": str(e), "reason": reason},
-            tags=["error"],
-        )
-        return _text_result({"status": "error", "reason": str(e)})
+    # ── smart-limit interception (market orders only) ────────────────
+    smart_summary: Dict[str, Any] | None = None
+    if order_type == "market":
+        try:
+            from core.agent.tools._smart_execution import (
+                attempt_smart_market,
+            )
+            smart_summary = await attempt_smart_market(
+                svc=svc,
+                ticker=ticker,
+                side=side_raw,
+                quantity=quantity,
+                config=ctx.config,
+            )
+        except Exception:
+            smart_summary = None
 
+    # ── submit ────────────────────────────────────────────────────────
+    if smart_summary and smart_summary.get("filled") is True:
+        # Smart helper already filled via limit order — reuse its response.
+        resp = smart_summary.get("broker_response", {})
+    else:
+        try:
+            resp = svc.submit_order(
+                ticker=ticker,
+                side=side_raw.upper(),
+                quantity=quantity,
+                order_type=order_type,
+                limit_price=float(limit_price) if limit_price else None,
+                stop_price=float(stop_price) if stop_price else None,
+            )
+        except Exception as e:
+            _journal(
+                "order_error",
+                {"tool": "place_order", "ticker": ticker, "side": side_raw,
+                 "quantity": quantity, "error": str(e), "reason": reason},
+                tags=["error"],
+            )
+            return _text_result({"status": "error", "reason": str(e)})
+
+    journal_tags = ["trade"]
+    if smart_summary is not None:
+        journal_tags.append("smart_exec")
+        if smart_summary.get("filled") is True:
+            journal_tags.append("limit_first")
+        elif smart_summary.get("path") == "market_fallback":
+            journal_tags.append("market_fallback")
     _journal(
         "order_placed",
         {"tool": "place_order", "ticker": ticker, "side": side_raw,
          "quantity": quantity, "order_type": order_type,
-         "limit_price": limit_price, "reason": reason, "broker_response": resp},
-        tags=["trade"],
+         "limit_price": limit_price, "reason": reason, "broker_response": resp,
+         "smart_summary": smart_summary},
+        tags=journal_tags,
     )
 
     # Auto-add the ticker to the active watchlist on any successful order.
@@ -319,6 +348,8 @@ async def place_order(args: Dict[str, Any]) -> Dict[str, Any]:
     }
     if watchlist_add is not None:
         result["watchlist_add"] = watchlist_add
+    if smart_summary is not None:
+        result["smart_execution"] = smart_summary
     return _text_result(result)
 
 

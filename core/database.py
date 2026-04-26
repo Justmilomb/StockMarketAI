@@ -278,6 +278,22 @@ class HistoryManager:
                     created_at TEXT NOT NULL DEFAULT (datetime('now')),
                     completed_at TEXT
                 );
+
+                CREATE TABLE IF NOT EXISTS correlation_signals (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    trigger_key TEXT NOT NULL,
+                    ticker TEXT NOT NULL,
+                    direction TEXT NOT NULL,
+                    suggested_action TEXT NOT NULL,
+                    source_text TEXT,
+                    source_url TEXT,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    acknowledged_at TEXT
+                );
+                CREATE INDEX IF NOT EXISTS idx_corr_status ON correlation_signals(status);
+                CREATE INDEX IF NOT EXISTS idx_corr_ticker ON correlation_signals(ticker);
+                CREATE INDEX IF NOT EXISTS idx_corr_created ON correlation_signals(created_at);
             """)
 
     # ── Migrations ─────────────────────────────────────────────────────

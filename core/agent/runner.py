@@ -75,6 +75,13 @@ CADENCE_FLOOR_SECONDS: int = 30
 #: subscription quota when nothing's moving.
 CADENCE_MARKET_CLOSED_DEFAULT: int = 120
 
+#: Lead time before the next exchange open at which the supervisor
+#: should pre-emptively wake during the closed-market sleep path. The
+#: agent uses the wake to scan overnight news and queue any orders for
+#: the open. 30 minutes is enough to read the swarm output and place
+#: limit orders without sitting idle for the rest of the pre-market.
+PRE_MARKET_WAKE_LEAD_SECONDS: int = 30 * 60
+
 #: Upper bound on how many journal-tail lines we keep in memory so the
 #: panel doesn't grow unbounded over a long session.
 JOURNAL_TAIL_MAX: int = 500
@@ -378,8 +385,56 @@ class AgentRunner(QThread):
             except Exception:
                 cadence = 90
             return float(max(CADENCE_FLOOR_SECONDS, cadence))
-        # Market closed: use learned preference or default 10 min
-        return float(max(CADENCE_FLOOR_SECONDS, self._closed_market_cadence()))
+        # Market closed: use learned preference or default 10 min, but
+        # never sleep through the 30-min pre-market window — wake early
+        # so the agent can scan overnight catalysts and queue open-bell
+        # orders.
+        closed_default = float(max(CADENCE_FLOOR_SECONDS, self._closed_market_cadence()))
+        pre_market = self._seconds_until_pre_market_wake()
+        if pre_market is not None and pre_market < closed_default:
+            return float(max(CADENCE_FLOOR_SECONDS, pre_market))
+        return closed_default
+
+    def _seconds_until_pre_market_wake(self) -> Optional[float]:
+        """Return seconds until 30 min before the next LSE/US open.
+
+        Walks both exchanges, picks whichever opens sooner, and returns
+        the wait until ``open - 30 min``. Returns None if neither
+        exchange's next open can be computed. The caller compares this
+        against the otherwise-computed sleep and prefers the shorter.
+        """
+        try:
+            from datetime import datetime, timezone
+            from core.market_hours import get_exchange, status as mh_status
+        except Exception:
+            return None
+
+        soonest: Optional[float] = None
+        now = datetime.now(tz=timezone.utc)
+        for code in ("LSE", "US"):
+            try:
+                ex = get_exchange(code)
+                if ex is None:
+                    continue
+                snap = mh_status(ex, now)
+                if snap.get("is_open"):
+                    continue
+                next_open_iso = str(snap.get("next_open", "") or "")
+                if not next_open_iso:
+                    continue
+                next_open_dt = datetime.fromisoformat(next_open_iso)
+                if next_open_dt.tzinfo is None:
+                    next_open_dt = next_open_dt.replace(tzinfo=timezone.utc)
+                wake_at = next_open_dt - timedelta(seconds=PRE_MARKET_WAKE_LEAD_SECONDS)
+                wait = (wake_at - now).total_seconds()
+                if wait <= 0:
+                    # Already inside the pre-market window — wake now.
+                    wait = float(CADENCE_FLOOR_SECONDS)
+                if soonest is None or wait < soonest:
+                    soonest = wait
+            except Exception:
+                continue
+        return soonest
 
     def _any_market_open(self) -> bool:
         """Return True if LSE or NYSE/Nasdaq is currently in regular session."""

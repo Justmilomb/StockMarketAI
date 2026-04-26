@@ -53,6 +53,11 @@ from core.agent.tools.news_api_tools import NEWS_API_TOOLS
 from core.agent.tools.alt_data_extended_tools import ALT_DATA_EXTENDED_TOOLS
 from core.agent.tools.fmp_tools import FMP_TOOLS
 from core.agent.tools.stop_tools import STOP_TOOLS
+from core.agent.tools.multi_timeframe_tools import MULTI_TIMEFRAME_TOOLS
+from core.agent.tools.volume_profile_tools import VOLUME_PROFILE_TOOLS
+from core.agent.tools.order_book_tools import ORDER_BOOK_TOOLS
+from core.agent.tools.momentum_tools import MOMENTUM_TOOLS
+from core.agent.tools.correlation_tools import CORRELATION_TOOLS
 
 # query_grok is disabled — it drives Playwright/Chromium which is blocked
 # on some client machines and crashes the app when invoked. Keep the
@@ -91,6 +96,11 @@ ALL_TOOLS: List[Any] = [
     *ALT_DATA_EXTENDED_TOOLS,
     *FMP_TOOLS,
     *STOP_TOOLS,
+    *MULTI_TIMEFRAME_TOOLS,
+    *VOLUME_PROFILE_TOOLS,
+    *ORDER_BOOK_TOOLS,
+    *MOMENTUM_TOOLS,
+    *CORRELATION_TOOLS,
 ]
 
 

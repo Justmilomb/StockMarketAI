@@ -64,7 +64,7 @@
 
   "news": {
     "refresh_interval_minutes": 2,
-    "scraper_cadence_seconds": 120,
+    "scraper_cadence_seconds": 30,
     "scraper_max_workers": 10,
     "scrapers_enabled": true,
     "yahoo_scrape_enabled": true,

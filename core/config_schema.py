@@ -77,7 +77,7 @@ class NewsConfig(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     refresh_interval_minutes: int = 2
-    scraper_cadence_seconds: int = 120
+    scraper_cadence_seconds: int = 30
     scraper_max_workers: int = 10
 
 
@@ -148,6 +148,9 @@ class ExecutionConfig(BaseModel):
     default_strategy: Literal["market", "vwap", "twap"] = "market"
     vwap_slices_per_hour: int = 4
     twap_slices_per_hour: int = 6
+    smart_market_enabled: bool = True
+    smart_market_spread_pct_threshold: float = 0.5
+    smart_market_wait_seconds: float = 30.0
 
 
 class DataProviderConfig(BaseModel):

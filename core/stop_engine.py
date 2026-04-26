@@ -39,8 +39,9 @@ import logging
 import threading
 import time
 import uuid
+from collections import deque
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Deque, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +54,13 @@ _BACKOFF_SECONDS: float = 5.0
 
 #: Stop kinds the engine knows how to evaluate.
 STOP_KINDS: Tuple[str, ...] = ("stop_loss", "take_profit", "trailing_stop")
+
+#: Rolling window for momentum-trigger detection. The engine retains the
+#: last N seconds of (timestamp, price) samples per ticker and computes
+#: the percent move over that window each tick. 10s is short enough to
+#: catch a flash spike, long enough to avoid false-positives on a single
+#: noisy print.
+MOMENTUM_WINDOW_SECONDS: float = 10.0
 
 
 # ── unit helpers (GBX ↔ GBP) ────────────────────────────────────────────
@@ -153,6 +161,11 @@ class StopEngine(threading.Thread):
         self._stop_event = threading.Event()
         self._fired: List[Dict[str, Any]] = []
         self._fired_lock = threading.Lock()
+        # Per-ticker rolling price window for momentum detection. Each
+        # entry is a deque of (monotonic_ts, price). Pruned to
+        # MOMENTUM_WINDOW_SECONDS each tick.
+        self._price_history: Dict[str, Deque[Tuple[float, float]]] = {}
+        self._momentum_fired: List[Dict[str, Any]] = []
 
     # ── thread API ───────────────────────────────────────────────────
 
@@ -185,11 +198,22 @@ class StopEngine(threading.Thread):
         if broker is None:
             return []
         stops = broker.list_stops()
-        if not stops:
+        try:
+            momentum_triggers = list(broker.list_momentum_triggers())
+        except AttributeError:
+            momentum_triggers = []
+
+        ticker_set = {s["ticker"] for s in stops}
+        ticker_set.update(str(t.get("ticker", "")) for t in momentum_triggers)
+        ticker_set.discard("")
+        if not ticker_set:
             return []
 
-        prices = self._fetch_prices(sorted({s["ticker"] for s in stops}))
+        prices = self._fetch_prices(sorted(ticker_set))
+        now = time.monotonic()
+        self._update_price_history(prices, now)
         fired: List[Dict[str, Any]] = []
+
         for stop in stops:
             ticker = str(stop.get("ticker", ""))
             price = float(prices.get(ticker, 0.0) or 0.0)
@@ -210,6 +234,11 @@ class StopEngine(threading.Thread):
 
             if self._fire_stop(stop, price):
                 fired.append({**stop, "fill_price": price})
+
+        # Momentum triggers ride the same price feed but evaluate against
+        # the rolling window rather than a fixed level.
+        for trig in momentum_triggers:
+            self._evaluate_momentum_trigger(broker, trig, prices, now)
 
         if fired:
             with self._fired_lock:
@@ -317,6 +346,110 @@ class StopEngine(threading.Thread):
             if str(p.get("ticker")) == ticker:
                 return float(p.get("quantity", 0.0) or 0.0)
         return 0.0
+
+    # ── momentum trigger helpers ────────────────────────────────────
+
+    def _update_price_history(
+        self,
+        prices: Dict[str, float],
+        now: float,
+    ) -> None:
+        """Append the latest tick to each ticker's rolling price window."""
+        cutoff = now - MOMENTUM_WINDOW_SECONDS
+        for ticker, price in prices.items():
+            if price <= 0:
+                continue
+            history = self._price_history.setdefault(ticker, deque())
+            history.append((now, float(price)))
+            while history and history[0][0] < cutoff:
+                history.popleft()
+
+    def _evaluate_momentum_trigger(
+        self,
+        broker: Any,
+        trig: Dict[str, Any],
+        prices: Dict[str, float],
+        now: float,
+    ) -> None:
+        """Fire a momentum trigger if its threshold is crossed.
+
+        Drops expired triggers (TTL passed) without firing. Removes the
+        trigger after firing so a single trigger only fires once per
+        arming.
+        """
+        trigger_id = str(trig.get("trigger_id", ""))
+        ticker = str(trig.get("ticker", ""))
+        if not trigger_id or not ticker:
+            return
+
+        ttl_ts = trig.get("ttl_ts")
+        if ttl_ts is not None:
+            try:
+                if float(ttl_ts) <= time.time():
+                    broker.remove_momentum_trigger(trigger_id)
+                    return
+            except (TypeError, ValueError):
+                pass
+
+        history = self._price_history.get(ticker)
+        if not history or len(history) < 2:
+            return
+
+        first_price = history[0][1]
+        latest_price = history[-1][1]
+        if first_price <= 0:
+            return
+
+        pct = (latest_price - first_price) / first_price * 100.0
+        threshold = float(trig.get("threshold_pct", 0.0) or 0.0)
+        direction = str(trig.get("direction", "")).lower()
+        if threshold <= 0 or direction not in ("up", "down"):
+            return
+
+        crossed = (direction == "up" and pct >= threshold) or (
+            direction == "down" and pct <= -threshold
+        )
+        if not crossed:
+            return
+
+        action = str(trig.get("action", "")).lower()
+        quantity = float(trig.get("quantity", 0.0) or 0.0)
+        if action not in ("buy", "sell") or quantity <= 0:
+            broker.remove_momentum_trigger(trigger_id)
+            return
+
+        try:
+            self._broker_service.submit_order(
+                ticker=ticker,
+                side=action.upper(),
+                quantity=quantity,
+                order_type="market",
+            )
+        except Exception:
+            logger.exception(
+                "[stop-engine] failed to submit momentum %s for %s",
+                action, ticker,
+            )
+            return
+
+        broker.remove_momentum_trigger(trigger_id)
+        fired_record = {
+            **trig,
+            "fired_price": latest_price,
+            "observed_pct": round(pct, 4),
+            "fired_at": now_iso(),
+        }
+        self._momentum_fired.append(fired_record)
+        logger.info(
+            "[stop-engine] fired momentum %s on %s qty=%s pct=%.3f (thr=%.3f)",
+            action, ticker, quantity, pct, threshold,
+        )
+
+    def consume_fired_momentum(self) -> List[Dict[str, Any]]:
+        """Drain and return every momentum trigger that has fired."""
+        out = list(self._momentum_fired)
+        self._momentum_fired.clear()
+        return out
 
 
 # ── stop-id helper ──────────────────────────────────────────────────────

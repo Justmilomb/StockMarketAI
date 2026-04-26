@@ -260,6 +260,7 @@ class _State:
     positions: Dict[str, _Position] = field(default_factory=dict)
     pending_orders: List[_Order] = field(default_factory=list)
     active_stops: List[_Stop] = field(default_factory=list)
+    momentum_triggers: List[Dict[str, Any]] = field(default_factory=list)
     realised_pnl_acct: float = 0.0
     realised_trading_acct: float = 0.0
     realised_fx_acct: float = 0.0
@@ -272,6 +273,7 @@ class _State:
             "positions": {k: v.to_dict() for k, v in self.positions.items()},
             "pending_orders": [o.to_dict() for o in self.pending_orders],
             "active_stops": [s.to_dict() for s in self.active_stops],
+            "momentum_triggers": [dict(t) for t in self.momentum_triggers],
             "realised_pnl_acct": self.realised_pnl_acct,
             "realised_trading_acct": self.realised_trading_acct,
             "realised_fx_acct": self.realised_fx_acct,
@@ -292,6 +294,9 @@ class _State:
             ],
             active_stops=[
                 _Stop.from_dict(s) for s in (d.get("active_stops", []) or [])
+            ],
+            momentum_triggers=[
+                dict(t) for t in (d.get("momentum_triggers", []) or [])
             ],
             realised_pnl_acct=float(d.get("realised_pnl_acct", 0.0) or 0.0),
             realised_trading_acct=float(d.get("realised_trading_acct", 0.0) or 0.0),
@@ -1327,6 +1332,30 @@ class PaperBroker(Broker):
                     removed = self._state.active_stops.pop(i)
                     self._save_state()
                     return removed.to_dict()
+            return None
+
+    # ── momentum triggers (driven by StopEngine.tick) ────────────────
+
+    def list_momentum_triggers(self) -> List[Dict[str, Any]]:
+        """Snapshot of every armed momentum trigger."""
+        with self._lock:
+            return [dict(t) for t in self._state.momentum_triggers]
+
+    def add_momentum_trigger(self, trigger: Dict[str, Any]) -> Dict[str, Any]:
+        """Persist a new momentum trigger. Caller supplies ``trigger_id``."""
+        with self._lock:
+            self._state.momentum_triggers.append(dict(trigger))
+            self._save_state()
+            return dict(self._state.momentum_triggers[-1])
+
+    def remove_momentum_trigger(self, trigger_id: str) -> Optional[Dict[str, Any]]:
+        """Drop a momentum trigger by id."""
+        with self._lock:
+            for i, t in enumerate(self._state.momentum_triggers):
+                if str(t.get("trigger_id", "")) == trigger_id:
+                    removed = self._state.momentum_triggers.pop(i)
+                    self._save_state()
+                    return dict(removed)
             return None
 
     # ── book-keeping helpers ─────────────────────────────────────────
