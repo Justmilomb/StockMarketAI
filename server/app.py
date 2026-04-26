@@ -225,6 +225,16 @@ def _init_db(conn: psycopg2.extensions.connection) -> None:
             # alpha testers, and demo accounts.
             "ALTER TABLE licenses ADD COLUMN IF NOT EXISTS plan TEXT DEFAULT 'starter'",
             "ALTER TABLE licenses ADD COLUMN IF NOT EXISTS is_dev BOOLEAN DEFAULT FALSE",
+            # Single-active-session enforcement. The desktop app posts to
+            # /api/me/session/register on login and /api/me/session/heartbeat
+            # every second. A row whose last_heartbeat is older than
+            # SESSION_DEAD_AFTER_SECONDS is considered abandoned and a new
+            # device may take over without prompting. While the heartbeat is
+            # fresh, a different device receives 409 Conflict from
+            # /register and may call /force-takeover to evict the incumbent.
+            "ALTER TABLE licenses ADD COLUMN IF NOT EXISTS active_device_id TEXT DEFAULT ''",
+            "ALTER TABLE licenses ADD COLUMN IF NOT EXISTS active_since TIMESTAMPTZ",
+            "ALTER TABLE licenses ADD COLUMN IF NOT EXISTS last_heartbeat TIMESTAMPTZ",
             "CREATE INDEX IF NOT EXISTS idx_licenses_phone ON licenses(phone_number)",
             "CREATE INDEX IF NOT EXISTS idx_licenses_card_fp ON licenses(card_fingerprint)",
             "CREATE INDEX IF NOT EXISTS idx_licenses_verify_token ON licenses(email_verify_token)",
@@ -495,6 +505,36 @@ class RegisterRequest(BaseModel):
 class AvatarUpdateRequest(BaseModel):
     """POST /api/me/avatar — set the signed-in user's chosen avatar."""
     avatar_id: int
+
+
+class SessionRegisterRequest(BaseModel):
+    """POST /api/me/session/register — claim the single active-session slot.
+
+    ``device_id`` is a per-launch UUID minted by the desktop app. Storing
+    a hostname/platform label is purely informational so the takeover
+    dialog can name the other device the user is logged into.
+    """
+    device_id: str
+    device_label: str = ""
+
+
+class SessionHeartbeatRequest(BaseModel):
+    """POST /api/me/session/heartbeat — keep the active slot alive.
+
+    Returns 409 if a different device has taken over (so the desktop
+    can show 'your session was taken over' and quit).
+    """
+    device_id: str
+
+
+class SessionTakeoverRequest(BaseModel):
+    """POST /api/me/session/force-takeover — evict the incumbent device.
+
+    Same payload as /register but skips the conflict check; the previous
+    device discovers it has been kicked on its next heartbeat.
+    """
+    device_id: str
+    device_label: str = ""
 
 
 class LicenseUpdateRequest(BaseModel):
@@ -1491,6 +1531,145 @@ def set_my_avatar(
     if not row:
         raise HTTPException(status_code=404, detail="account not found")
     return {"status": "ok", "avatar_id": avatar_id}
+
+
+# ── Single-active-session enforcement ────────────────────────────────────
+#
+# One desktop terminal per account, across all devices. The website
+# dashboard is a stateless JWT call so it never claims a session slot —
+# only ``/api/me/session/register`` does.
+
+SESSION_DEAD_AFTER_SECONDS = 5
+
+
+def _session_is_alive(last_heartbeat: Optional[datetime]) -> bool:
+    """A stored session is considered alive if its heartbeat is within
+    SESSION_DEAD_AFTER_SECONDS. Anything older is treated as abandoned
+    so a crashed/closed terminal doesn't lock the user out forever."""
+    if last_heartbeat is None:
+        return False
+    if last_heartbeat.tzinfo is None:
+        last_heartbeat = last_heartbeat.replace(tzinfo=timezone.utc)
+    age = (datetime.now(timezone.utc) - last_heartbeat).total_seconds()
+    return age < SESSION_DEAD_AFTER_SECONDS
+
+
+def _claim_session_slot(
+    conn: psycopg2.extensions.connection,
+    license_key: str,
+    device_id: str,
+    device_label: str,
+) -> None:
+    now = datetime.now(timezone.utc)
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE licenses SET active_device_id = %s, active_since = %s, "
+            "last_heartbeat = %s WHERE key = %s",
+            (device_id, now, now, license_key),
+        )
+    conn.commit()
+
+
+@app.post("/api/me/session/register")
+def session_register(
+    body: SessionRegisterRequest,
+    claims: dict[str, Any] = Depends(require_auth),
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> dict[str, Any]:
+    """Claim the single active-session slot for the signed-in account.
+
+    Returns 409 when another device's heartbeat is still fresh — the
+    desktop client surfaces a "blank is running on another device. Take
+    over?" dialog and may follow up with /force-takeover.
+    """
+    device_id = (body.device_id or "").strip()
+    if not device_id:
+        raise HTTPException(status_code=400, detail="missing device_id")
+    device_label = (body.device_label or "").strip()[:120]
+
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT active_device_id, last_heartbeat FROM licenses WHERE key = %s",
+            (claims["sub"],),
+        )
+        row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="account not found")
+
+    incumbent = (row.get("active_device_id") or "").strip()
+    # Re-registering from the same device is idempotent — refresh the
+    # active_since/last_heartbeat and return ok. Lets the desktop call
+    # /register on every launch without special-casing the resume path.
+    if incumbent and incumbent != device_id and _session_is_alive(row.get("last_heartbeat")):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "session_in_use",
+                "message": "another device is signed in",
+            },
+        )
+
+    _claim_session_slot(conn, claims["sub"], device_id, device_label)
+    return {"status": "ok", "device_id": device_id}
+
+
+@app.post("/api/me/session/heartbeat")
+def session_heartbeat(
+    body: SessionHeartbeatRequest,
+    claims: dict[str, Any] = Depends(require_auth),
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> dict[str, Any]:
+    """Refresh the session's last_heartbeat. Returns 409 if another
+    device has taken over — the desktop client treats that as "your
+    session was taken over" and quits.
+    """
+    device_id = (body.device_id or "").strip()
+    if not device_id:
+        raise HTTPException(status_code=400, detail="missing device_id")
+
+    now = datetime.now(timezone.utc)
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE licenses SET last_heartbeat = %s "
+            "WHERE key = %s AND active_device_id = %s "
+            "RETURNING active_device_id",
+            (now, claims["sub"], device_id),
+        )
+        row = cur.fetchone()
+    conn.commit()
+
+    if not row:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "session_taken_over",
+                "message": "your session was taken over by another device",
+            },
+        )
+    return {"status": "ok"}
+
+
+@app.post("/api/me/session/force-takeover")
+def session_force_takeover(
+    body: SessionTakeoverRequest,
+    claims: dict[str, Any] = Depends(require_auth),
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> dict[str, Any]:
+    """Evict the incumbent device and claim the slot. The previous
+    device discovers it has been kicked on its next heartbeat (which
+    will return 409)."""
+    device_id = (body.device_id or "").strip()
+    if not device_id:
+        raise HTTPException(status_code=400, detail="missing device_id")
+    device_label = (body.device_label or "").strip()[:120]
+
+    with conn.cursor() as cur:
+        cur.execute("SELECT id FROM licenses WHERE key = %s", (claims["sub"],))
+        if not cur.fetchone():
+            raise HTTPException(status_code=404, detail="account not found")
+
+    _claim_session_slot(conn, claims["sub"], device_id, device_label)
+    return {"status": "ok", "device_id": device_id}
 
 
 class NameUpdateRequest(BaseModel):

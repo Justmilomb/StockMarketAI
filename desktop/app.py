@@ -40,6 +40,7 @@ from desktop import tokens as T
 from desktop.auth import clear_token
 from desktop.auth_gate import bus as auth_bus, require_auth
 from desktop.auth_state import auth_state
+from desktop.session_manager import session_manager
 from desktop.state import init_state, load_config, resolve_config_path
 from desktop.panels.settings import SettingsPanel
 from desktop.panels.your_ai import YourAIPanel
@@ -332,6 +333,12 @@ class MainWindow(QMainWindow):
         # the sign-in dialog via the shared bus.
         auth_bus().signin_requested.connect(self._open_signin_dialog)
         auth_state().changed.connect(self._on_auth_changed)
+
+        # Single-active-session: if the heartbeat reports another device
+        # has taken over, tell the user and quit. The connection lives
+        # for the lifetime of the window — a sign-out resets the manager
+        # singleton, so re-arming on next sign-in still works.
+        session_manager().session_taken_over.connect(self._on_session_taken_over)
 
         self.settings_panel = SettingsPanel(self.state)
         self.your_ai_panel = YourAIPanel(self.state)
@@ -1180,13 +1187,61 @@ class MainWindow(QMainWindow):
                     _apply_remote_config(me.get("config", {}) or {})
             except Exception:
                 logger.debug("post-signin remote config apply failed", exc_info=True)
+            # Single-active-session: claim the slot for this terminal.
+            # On conflict the user is offered "take over"; on cancel
+            # they're signed back out.
+            try:
+                from desktop.main import _claim_session_slot_or_signout
+                if not _claim_session_slot_or_signout():
+                    self.statusBar().showMessage(
+                        "another device is signed in — signed out", 4000,
+                    )
+                else:
+                    # Re-arm the takeover signal in case the manager
+                    # was reset by an earlier sign-out cycle.
+                    try:
+                        session_manager().session_taken_over.connect(
+                            self._on_session_taken_over,
+                        )
+                    except Exception:
+                        pass
+                    self._session_takeover_shown = False
+            except Exception:
+                logger.exception("post-signin session claim failed")
 
     @Slot()
     def _on_signed_out(self) -> None:
         """User clicked 'sign out' in the profile dropdown."""
+        from desktop.session_manager import reset_session_manager
+        reset_session_manager()
         clear_token()
         auth_state().set_signed_out()
         self.statusBar().showMessage("signed out", 3000)
+
+    @Slot(str)
+    def _on_session_taken_over(self, message: str) -> None:
+        """Server says a different device claimed the active-session slot.
+
+        Show a modal acknowledgement, sign out, and quit — the user has
+        already moved to the other device, leaving this window running
+        would just be misleading."""
+        # Avoid spamming the dialog if the signal fires more than once
+        # (network blip → reconnect → another 409). The flag is local to
+        # the slot to keep MainWindow.__init__ untouched.
+        if getattr(self, "_session_takeover_shown", False):
+            return
+        self._session_takeover_shown = True
+
+        from desktop.dialogs.session_takeover import show_taken_over
+        from desktop.session_manager import reset_session_manager
+
+        try:
+            show_taken_over(message, self)
+        finally:
+            reset_session_manager()
+            clear_token()
+            auth_state().set_signed_out()
+            self.close()
 
     @Slot()
     def _open_account_dashboard(self) -> None:
@@ -1996,6 +2051,15 @@ class MainWindow(QMainWindow):
                 update_service.stop()
             except Exception:
                 logger.exception("closeEvent: update_service.stop failed")
+
+        # Release the active-session slot so re-opening the app doesn't
+        # have to wait the full 5 s SESSION_DEAD_AFTER_SECONDS window
+        # before the new launch can claim the slot.
+        try:
+            from desktop.session_manager import reset_session_manager
+            reset_session_manager()
+        except Exception:
+            logger.exception("closeEvent: session_manager stop failed")
 
         # Close the persistent agent log file.
         if self._agent_log_file is not None:

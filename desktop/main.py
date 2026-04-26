@@ -141,6 +141,61 @@ def _apply_remote_config(remote_cfg: dict[str, str]) -> None:
         logger.info("Remote config applied to local config.json")
 
 
+def _claim_session_slot_or_signout() -> bool:
+    """Register this terminal as the single active session for the
+    signed-in account.
+
+    * Server says ok → start the heartbeat loop and return True.
+    * Server says another device is active → ask the user whether to
+      take over. On confirm, force-takeover; on cancel, sign out.
+    * Server says auth is bad → clear the token and sign out.
+    * Network error → start the heartbeat loop anyway. The desktop
+      tolerates transient drops, and the next successful heartbeat
+      will surface a real takeover/auth-failure as ``session_taken_over``.
+    """
+    from desktop.auth import clear_token
+    from desktop.auth_state import auth_state
+    from desktop.dialogs.session_takeover import prompt_takeover
+    from desktop.session_manager import RegisterOutcome, session_manager
+
+    mgr = session_manager()
+    outcome = mgr.register()
+
+    if outcome == RegisterOutcome.OK:
+        mgr.start()
+        return True
+
+    if outcome == RegisterOutcome.CONFLICT:
+        if not prompt_takeover():
+            clear_token()
+            auth_state().set_signed_out()
+            from desktop.session_manager import reset_session_manager
+            reset_session_manager()
+            return False
+        takeover = mgr.force_takeover()
+        if takeover == RegisterOutcome.OK:
+            mgr.start()
+            return True
+        # Takeover failed — fall through to sign-out.
+        clear_token()
+        auth_state().set_signed_out()
+        from desktop.session_manager import reset_session_manager
+        reset_session_manager()
+        return False
+
+    if outcome == RegisterOutcome.UNAUTHORISED:
+        clear_token()
+        auth_state().set_signed_out()
+        from desktop.session_manager import reset_session_manager
+        reset_session_manager()
+        return False
+
+    # OFFLINE / ERROR — keep the user signed in but start the heartbeat
+    # so we recover the slot when the network returns.
+    mgr.start()
+    return True
+
+
 def launch(mode: str | None = None) -> None:
     """Launch the blank desktop app.
 
@@ -253,6 +308,18 @@ def launch(mode: str | None = None) -> None:
             if not result.get("ok"):
                 result = {}
             _sync_plan()
+
+    # ── Single-active-session enforcement ───────────────────────────
+    # One blank terminal per account across all devices. If another
+    # device holds the slot, ask the user whether to take over.
+    # Refusing the takeover signs the user out so they can use the
+    # app signed-out (or close it and open it on the other device).
+    if auth_state().is_signed_in:
+        if not _claim_session_slot_or_signout():
+            # Sign-out path: clear the in-memory state but let the app
+            # carry on opening signed-out — same fall-through as if the
+            # user had skipped the sign-in dialog.
+            result = {}
 
     # ── First-run setup wizard ───────────────────────────────────────
     from desktop.dialogs.setup_wizard import SetupWizard
