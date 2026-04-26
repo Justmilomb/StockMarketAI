@@ -329,6 +329,114 @@ def _init_db(conn: psycopg2.extensions.connection) -> None:
             "CREATE INDEX IF NOT EXISTS idx_telemetry_key_time "
             "ON telemetry_events(license_key, uploaded_at DESC)",
         )
+        # ── Mobile thin-client tables ───────────────────────────────────
+        # The iPhone/iPad app is a viewing+control surface only. Every
+        # piece of state it shows lives in these tables on the server,
+        # so the client never has to compute anything locally. The
+        # paper-mode advisor loop (see _advisor_loop below) writes here
+        # too, so a user with no desktop still sees a live terminal.
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS user_t212_keys (
+                license_key TEXT PRIMARY KEY REFERENCES licenses(key) ON DELETE CASCADE,
+                encrypted_key TEXT NOT NULL,
+                account_type TEXT NOT NULL DEFAULT 'live',
+                validated_at TIMESTAMPTZ,
+                last_error TEXT,
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                updated_at TIMESTAMPTZ DEFAULT NOW()
+            );
+            CREATE TABLE IF NOT EXISTS user_instance (
+                license_key TEXT PRIMARY KEY REFERENCES licenses(key) ON DELETE CASCADE,
+                mode TEXT NOT NULL DEFAULT 'paper',
+                is_running BOOLEAN NOT NULL DEFAULT FALSE,
+                cash_gbp NUMERIC(18,2) NOT NULL DEFAULT 100.00,
+                advisor_mode TEXT NOT NULL DEFAULT 'balanced',
+                current_task TEXT,
+                active_strategy TEXT,
+                health_score NUMERIC(5,2) DEFAULT 100.0,
+                decisions_today INT NOT NULL DEFAULT 0,
+                trades_today INT NOT NULL DEFAULT 0,
+                last_decision_at TIMESTAMPTZ,
+                last_tick_at TIMESTAMPTZ,
+                onboarding_complete BOOLEAN NOT NULL DEFAULT FALSE,
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                updated_at TIMESTAMPTZ DEFAULT NOW()
+            );
+            CREATE TABLE IF NOT EXISTS user_positions (
+                id BIGSERIAL PRIMARY KEY,
+                license_key TEXT NOT NULL REFERENCES licenses(key) ON DELETE CASCADE,
+                symbol TEXT NOT NULL,
+                name TEXT,
+                quantity NUMERIC(18,6) NOT NULL,
+                average_price NUMERIC(18,4) NOT NULL,
+                current_price NUMERIC(18,4) NOT NULL,
+                asset_class TEXT DEFAULT 'stock',
+                opened_at TIMESTAMPTZ DEFAULT NOW(),
+                updated_at TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE(license_key, symbol)
+            );
+            CREATE TABLE IF NOT EXISTS user_trades (
+                id BIGSERIAL PRIMARY KEY,
+                license_key TEXT NOT NULL REFERENCES licenses(key) ON DELETE CASCADE,
+                symbol TEXT NOT NULL,
+                side TEXT NOT NULL,
+                quantity NUMERIC(18,6) NOT NULL,
+                price NUMERIC(18,4) NOT NULL,
+                total_value NUMERIC(18,2) NOT NULL,
+                fee NUMERIC(18,2) DEFAULT 0,
+                realized_pnl NUMERIC(18,2),
+                source TEXT DEFAULT 'advisor',
+                status TEXT DEFAULT 'filled',
+                advisor_reason TEXT,
+                executed_at TIMESTAMPTZ DEFAULT NOW()
+            );
+            CREATE INDEX IF NOT EXISTS idx_trades_user_time ON user_trades(license_key, executed_at DESC);
+            CREATE TABLE IF NOT EXISTS user_advisor_activity (
+                id BIGSERIAL PRIMARY KEY,
+                license_key TEXT NOT NULL REFERENCES licenses(key) ON DELETE CASCADE,
+                kind TEXT NOT NULL,
+                title TEXT NOT NULL,
+                detail TEXT,
+                symbol TEXT,
+                confidence NUMERIC(4,3),
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            );
+            CREATE INDEX IF NOT EXISTS idx_activity_user_time ON user_advisor_activity(license_key, created_at DESC);
+            CREATE TABLE IF NOT EXISTS user_chat_messages (
+                id BIGSERIAL PRIMARY KEY,
+                license_key TEXT NOT NULL REFERENCES licenses(key) ON DELETE CASCADE,
+                role TEXT NOT NULL,
+                content TEXT NOT NULL,
+                tool_calls JSONB,
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            );
+            CREATE INDEX IF NOT EXISTS idx_chat_user_time ON user_chat_messages(license_key, created_at);
+            CREATE TABLE IF NOT EXISTS user_notifications (
+                id BIGSERIAL PRIMARY KEY,
+                license_key TEXT NOT NULL REFERENCES licenses(key) ON DELETE CASCADE,
+                kind TEXT NOT NULL,
+                title TEXT NOT NULL,
+                body TEXT,
+                symbol TEXT,
+                amount NUMERIC(18,2),
+                is_read BOOLEAN NOT NULL DEFAULT FALSE,
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            );
+            CREATE INDEX IF NOT EXISTS idx_notif_user_time ON user_notifications(license_key, created_at DESC);
+            CREATE TABLE IF NOT EXISTS user_equity_snapshots (
+                id BIGSERIAL PRIMARY KEY,
+                license_key TEXT NOT NULL REFERENCES licenses(key) ON DELETE CASCADE,
+                equity NUMERIC(18,2) NOT NULL,
+                taken_at TIMESTAMPTZ DEFAULT NOW()
+            );
+            CREATE INDEX IF NOT EXISTS idx_equity_user_time ON user_equity_snapshots(license_key, taken_at);
+            """,
+        )
+        # Additive migration: add onboarding_complete to pre-existing user_instance rows.
+        cur.execute(
+            "ALTER TABLE user_instance ADD COLUMN IF NOT EXISTS onboarding_complete BOOLEAN NOT NULL DEFAULT FALSE",
+        )
     conn.commit()
     # seed default config if missing — use INSERT … ON CONFLICT DO NOTHING so
     # re-runs on an existing database never overwrite admin changes.
@@ -2054,7 +2162,7 @@ def _build_dashboard_payload(
     }
 
     created_at = row.get("created_at")
-    return {
+    payload = {
         "user": {
             "email": row.get("email") or "",
             "name": row.get("name") or "",
@@ -2083,6 +2191,38 @@ def _build_dashboard_payload(
         },
         "recommendation": recommendation,
     }
+
+    # Mobile thin-client augmentation: include portfolio / top positions /
+    # recent trades / advisor status from the user_* tables when an
+    # instance row exists. The desktop dashboard ignores these extra
+    # keys; the iPhone DashboardResponse model reads them as optionals
+    # so missing data simply renders an empty state. Failure here is
+    # non-fatal — the legacy payload stays intact.
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("SELECT 1 FROM user_instance WHERE license_key=%s", (claims["sub"],))
+            has_instance = cur.fetchone() is not None
+        if has_instance:
+            payload["portfolio"] = _build_portfolio_payload(claims["sub"], conn)
+            payload["advisor_status"] = _get_advisor_status(claims["sub"], conn)
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute(
+                    "SELECT * FROM user_positions WHERE license_key=%s "
+                    "ORDER BY (quantity * current_price) DESC LIMIT 5",
+                    (claims["sub"],),
+                )
+                payload["top_positions"] = [_serialize_position(r) for r in cur.fetchall()]
+                cur.execute(
+                    "SELECT * FROM user_trades WHERE license_key=%s "
+                    "ORDER BY executed_at DESC LIMIT 5",
+                    (claims["sub"],),
+                )
+                payload["recent_trades"] = [_serialize_trade(r) for r in cur.fetchall()]
+            payload["instance_connected"] = True
+    except Exception:
+        logger.exception("dashboard mobile augmentation failed")
+
+    return payload
 
 
 # ── Public signup (email → access key via Resend) ───────────────────────
@@ -4939,6 +5079,1119 @@ def monitor_page() -> HTMLResponse:
             return HTMLResponse(f.read())
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="monitor page not found")
+
+
+# ── Mobile thin-client ───────────────────────────────────────────────────
+# These endpoints power the BlankMobile iPhone app. The app is a viewing +
+# control surface; everything it shows lives on the server in the
+# user_* tables defined in _init_db. Paper mode is fully simulated by
+# the background advisor loop further down so users without a desktop
+# blank instance still see a live terminal.
+
+import asyncio  # noqa: E402  — placed here to keep mobile concerns localised
+from collections import defaultdict  # noqa: E402
+
+try:
+    from fastapi import WebSocket, WebSocketDisconnect  # noqa: E402
+except ImportError:  # pragma: no cover — FastAPI guarantees these exist
+    WebSocket = WebSocketDisconnect = None  # type: ignore
+
+from encryption import encrypt_secret, decrypt_secret  # noqa: E402
+
+# In-memory WebSocket registry: license_key -> set of live WebSocket objects.
+# Survives only as long as the process. Multi-worker deploys would need a
+# pubsub layer (Redis) — single-worker Render free tier is fine for now.
+_ws_connections: Dict[str, set] = defaultdict(set)
+_ws_lock = asyncio.Lock()
+_event_loop: Optional[asyncio.AbstractEventLoop] = None
+
+
+def _get_loop() -> Optional[asyncio.AbstractEventLoop]:
+    global _event_loop
+    if _event_loop is None:
+        try:
+            _event_loop = asyncio.get_event_loop()
+        except RuntimeError:
+            return None
+    return _event_loop
+
+
+@contextmanager
+def _bg_db():
+    """Sync DB connection for background tasks (outside FastAPI request lifecycle)."""
+    conn = psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor, connect_timeout=5)
+    try:
+        yield conn
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
+# ---------- Serializers (DB row → mobile-friendly camelCase JSON) ----------
+
+def _iso(dt: Optional[datetime]) -> Optional[str]:
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.isoformat()
+
+
+def _serialize_instance(row: dict) -> dict:
+    # snake_case to match the existing iPhone Codable models.
+    return {
+        "mode": row["mode"],
+        "is_running": bool(row["is_running"]),
+        "cash_gbp": float(row["cash_gbp"]),
+        "advisor_mode": row["advisor_mode"],
+        "current_task": row.get("current_task"),
+        "active_strategy": row.get("active_strategy"),
+        "health_score": float(row["health_score"]) if row.get("health_score") is not None else None,
+        "decisions_today": int(row.get("decisions_today") or 0),
+        "trades_today": int(row.get("trades_today") or 0),
+        "last_decision_at": _iso(row.get("last_decision_at")),
+        "last_tick_at": _iso(row.get("last_tick_at")),
+        "onboarding_complete": bool(row.get("onboarding_complete")),
+        "updated_at": _iso(row.get("updated_at")),
+    }
+
+
+def _serialize_position(row: dict) -> dict:
+    qty = float(row["quantity"])
+    avg = float(row["average_price"])
+    cur = float(row["current_price"])
+    market_value = round(qty * cur, 2)
+    cost_basis = qty * avg
+    unrealized = market_value - cost_basis
+    pct = (unrealized / cost_basis * 100.0) if cost_basis else 0.0
+    return {
+        "id": str(row["id"]),
+        "symbol": row["symbol"],
+        "name": row.get("name") or row["symbol"],
+        "quantity": qty,
+        "average_price": avg,
+        "current_price": cur,
+        "market_value": market_value,
+        "unrealized_pnl": round(unrealized, 2),
+        "unrealized_pnl_percent": round(pct, 2),
+        "day_change": 0.0,
+        "day_change_percent": 0.0,
+        "asset_class": row.get("asset_class") or "stock",
+        "opened_at": _iso(row.get("opened_at")),
+        "updated_at": _iso(row.get("updated_at")),
+    }
+
+
+def _serialize_trade(row: dict) -> dict:
+    return {
+        "id": str(row["id"]),
+        "symbol": row["symbol"],
+        "side": row["side"],
+        "quantity": float(row["quantity"]),
+        "price": float(row["price"]),
+        "total_value": float(row["total_value"]),
+        "fee": float(row.get("fee") or 0),
+        "realized_pnl": float(row["realized_pnl"]) if row.get("realized_pnl") is not None else None,
+        "executed_at": _iso(row.get("executed_at")),
+        "source": row.get("source") or "advisor",
+        "advisor_reason": row.get("advisor_reason"),
+        "status": row.get("status") or "filled",
+    }
+
+
+def _serialize_activity(row: dict) -> dict:
+    return {
+        "id": str(row["id"]),
+        "timestamp": _iso(row.get("created_at")),
+        "kind": row["kind"],
+        "title": row["title"],
+        "detail": row.get("detail"),
+        "symbol": row.get("symbol"),
+        "confidence": float(row["confidence"]) if row.get("confidence") is not None else None,
+    }
+
+
+def _serialize_chat(row: dict) -> dict:
+    tool_calls = row.get("tool_calls")
+    return {
+        "id": str(row["id"]),
+        "role": row["role"],
+        "content": row["content"],
+        "timestamp": _iso(row.get("created_at")),
+        "tool_calls": tool_calls if isinstance(tool_calls, list) else [],
+    }
+
+
+def _serialize_notification(row: dict) -> dict:
+    return {
+        "id": str(row["id"]),
+        "kind": row["kind"],
+        "title": row["title"],
+        "body": row.get("body") or "",
+        "symbol": row.get("symbol"),
+        "amount": float(row["amount"]) if row.get("amount") is not None else None,
+        "is_read": bool(row.get("is_read")),
+        "timestamp": _iso(row.get("created_at")),
+    }
+
+
+# ---------- Helpers ----------
+
+def _ensure_instance(license_key: str, conn) -> dict:
+    """Fetch the user's instance row, creating it if missing."""
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute("SELECT * FROM user_instance WHERE license_key=%s", (license_key,))
+        row = cur.fetchone()
+        if row:
+            return row
+        cur.execute(
+            "INSERT INTO user_instance(license_key) VALUES (%s) RETURNING *",
+            (license_key,),
+        )
+        row = cur.fetchone()
+        conn.commit()
+        return row
+
+
+def _get_advisor_status(license_key: str, conn=None) -> dict:
+    own_conn = conn is None
+    if own_conn:
+        ctx = _bg_db()
+        conn = ctx.__enter__()
+    try:
+        inst = _ensure_instance(license_key, conn)
+        # snake_case to match the iPhone Codable models.
+        return {
+            "is_running": bool(inst["is_running"]),
+            "mode": inst["advisor_mode"],
+            "current_task": inst.get("current_task"),
+            "active_strategy": inst.get("active_strategy"),
+            "health_score": float(inst["health_score"]) if inst.get("health_score") is not None else 1.0,
+            "decisions_today": int(inst.get("decisions_today") or 0),
+            "trades_today": int(inst.get("trades_today") or 0),
+            "last_decision_at": _iso(inst.get("last_decision_at")),
+        }
+    finally:
+        if own_conn:
+            ctx.__exit__(None, None, None)
+
+
+def _record_activity(license_key: str, conn, kind: str, title: str,
+                     detail: Optional[str], symbol: Optional[str],
+                     confidence: Optional[float]) -> None:
+    with conn.cursor() as cur:
+        cur.execute(
+            """INSERT INTO user_advisor_activity(license_key, kind, title, detail, symbol, confidence)
+               VALUES (%s, %s, %s, %s, %s, %s)""",
+            (license_key, kind, title, detail, symbol, confidence),
+        )
+        conn.commit()
+    _push_event(license_key, "advisor_activity", {
+        "id": "live",
+        "timestamp": _iso(datetime.now(timezone.utc)),
+        "kind": kind,
+        "title": title,
+        "detail": detail,
+        "symbol": symbol,
+        "confidence": confidence,
+    })
+
+
+def _compute_equity(license_key: str, conn) -> float:
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute("SELECT cash_gbp FROM user_instance WHERE license_key=%s", (license_key,))
+        inst = cur.fetchone()
+        cash = float(inst["cash_gbp"]) if inst else 0.0
+        cur.execute(
+            "SELECT COALESCE(SUM(quantity * current_price), 0) AS v FROM user_positions WHERE license_key=%s",
+            (license_key,),
+        )
+        positions_value = float(cur.fetchone()["v"])
+    return round(cash + positions_value, 2)
+
+
+def _build_portfolio_payload(license_key: str, conn=None) -> dict:
+    own_conn = conn is None
+    if own_conn:
+        ctx = _bg_db()
+        conn = ctx.__enter__()
+    try:
+        inst = _ensure_instance(license_key, conn)
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("SELECT * FROM user_positions WHERE license_key=%s", (license_key,))
+            positions = cur.fetchall()
+            cur.execute(
+                "SELECT equity, taken_at FROM user_equity_snapshots "
+                "WHERE license_key=%s ORDER BY taken_at ASC LIMIT 200",
+                (license_key,),
+            )
+            equity_rows = cur.fetchall()
+            cur.execute(
+                "SELECT COUNT(*) AS c FROM user_trades WHERE license_key=%s "
+                "AND executed_at >= NOW() - INTERVAL '7 days'",
+                (license_key,),
+            )
+            recent_trades = int(cur.fetchone()["c"] or 0)
+        cash = float(inst["cash_gbp"])
+        invested = sum(float(p["quantity"]) * float(p["current_price"]) for p in positions)
+        cost_basis = sum(float(p["quantity"]) * float(p["average_price"]) for p in positions)
+        total_pnl = invested - cost_basis
+        total_value = cash + invested
+        equity_history = [
+            {"timestamp": _iso(r["taken_at"]), "equity": float(r["equity"])}
+            for r in equity_rows
+        ]
+        total_pnl_pct = (total_pnl / cost_basis * 100.0) if cost_basis else 0.0
+        # snake_case keys to match the iPhone Portfolio Codable model.
+        return {
+            "total_value": round(total_value, 2),
+            "cash": round(cash, 2),
+            "invested": round(invested, 2),
+            "total_pnl": round(total_pnl, 2),
+            "total_pnl_percent": round(total_pnl_pct, 2),
+            "today_pnl": 0.0,
+            "today_pnl_percent": 0.0,
+            "buying_power": round(cash, 2),
+            "equity_history": [
+                {"timestamp": e["timestamp"], "equity": e["equity"]}
+                for e in equity_history
+            ],
+            "positions_count": len(positions),
+            "open_trades_count": recent_trades,
+        }
+    finally:
+        if own_conn:
+            ctx.__exit__(None, None, None)
+
+
+# ---------- Event push (sync → async bridge) ----------
+
+async def _broadcast(license_key: str, message: dict) -> None:
+    async with _ws_lock:
+        conns = list(_ws_connections.get(license_key, ()))
+    if not conns:
+        return
+    payload = json.dumps(message, default=str)
+    dead = []
+    for ws in conns:
+        try:
+            await ws.send_text(payload)
+        except Exception:
+            dead.append(ws)
+    if dead:
+        async with _ws_lock:
+            for ws in dead:
+                _ws_connections[license_key].discard(ws)
+
+
+def _push_event(license_key: str, event_type: str, data: dict) -> None:
+    """Schedule a WS broadcast from sync code. No-op if no event loop."""
+    loop = _get_loop()
+    if not loop:
+        return
+    msg = {"type": event_type, "data": data}
+    try:
+        if loop.is_running():
+            asyncio.run_coroutine_threadsafe(_broadcast(license_key, msg), loop)
+    except Exception:
+        pass
+
+
+# ---------- Instance management endpoints ----------
+
+@app.get("/api/me/instance")
+def mobile_get_instance(
+    auth: dict = Depends(require_auth),
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> dict:
+    inst = _ensure_instance(auth["sub"], conn)
+    return _serialize_instance(inst)
+
+
+@app.post("/api/me/instance/mode")
+def mobile_set_mode(
+    payload: dict = Body(...),
+    auth: dict = Depends(require_auth),
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> dict:
+    mode = (payload.get("mode") or "").strip().lower()
+    if mode not in ("paper", "live"):
+        raise HTTPException(400, "mode must be 'paper' or 'live'")
+    license_key = auth["sub"]
+    if mode == "live":
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1 FROM user_t212_keys WHERE license_key=%s", (license_key,))
+            if not cur.fetchone():
+                raise HTTPException(400, "Live mode requires a connected T212 API key")
+    _ensure_instance(license_key, conn)
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE user_instance SET mode=%s, updated_at=NOW() WHERE license_key=%s",
+            (mode, license_key),
+        )
+        conn.commit()
+    inst = _ensure_instance(license_key, conn)
+    _push_event(license_key, "instance_update", _serialize_instance(inst))
+    return _serialize_instance(inst)
+
+
+@app.post("/api/me/instance/start")
+def mobile_start_instance(
+    auth: dict = Depends(require_auth),
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> dict:
+    license_key = auth["sub"]
+    _ensure_instance(license_key, conn)
+    with conn.cursor() as cur:
+        cur.execute(
+            """UPDATE user_instance
+               SET is_running=TRUE, last_tick_at=NOW(), updated_at=NOW(),
+                   current_task='Starting up'
+               WHERE license_key=%s""",
+            (license_key,),
+        )
+        conn.commit()
+    _record_activity(license_key, conn, "decision", "Instance started", None, None, None)
+    inst = _ensure_instance(license_key, conn)
+    _push_event(license_key, "instance_update", _serialize_instance(inst))
+    _push_event(license_key, "advisor_status", _get_advisor_status(license_key, conn))
+    return _serialize_instance(inst)
+
+
+@app.post("/api/me/instance/stop")
+def mobile_stop_instance(
+    auth: dict = Depends(require_auth),
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> dict:
+    license_key = auth["sub"]
+    _ensure_instance(license_key, conn)
+    with conn.cursor() as cur:
+        cur.execute(
+            """UPDATE user_instance
+               SET is_running=FALSE, updated_at=NOW(), current_task=NULL
+               WHERE license_key=%s""",
+            (license_key,),
+        )
+        conn.commit()
+    _record_activity(license_key, conn, "decision", "Instance paused", None, None, None)
+    inst = _ensure_instance(license_key, conn)
+    _push_event(license_key, "instance_update", _serialize_instance(inst))
+    _push_event(license_key, "advisor_status", _get_advisor_status(license_key, conn))
+    return _serialize_instance(inst)
+
+
+@app.post("/api/me/instance/reset-paper")
+def mobile_reset_paper(
+    auth: dict = Depends(require_auth),
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> dict:
+    license_key = auth["sub"]
+    _ensure_instance(license_key, conn)
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM user_positions WHERE license_key=%s", (license_key,))
+        cur.execute("DELETE FROM user_trades WHERE license_key=%s", (license_key,))
+        cur.execute("DELETE FROM user_advisor_activity WHERE license_key=%s", (license_key,))
+        cur.execute("DELETE FROM user_equity_snapshots WHERE license_key=%s", (license_key,))
+        cur.execute(
+            """UPDATE user_instance
+               SET cash_gbp=100.00, decisions_today=0, trades_today=0,
+                   last_decision_at=NULL, current_task=NULL, updated_at=NOW()
+               WHERE license_key=%s""",
+            (license_key,),
+        )
+        conn.commit()
+    inst = _ensure_instance(license_key, conn)
+    _push_event(license_key, "instance_update", _serialize_instance(inst))
+    _push_event(license_key, "portfolio_update", _build_portfolio_payload(license_key, conn))
+    return _serialize_instance(inst)
+
+
+@app.post("/api/me/instance/onboarding-complete")
+def mobile_complete_onboarding(
+    auth: dict = Depends(require_auth),
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> dict:
+    license_key = auth["sub"]
+    _ensure_instance(license_key, conn)
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE user_instance SET onboarding_complete=TRUE, updated_at=NOW() WHERE license_key=%s",
+            (license_key,),
+        )
+        conn.commit()
+    return _serialize_instance(_ensure_instance(license_key, conn))
+
+
+# ---------- T212 key management ----------
+
+def _validate_t212_key(api_key: str, account_type: str) -> None:
+    base = "https://demo.trading212.com" if account_type == "demo" else "https://live.trading212.com"
+    try:
+        resp = requests.get(
+            f"{base}/api/v0/equity/account/cash",
+            headers={"Authorization": api_key},
+            timeout=10,
+        )
+    except requests.RequestException as exc:
+        raise RuntimeError(f"Could not reach T212: {exc}")
+    if resp.status_code == 401:
+        raise RuntimeError("Invalid T212 API key (401)")
+    if resp.status_code == 403:
+        raise RuntimeError("T212 key lacks required scopes (Account, Portfolio)")
+    if resp.status_code >= 400:
+        raise RuntimeError(f"T212 returned HTTP {resp.status_code}")
+
+
+@app.post("/api/me/t212-key")
+def mobile_set_t212_key(
+    payload: dict = Body(...),
+    auth: dict = Depends(require_auth),
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> dict:
+    api_key = (payload.get("apiKey") or "").strip()
+    account_type = (payload.get("accountType") or "live").strip().lower()
+    if not api_key or len(api_key) < 16:
+        raise HTTPException(400, "Invalid T212 API key")
+    if account_type not in ("live", "demo"):
+        raise HTTPException(400, "accountType must be 'live' or 'demo'")
+    encrypted = encrypt_secret(api_key)
+    license_key = auth["sub"]
+    with conn.cursor() as cur:
+        cur.execute(
+            """INSERT INTO user_t212_keys(license_key, encrypted_key, account_type)
+               VALUES (%s, %s, %s)
+               ON CONFLICT (license_key) DO UPDATE
+                 SET encrypted_key=EXCLUDED.encrypted_key,
+                     account_type=EXCLUDED.account_type,
+                     updated_at=NOW(),
+                     validated_at=NULL,
+                     last_error=NULL""",
+            (license_key, encrypted, account_type),
+        )
+        conn.commit()
+    try:
+        _validate_t212_key(api_key, account_type)
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE user_t212_keys SET validated_at=NOW(), last_error=NULL WHERE license_key=%s",
+                (license_key,),
+            )
+            conn.commit()
+        return {"hasKey": True, "connected": True, "accountType": account_type, "lastError": None}
+    except Exception as exc:
+        msg = str(exc)[:500]
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE user_t212_keys SET last_error=%s WHERE license_key=%s",
+                (msg, license_key),
+            )
+            conn.commit()
+        return {"hasKey": True, "connected": False, "accountType": account_type, "lastError": msg}
+
+
+@app.get("/api/me/t212-key/status")
+def mobile_t212_status(
+    auth: dict = Depends(require_auth),
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> dict:
+    license_key = auth["sub"]
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            "SELECT account_type, validated_at, last_error, updated_at FROM user_t212_keys WHERE license_key=%s",
+            (license_key,),
+        )
+        row = cur.fetchone()
+    if not row:
+        return {"hasKey": False, "connected": False}
+    return {
+        "hasKey": True,
+        "connected": row["validated_at"] is not None and not row["last_error"],
+        "accountType": row["account_type"],
+        "validatedAt": _iso(row["validated_at"]),
+        "lastError": row["last_error"],
+        "updatedAt": _iso(row["updated_at"]),
+    }
+
+
+@app.delete("/api/me/t212-key")
+def mobile_delete_t212_key(
+    auth: dict = Depends(require_auth),
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> dict:
+    license_key = auth["sub"]
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM user_t212_keys WHERE license_key=%s", (license_key,))
+        cur.execute(
+            "UPDATE user_instance SET mode='paper' WHERE license_key=%s AND mode='live'",
+            (license_key,),
+        )
+        conn.commit()
+    _push_event(license_key, "instance_update", _serialize_instance(_ensure_instance(license_key, conn)))
+    return {"hasKey": False, "connected": False}
+
+
+# ---------- Positions / Trades / Dashboard ----------
+
+@app.get("/api/me/positions")
+def mobile_positions(
+    auth: dict = Depends(require_auth),
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> dict:
+    license_key = auth["sub"]
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            "SELECT * FROM user_positions WHERE license_key=%s ORDER BY updated_at DESC",
+            (license_key,),
+        )
+        rows = cur.fetchall()
+    return {"positions": [_serialize_position(r) for r in rows]}
+
+
+@app.get("/api/me/positions/{pos_id}")
+def mobile_position_detail(
+    pos_id: int,
+    auth: dict = Depends(require_auth),
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> dict:
+    license_key = auth["sub"]
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            "SELECT * FROM user_positions WHERE id=%s AND license_key=%s",
+            (pos_id, license_key),
+        )
+        row = cur.fetchone()
+    if not row:
+        raise HTTPException(404, "Position not found")
+    return _serialize_position(row)
+
+
+@app.get("/api/me/trades")
+def mobile_trades(
+    limit: int = 100,
+    offset: int = 0,
+    side: Optional[str] = None,
+    source: Optional[str] = None,
+    auth: dict = Depends(require_auth),
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> dict:
+    license_key = auth["sub"]
+    where = ["license_key = %s"]
+    params: List[Any] = [license_key]
+    if side in ("buy", "sell"):
+        where.append("side = %s")
+        params.append(side)
+    if source in ("advisor", "manual"):
+        where.append("source = %s")
+        params.append(source)
+    sql = (
+        "SELECT * FROM user_trades WHERE "
+        + " AND ".join(where)
+        + " ORDER BY executed_at DESC LIMIT %s OFFSET %s"
+    )
+    params.extend([min(max(limit, 1), 500), max(offset, 0)])
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(sql, params)
+        rows = cur.fetchall()
+    return {"trades": [_serialize_trade(r) for r in rows]}
+
+
+@app.get("/api/me/portfolio")
+def mobile_portfolio(
+    auth: dict = Depends(require_auth),
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> dict:
+    license_key = auth["sub"]
+    _ensure_instance(license_key, conn)
+    return _build_portfolio_payload(license_key, conn)
+
+
+# ---------- Advisor + Chat ----------
+
+@app.get("/api/me/advisor/status")
+def mobile_advisor_status(
+    auth: dict = Depends(require_auth),
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> dict:
+    return _get_advisor_status(auth["sub"], conn)
+
+
+@app.get("/api/me/advisor/activity")
+def mobile_advisor_activity(
+    limit: int = 50,
+    auth: dict = Depends(require_auth),
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> dict:
+    license_key = auth["sub"]
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            """SELECT * FROM user_advisor_activity
+               WHERE license_key=%s
+               ORDER BY created_at DESC LIMIT %s""",
+            (license_key, min(max(limit, 1), 200)),
+        )
+        rows = cur.fetchall()
+    return {"activity": [_serialize_activity(r) for r in rows]}
+
+
+@app.post("/api/me/advisor/start")
+def mobile_advisor_start(
+    payload: dict = Body(default={}),
+    auth: dict = Depends(require_auth),
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> dict:
+    mode = (payload.get("mode") or "balanced").strip().lower()
+    if mode not in ("conservative", "balanced", "aggressive", "custom"):
+        raise HTTPException(400, "Invalid advisor mode")
+    license_key = auth["sub"]
+    _ensure_instance(license_key, conn)
+    with conn.cursor() as cur:
+        cur.execute(
+            """UPDATE user_instance
+               SET is_running=TRUE, advisor_mode=%s, updated_at=NOW(), last_tick_at=NOW(),
+                   current_task='Scanning markets'
+               WHERE license_key=%s""",
+            (mode, license_key),
+        )
+        conn.commit()
+    _record_activity(license_key, conn, "decision", f"Advisor started ({mode})", None, None, None)
+    status = _get_advisor_status(license_key, conn)
+    _push_event(license_key, "advisor_status", status)
+    _push_event(license_key, "instance_update", _serialize_instance(_ensure_instance(license_key, conn)))
+    return status
+
+
+@app.post("/api/me/advisor/stop")
+def mobile_advisor_stop(
+    auth: dict = Depends(require_auth),
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> dict:
+    license_key = auth["sub"]
+    _ensure_instance(license_key, conn)
+    with conn.cursor() as cur:
+        cur.execute(
+            """UPDATE user_instance
+               SET is_running=FALSE, updated_at=NOW(), current_task=NULL
+               WHERE license_key=%s""",
+            (license_key,),
+        )
+        conn.commit()
+    _record_activity(license_key, conn, "decision", "Advisor paused", None, None, None)
+    status = _get_advisor_status(license_key, conn)
+    _push_event(license_key, "advisor_status", status)
+    _push_event(license_key, "instance_update", _serialize_instance(_ensure_instance(license_key, conn)))
+    return status
+
+
+@app.get("/api/me/chat/history")
+def mobile_chat_history(
+    limit: int = 100,
+    auth: dict = Depends(require_auth),
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> dict:
+    license_key = auth["sub"]
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            """SELECT * FROM user_chat_messages
+               WHERE license_key=%s
+               ORDER BY created_at ASC
+               LIMIT %s""",
+            (license_key, min(max(limit, 1), 500)),
+        )
+        rows = cur.fetchall()
+    return {"messages": [_serialize_chat(r) for r in rows]}
+
+
+def _generate_advisor_reply(license_key: str, user_content: str, conn) -> str:
+    """Lightweight context-aware reply.
+
+    The full LLM-backed advisor lives in the desktop blank app (out of
+    scope for the mobile MVP). This stub keeps the chat pipeline real
+    so the iPhone app can send/receive without a desktop running, and
+    surfaces enough live state to feel useful.
+    """
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            "SELECT mode, is_running, advisor_mode, cash_gbp, trades_today, decisions_today "
+            "FROM user_instance WHERE license_key=%s",
+            (license_key,),
+        )
+        inst = cur.fetchone() or {}
+        cur.execute(
+            "SELECT COUNT(*) AS c FROM user_positions WHERE license_key=%s",
+            (license_key,),
+        )
+        pos_count = int(cur.fetchone()["c"] or 0)
+    if not inst:
+        return (
+            "Your trading instance isn't initialised yet. Open Settings → Instance "
+            "and tap Start to bring me online."
+        )
+    state = "running" if inst.get("is_running") else "paused"
+    mode = inst.get("mode", "paper")
+    cash = float(inst.get("cash_gbp") or 0)
+    trades_today = int(inst.get("trades_today") or 0)
+    decisions = int(inst.get("decisions_today") or 0)
+    return (
+        f"You're in {mode} mode, advisor is {state}. "
+        f"Cash £{cash:,.2f} across {pos_count} position{'s' if pos_count != 1 else ''}. "
+        f"Today: {decisions} decisions, {trades_today} trades. "
+        f"You said: “{user_content[:160]}”. "
+        f"The full advisor brain runs from your desktop blank session — open it to chat with the live agent."
+    )
+
+
+@app.post("/api/me/chat")
+def mobile_chat_send(
+    payload: dict = Body(...),
+    auth: dict = Depends(require_auth),
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> dict:
+    content = (payload.get("content") or payload.get("message") or "").strip()
+    if not content:
+        raise HTTPException(400, "content required")
+    license_key = auth["sub"]
+    _ensure_instance(license_key, conn)
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            """INSERT INTO user_chat_messages(license_key, role, content)
+               VALUES (%s, 'user', %s) RETURNING *""",
+            (license_key, content),
+        )
+        user_msg = cur.fetchone()
+        reply_text = _generate_advisor_reply(license_key, content, conn)
+        cur.execute(
+            """INSERT INTO user_chat_messages(license_key, role, content)
+               VALUES (%s, 'advisor', %s) RETURNING *""",
+            (license_key, reply_text),
+        )
+        advisor_msg = cur.fetchone()
+        conn.commit()
+    advisor_payload = _serialize_chat(advisor_msg)
+    _push_event(license_key, "chat_message", advisor_payload)
+    return {
+        "userMessage": _serialize_chat(user_msg),
+        "advisorMessage": advisor_payload,
+    }
+
+
+# ---------- Notifications ----------
+
+@app.get("/api/me/notifications")
+def mobile_list_notifications(
+    limit: int = 100,
+    auth: dict = Depends(require_auth),
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> dict:
+    license_key = auth["sub"]
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            """SELECT * FROM user_notifications
+               WHERE license_key=%s ORDER BY created_at DESC LIMIT %s""",
+            (license_key, min(max(limit, 1), 200)),
+        )
+        rows = cur.fetchall()
+    return {"notifications": [_serialize_notification(r) for r in rows]}
+
+
+@app.post("/api/me/notifications/{notif_id}/read")
+def mobile_mark_notification_read(
+    notif_id: int,
+    auth: dict = Depends(require_auth),
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> dict:
+    license_key = auth["sub"]
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE user_notifications SET is_read=TRUE WHERE id=%s AND license_key=%s",
+            (notif_id, license_key),
+        )
+        conn.commit()
+    return {"ok": True}
+
+
+@app.post("/api/me/notifications/read-all")
+def mobile_mark_all_notifications_read(
+    auth: dict = Depends(require_auth),
+    conn: psycopg2.extensions.connection = Depends(db_dependency),
+) -> dict:
+    license_key = auth["sub"]
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE user_notifications SET is_read=TRUE WHERE license_key=%s AND is_read=FALSE",
+            (license_key,),
+        )
+        conn.commit()
+    return {"ok": True}
+
+
+# ---------- WebSocket ----------
+
+@app.websocket("/api/ws")
+async def mobile_ws_endpoint(websocket: "WebSocket", token: str = ""):  # type: ignore[name-defined]
+    try:
+        claims = _decode_jwt(token)
+    except Exception:
+        await websocket.close(code=4401)
+        return
+    license_key = claims["sub"]
+    await websocket.accept()
+    async with _ws_lock:
+        _ws_connections[license_key].add(websocket)
+    try:
+        # Send hello + initial snapshots so the client can render immediately.
+        await websocket.send_text(json.dumps({"type": "hello", "data": {"licenseKey": license_key}}))
+        try:
+            with _bg_db() as conn:
+                inst = _ensure_instance(license_key, conn)
+                await websocket.send_text(json.dumps({
+                    "type": "instance_update",
+                    "data": _serialize_instance(inst),
+                }, default=str))
+                await websocket.send_text(json.dumps({
+                    "type": "advisor_status",
+                    "data": _get_advisor_status(license_key, conn),
+                }, default=str))
+                await websocket.send_text(json.dumps({
+                    "type": "portfolio_update",
+                    "data": _build_portfolio_payload(license_key, conn),
+                }, default=str))
+        except Exception:
+            logging.exception("ws initial snapshot failed for %s", license_key)
+        while True:
+            msg = await websocket.receive_text()
+            try:
+                parsed = json.loads(msg)
+                if parsed.get("type") == "ping":
+                    await websocket.send_text(json.dumps({"type": "pong"}))
+            except Exception:
+                pass
+    except WebSocketDisconnect:
+        pass
+    except Exception:
+        logging.exception("ws error for %s", license_key)
+    finally:
+        async with _ws_lock:
+            _ws_connections[license_key].discard(websocket)
+
+
+# ---------- Paper-mode advisor loop ----------
+# A simple background ticker that, for every running paper instance,
+# drifts current prices, occasionally executes a trade, snapshots
+# equity, and broadcasts updates. This is intentionally lightweight —
+# the real LLM-driven advisor runs in the desktop blank app.
+
+import random  # noqa: E402
+
+_ADVISOR_TICK_INTERVAL_SEC = 25
+_ADVISOR_SYMBOLS = [
+    ("AAPL", "Apple"),
+    ("MSFT", "Microsoft"),
+    ("NVDA", "NVIDIA"),
+    ("TSLA", "Tesla"),
+    ("GOOGL", "Alphabet"),
+    ("META", "Meta Platforms"),
+    ("AMD", "AMD"),
+    ("BP", "BP"),
+    ("SHEL", "Shell"),
+    ("VOD", "Vodafone"),
+]
+_ADVISOR_TASKS = [
+    "Scanning S&P 500",
+    "Reading market news",
+    "Checking sentiment feeds",
+    "Re-pricing positions",
+    "Evaluating risk",
+    "Rebalancing allocations",
+]
+
+
+def _maybe_paper_trade(license_key: str, inst: dict, conn) -> bool:
+    sym, name = random.choice(_ADVISOR_SYMBOLS)
+    price = round(random.uniform(40, 480), 2)
+    qty = round(random.uniform(0.05, 1.5), 4)
+    side = random.choice(["buy", "sell"])
+    total = round(price * qty, 2)
+    cash = float(inst["cash_gbp"])
+    advisor_mode = inst.get("advisor_mode", "balanced")
+    reason_templates = {
+        "conservative": f"{sym} momentum within risk band",
+        "balanced": f"{sym} signal cluster ({side}-side)",
+        "aggressive": f"High-conviction {side} on {sym}",
+        "custom": f"Custom rule triggered on {sym}",
+    }
+    reason = reason_templates.get(advisor_mode, f"Auto {side} on {sym}")
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        if side == "buy":
+            if total > cash:
+                return False
+            cur.execute(
+                "UPDATE user_instance SET cash_gbp = cash_gbp - %s, trades_today = trades_today + 1 "
+                "WHERE license_key=%s",
+                (total, license_key),
+            )
+            cur.execute(
+                """INSERT INTO user_positions(license_key, symbol, name, quantity, average_price, current_price)
+                   VALUES (%s, %s, %s, %s, %s, %s)
+                   ON CONFLICT(license_key, symbol) DO UPDATE
+                     SET quantity = user_positions.quantity + EXCLUDED.quantity,
+                         average_price = (
+                           (user_positions.quantity * user_positions.average_price
+                            + EXCLUDED.quantity * EXCLUDED.average_price)
+                           / NULLIF(user_positions.quantity + EXCLUDED.quantity, 0)),
+                         current_price = EXCLUDED.current_price,
+                         updated_at = NOW()""",
+                (license_key, sym, name, qty, price, price),
+            )
+        else:  # sell
+            cur.execute(
+                "SELECT id, quantity, average_price FROM user_positions "
+                "WHERE license_key=%s AND symbol=%s",
+                (license_key, sym),
+            )
+            existing = cur.fetchone()
+            if not existing or float(existing["quantity"]) < qty:
+                return False
+            realized = round((price - float(existing["average_price"])) * qty, 2)
+            cur.execute(
+                "UPDATE user_instance SET cash_gbp = cash_gbp + %s, trades_today = trades_today + 1 "
+                "WHERE license_key=%s",
+                (total, license_key),
+            )
+            cur.execute(
+                "UPDATE user_positions SET quantity = quantity - %s, updated_at=NOW() "
+                "WHERE id=%s",
+                (qty, existing["id"]),
+            )
+            cur.execute(
+                "DELETE FROM user_positions WHERE id=%s AND quantity <= 0.000001",
+                (existing["id"],),
+            )
+        cur.execute(
+            """INSERT INTO user_trades(license_key, symbol, side, quantity, price, total_value, fee, source, advisor_reason, realized_pnl)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, 'advisor', %s, %s)""",
+            (license_key, sym, side, qty, price, total, 0.0, reason,
+             realized if side == "sell" else None),
+        )
+        cur.execute(
+            """INSERT INTO user_notifications(license_key, kind, title, body, symbol, amount)
+               VALUES (%s, 'trade_executed', %s, %s, %s, %s) RETURNING *""",
+            (license_key, f"{side.title()} {sym}",
+             f"{qty} @ £{price:.2f} (paper)", sym, total),
+        )
+        notif_row = cur.fetchone()
+        conn.commit()
+    _record_activity(license_key, conn, "trade", f"{side.title()} {sym}",
+                     f"{qty} @ £{price:.2f} = £{total:.2f}", sym, 0.78)
+    if notif_row:
+        _push_event(license_key, "notification", _serialize_notification(notif_row))
+    return True
+
+
+async def _tick_one(inst: dict) -> None:
+    license_key = inst["license_key"]
+    if inst["mode"] != "paper":
+        # Live mode would query T212 here; out of scope for this MVP.
+        return
+    with _bg_db() as conn:
+        # 1. Drift existing positions a touch so P&L feels alive.
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                "SELECT id, current_price FROM user_positions WHERE license_key=%s",
+                (license_key,),
+            )
+            positions = cur.fetchall()
+            for p in positions:
+                drift = random.uniform(-0.008, 0.009)
+                new_price = max(0.01, float(p["current_price"]) * (1 + drift))
+                cur.execute(
+                    "UPDATE user_positions SET current_price=%s, updated_at=NOW() WHERE id=%s",
+                    (round(new_price, 4), p["id"]),
+                )
+            conn.commit()
+        # 2. Record a scan/analysis activity.
+        task = random.choice(_ADVISOR_TASKS)
+        with conn.cursor() as cur:
+            cur.execute(
+                """UPDATE user_instance
+                   SET decisions_today = decisions_today + 1,
+                       last_decision_at = NOW(),
+                       last_tick_at = NOW(),
+                       current_task = %s
+                   WHERE license_key=%s""",
+                (task, license_key),
+            )
+            conn.commit()
+        kind = random.choice(["scan", "analysis", "decision"])
+        _record_activity(
+            license_key, conn,
+            kind,
+            task,
+            f"Scanned {len(_ADVISOR_SYMBOLS)} symbols" if kind == "scan" else None,
+            None,
+            round(random.uniform(0.55, 0.92), 3) if kind != "scan" else None,
+        )
+        # 3. Occasionally trade.
+        traded = False
+        if random.random() < 0.3:
+            traded = _maybe_paper_trade(license_key, inst, conn)
+        # 4. Snapshot equity.
+        equity = _compute_equity(license_key, conn)
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO user_equity_snapshots(license_key, equity) VALUES (%s, %s)",
+                (license_key, equity),
+            )
+            # cap snapshots to last 500 per user
+            cur.execute(
+                """DELETE FROM user_equity_snapshots
+                   WHERE license_key=%s
+                     AND id NOT IN (
+                       SELECT id FROM user_equity_snapshots
+                       WHERE license_key=%s
+                       ORDER BY taken_at DESC LIMIT 500)""",
+                (license_key, license_key),
+            )
+            conn.commit()
+        # 5. Broadcast updates.
+        await _broadcast(license_key, {
+            "type": "portfolio_update",
+            "data": _build_portfolio_payload(license_key, conn),
+        })
+        await _broadcast(license_key, {
+            "type": "advisor_status",
+            "data": _get_advisor_status(license_key, conn),
+        })
+        await _broadcast(license_key, {
+            "type": "instance_update",
+            "data": _serialize_instance(_ensure_instance(license_key, conn)),
+        })
+
+
+async def _advisor_loop() -> None:
+    await asyncio.sleep(5)
+    while True:
+        try:
+            with _bg_db() as conn:
+                with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                    cur.execute("SELECT * FROM user_instance WHERE is_running=TRUE")
+                    rows = cur.fetchall()
+            for inst in rows:
+                try:
+                    await _tick_one(inst)
+                except Exception:
+                    logging.exception("tick failed for %s", inst.get("license_key"))
+        except Exception:
+            logging.exception("advisor loop iteration failed")
+        await asyncio.sleep(_ADVISOR_TICK_INTERVAL_SEC)
+
+
+@app.on_event("startup")
+async def _start_mobile_background_tasks() -> None:
+    global _event_loop
+    _event_loop = asyncio.get_running_loop()
+    asyncio.create_task(_advisor_loop())
 
 
 # ── Run ──────────────────────────────────────────────────────────────────
