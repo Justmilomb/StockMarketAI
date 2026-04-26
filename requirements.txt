@@ -23,3 +23,4 @@ PyJWT>=2.8.0
 # boots — see `_stripe_enabled` and `_twilio_enabled` in server/app.py.
 stripe>=7.0.0
 twilio>=8.0.0
+cryptography>=42.0.0
