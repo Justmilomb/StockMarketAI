@@ -189,12 +189,32 @@ def _yf_interval_period(interval: str, lookback_minutes: int) -> tuple[str, str]
 
 # ── tools ──────────────────────────────────────────────────────────────
 
+#: Fallback divergence threshold when config omits ``paper_broker``. 5% matches
+#: ``PaperBrokerConfig.divergence_warn_threshold`` and is wide enough for
+#: normal intraday noise but tight enough to catch the BARC-class disasters.
+_DEFAULT_DIVERGENCE_WARN = 0.05
+
+
+def _divergence_threshold() -> float:
+    """Pull the paper_broker divergence-warn threshold out of the live config."""
+    try:
+        cfg = get_agent_context().config or {}
+    except Exception:
+        return _DEFAULT_DIVERGENCE_WARN
+    paper = cfg.get("paper_broker") or {}
+    try:
+        return float(paper.get("divergence_warn_threshold", _DEFAULT_DIVERGENCE_WARN))
+    except (TypeError, ValueError):
+        return _DEFAULT_DIVERGENCE_WARN
+
+
 @tool(
     "get_live_price",
     "Return the latest known price for a ticker. If we already hold it, "
-    "uses the broker's currentPrice (truly live). Otherwise uses yfinance "
-    "(delayed 15-20 min). The response includes the source so you can "
-    "reason about staleness.",
+    "uses the broker's currentPrice (truly live) AND does a fresh yfinance "
+    "fetch — the response will include fresh_price + divergence_pct, and a "
+    "loud warning if the two disagree beyond the configured threshold. "
+    "Otherwise uses yfinance only (delayed 15-20 min).",
     {"ticker": str},
 )
 async def get_live_price(args: Dict[str, Any]) -> Dict[str, Any]:
@@ -204,12 +224,43 @@ async def get_live_price(args: Dict[str, Any]) -> Dict[str, Any]:
 
     sources_tried: List[str] = []
 
-    px = _held_current_price(ticker)
-    if px is not None:
-        return _text_result({
-            "ticker": ticker, "price": px, "source": "broker_live",
+    held_px = _held_current_price(ticker)
+    if held_px is not None:
+        payload: Dict[str, Any] = {
+            "ticker": ticker,
+            "price": held_px,
+            "source": "broker_live",
             "ts": datetime.utcnow().isoformat() + "Z",
-        })
+        }
+        # Defense-in-depth: fetch fresh yfinance and compare against the
+        # broker-cached price. The BARC post-mortem showed the portfolio
+        # panel at 443.8 while yfinance was serving 132.1 — the agent
+        # had no programmatic way to see the disagreement. This fixes it.
+        try:
+            from data_loader import fetch_live_prices
+            fresh = fetch_live_prices([ticker]).get(ticker, {}) or {}
+            fresh_px = float(fresh.get("price", 0.0) or 0.0)
+            # If Layer 1 already rejected the tick, we still want the
+            # agent to see what yfinance *tried* to serve.
+            if fresh.get("anomaly") and not fresh_px:
+                fresh_px = float(fresh.get("rejected_price", 0.0) or 0.0)
+                payload["fresh_anomaly"] = True
+            if fresh_px > 0:
+                payload["fresh_price"] = fresh_px
+                payload["fresh_source"] = "yfinance"
+                divergence_pct = (fresh_px - held_px) / held_px * 100.0
+                payload["divergence_pct"] = round(divergence_pct, 2)
+                threshold = _divergence_threshold()
+                if abs(fresh_px - held_px) / held_px > threshold:
+                    payload["warning"] = (
+                        "LARGE DIVERGENCE between broker and yfinance — "
+                        "do not trade until the source of truth is clear"
+                    )
+        except Exception:
+            # Fresh fetch is advisory; never fail the primary response
+            # just because yfinance is temporarily unreachable.
+            pass
+        return _text_result(payload)
 
     # Fallback chain: yfinance → Yahoo v8 chart → Stooq. We only move to
     # the next source when the previous one returns a zero/no-data

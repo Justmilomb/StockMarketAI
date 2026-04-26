@@ -73,6 +73,14 @@ _GAP_BUFFER = 1.15
 # $100k toy account — paper mode in blank is a £100 sandbox by design.
 _DEFAULT_STARTING_CASH = 100.0
 
+# Maximum fraction the live price may diverge from a position's entry
+# before the broker refuses to fill a SELL. Prevents a single bad
+# yfinance tick (2026-04-20 BARC: entry 444p, bad tick 132p) from
+# turning into a catastrophic realised loss. 15% is wide enough to
+# absorb genuine adverse moves on news without blocking legitimate
+# stop-outs, but tight enough to catch obvious data glitches.
+_DEFAULT_FILL_SANITY_THRESHOLD = 0.15
+
 # Background monitor cadence. A stop-loss that waits 5–15 minutes for
 # the agent to iterate is useless in a flash crash — we poll every
 # second so stops/limits fire independently of the agent loop.
@@ -360,6 +368,7 @@ class PaperBroker(Broker):
         audit_path: Optional[Path] = None,
         starting_cash: float = _DEFAULT_STARTING_CASH,
         currency: str = "USD",
+        fill_sanity_threshold: float = _DEFAULT_FILL_SANITY_THRESHOLD,
     ) -> None:
         self._state_path = Path(state_path or Path("data") / "paper_state.json")
         self._audit_path = Path(audit_path or Path("logs") / "paper_orders.jsonl")
@@ -371,6 +380,7 @@ class PaperBroker(Broker):
         # without re-reading config.json.
         self._starting_cash = float(starting_cash)
         self._currency = str(currency or "USD")
+        self._fill_sanity_threshold = max(0.0, float(fill_sanity_threshold))
         self._state: _State = self._load_state(self._starting_cash, self._currency)
 
         # Background 1 s monitor — runs forever as a daemon so stops
@@ -1124,6 +1134,29 @@ class PaperBroker(Broker):
                             order_id, ticker, side_upper, quantity,
                             "no live price", order_type, limit_price,
                         )
+                    # Price-sanity guard: a held position has an explicit
+                    # reference (its entry). A single live tick that
+                    # diverges more than ``fill_sanity_threshold`` from
+                    # that entry is overwhelmingly likely to be bad data
+                    # (the 2026-04-20 BARC incident: entry 444, tick 132
+                    # → -70% "move" that never happened on the tape).
+                    # Refuse to fill; the agent retries next tick with
+                    # fresh data, or halts trading for the session.
+                    pos = self._state.positions.get(ticker)
+                    if pos is not None and pos.avg_price > 0 and self._fill_sanity_threshold > 0:
+                        gap = abs(live_px - pos.avg_price) / pos.avg_price
+                        if gap > self._fill_sanity_threshold:
+                            reason = (
+                                f"price-sanity halt: live {live_px:.4f} vs "
+                                f"entry {pos.avg_price:.4f} "
+                                f"({gap * 100:.1f}% gap, threshold "
+                                f"{self._fill_sanity_threshold * 100:.1f}%) "
+                                f"— data likely bad, retry next tick"
+                            )
+                            return self._reject(
+                                order_id, ticker, side_upper, quantity,
+                                reason, order_type, limit_price,
+                            )
                     if order_type == "limit" and limit_price and live_px < float(limit_price):
                         # queue the limit sell until price hits the limit
                         return self._enqueue_order(
